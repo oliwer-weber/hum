@@ -6,6 +6,9 @@ use std::process::Command;
 mod hum;
 mod inbox;
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
 fn vault_path() -> PathBuf {
     if cfg!(target_os = "windows") {
         PathBuf::from(r"C:\Users\oliwer.weber\Documents\Oliwers Remote Vault")
@@ -301,6 +304,208 @@ fn process_inbox() -> Result<inbox::ProcessResult, String> {
     inbox::process(None)
 }
 
+/* ── Plan (Time Canvas) commands ──────────────────── */
+
+#[derive(serde::Serialize, Clone)]
+struct TodoItem {
+    id: String,
+    text: String,
+    project_name: String,
+    project_path: String,
+    color_index: usize,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct FocusBlock {
+    title: String,
+    date: String,
+    start_time: String,
+    end_time: String,
+    project_name: String,
+    color_index: usize,
+}
+
+fn hash_string(s: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    s.hash(&mut hasher);
+    hasher.finish()
+}
+
+#[tauri::command]
+fn get_all_open_todos() -> Result<Vec<TodoItem>, String> {
+    let vault = vault_path();
+    let config_path = vault.join("claude-config.md");
+    let config = fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read claude-config.md: {}", e))?;
+
+    let mut todos = Vec::new();
+
+    for line in config.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("- 01 projects/") {
+            continue;
+        }
+        let rel_path = trimmed.trim_start_matches("- ").to_string();
+        let project_name = rel_path
+            .trim_end_matches('/')
+            .rsplit('/')
+            .next()
+            .unwrap_or(&rel_path)
+            .to_string();
+        let color_index = (hash_string(&project_name) % 7) as usize;
+
+        let todos_path = vault.join(&rel_path).join("todos.md");
+        let content = match fs::read_to_string(&todos_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        for todo_line in content.lines() {
+            let t = todo_line.trim();
+            if t.starts_with("- [ ] ") {
+                let text = t.trim_start_matches("- [ ] ").to_string();
+                let id_source = format!("{}:{}", rel_path, text);
+                let id = format!("{:x}", hash_string(&id_source));
+                todos.push(TodoItem {
+                    id,
+                    text,
+                    project_name: project_name.clone(),
+                    project_path: rel_path.clone(),
+                    color_index,
+                });
+            }
+        }
+    }
+
+    Ok(todos)
+}
+
+#[tauri::command]
+fn get_focus_blocks() -> Result<Vec<FocusBlock>, String> {
+    let path = vault_path().join("00 Home").join("focus-blocks.md");
+    let content = match fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return Ok(Vec::new()),
+    };
+
+    let mut blocks = Vec::new();
+    let lines: Vec<&str> = content.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i].trim();
+        // Match: ## YYYY-MM-DD HH:MM-HH:MM
+        if line.starts_with("## ") {
+            let header = line.trim_start_matches("## ");
+            // Parse "YYYY-MM-DD HH:MM-HH:MM"
+            let parts: Vec<&str> = header.splitn(2, ' ').collect();
+            if parts.len() == 2 {
+                let date = parts[0].to_string();
+                let time_parts: Vec<&str> = parts[1].splitn(2, '-').collect();
+                if time_parts.len() == 2 {
+                    let start_time = time_parts[0].to_string();
+                    let end_time = time_parts[1].to_string();
+
+                    // Next line: **ProjectName** — Todo text
+                    if i + 1 < lines.len() {
+                        let body = lines[i + 1].trim();
+                        // Parse **ProjectName** — text
+                        if body.starts_with("**") {
+                            if let Some(end_bold) = body[2..].find("**") {
+                                let project_name = body[2..2 + end_bold].to_string();
+                                let rest = &body[2 + end_bold + 2..];
+                                let title = rest
+                                    .trim_start_matches(" — ")
+                                    .trim_start_matches(" - ")
+                                    .trim()
+                                    .to_string();
+                                let color_index =
+                                    (hash_string(&project_name) % 7) as usize;
+                                blocks.push(FocusBlock {
+                                    title,
+                                    date,
+                                    start_time,
+                                    end_time,
+                                    project_name,
+                                    color_index,
+                                });
+                            }
+                        }
+                        i += 2;
+                        continue;
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+
+    Ok(blocks)
+}
+
+#[tauri::command]
+fn create_focus_block(
+    title: String,
+    date: String,
+    start_time: String,
+    end_time: String,
+    project_name: String,
+    color_index: usize,
+) -> Result<(), String> {
+    let _ = color_index; // stored in format implicitly via project_name
+    let path = vault_path().join("00 Home").join("focus-blocks.md");
+    let existing = fs::read_to_string(&path).unwrap_or_default();
+
+    let entry = format!(
+        "\n## {} {}-{}\n**{}** — {}\n",
+        date, start_time, end_time, project_name, title
+    );
+
+    let new_content = if existing.is_empty() {
+        entry.trim_start().to_string() + "\n"
+    } else {
+        format!("{}{}", existing.trim_end(), entry)
+    };
+
+    fs::write(&path, new_content).map_err(|e| format!("Failed to write focus-blocks.md: {}", e))
+}
+
+#[tauri::command]
+fn delete_focus_block(
+    title: String,
+    date: String,
+    start_time: String,
+    end_time: String,
+) -> Result<(), String> {
+    let path = vault_path().join("00 Home").join("focus-blocks.md");
+    let content = fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read focus-blocks.md: {}", e))?;
+
+    let header_match = format!("## {} {}-{}", date, start_time, end_time);
+    let lines: Vec<&str> = content.lines().collect();
+    let mut result_lines: Vec<&str> = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        if lines[i].trim() == header_match {
+            // Check next line contains the title
+            if i + 1 < lines.len() && lines[i + 1].contains(&title) {
+                // Skip both lines
+                i += 2;
+                // Also skip any trailing blank line
+                if i < lines.len() && lines[i].trim().is_empty() {
+                    i += 1;
+                }
+                continue;
+            }
+        }
+        result_lines.push(lines[i]);
+        i += 1;
+    }
+
+    let new_content = result_lines.join("\n");
+    fs::write(&path, new_content.trim_end().to_string() + "\n")
+        .map_err(|e| format!("Failed to write focus-blocks.md: {}", e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Load .env from the project root (one level up from src-tauri)
@@ -345,6 +550,10 @@ pub fn run() {
             vault_write_file,
             hum::hum_send,
             process_inbox,
+            get_all_open_todos,
+            get_focus_blocks,
+            create_focus_block,
+            delete_focus_block,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
