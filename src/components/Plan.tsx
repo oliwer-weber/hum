@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   DndContext,
@@ -238,18 +238,81 @@ function TimeSlot({
 
 /* ── Focus Block Rendered ───────────────────────────── */
 
+function minutesToTime(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
 function FocusBlockCard({
   block,
   onDelete,
+  onResize,
 }: {
   block: FocusBlock;
   onDelete: () => void;
+  onResize: (newEndTime: string) => void;
 }) {
   const top = timeToSlotY(block.start_time);
-  const height =
+  const baseHeight =
     ((timeToMinutes(block.end_time) - timeToMinutes(block.start_time)) / 30) *
     SLOT_HEIGHT;
   const colorRaw = PROJECT_COLORS_RAW[block.color_index] || [142, 192, 124];
+  const [resizeHeight, setResizeHeight] = useState<number | null>(null);
+  const resizing = useRef(false);
+  const startY = useRef(0);
+  const startHeight = useRef(0);
+
+  const displayHeight = resizeHeight ?? baseHeight;
+  const displayEndMinutes =
+    timeToMinutes(block.start_time) + (displayHeight / SLOT_HEIGHT) * 30;
+  const displayEnd = minutesToTime(
+    Math.min(displayEndMinutes, HOUR_END * 60)
+  );
+
+  const handleResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      resizing.current = true;
+      startY.current = e.clientY;
+      startHeight.current = resizeHeight ?? baseHeight;
+
+      const onMove = (ev: MouseEvent) => {
+        if (!resizing.current) return;
+        const dy = ev.clientY - startY.current;
+        const raw = startHeight.current + dy;
+        // Snap to 15min increments (SLOT_HEIGHT = 24px per 30min, so 12px = 15min)
+        const snapPx = SLOT_HEIGHT / 2; // 12px = 15min
+        const snapped = Math.max(snapPx, Math.round(raw / snapPx) * snapPx);
+        // Don't exceed end of day
+        const maxHeight =
+          ((HOUR_END * 60 - timeToMinutes(block.start_time)) / 30) *
+          SLOT_HEIGHT;
+        setResizeHeight(Math.min(snapped, maxHeight));
+      };
+
+      const onUp = () => {
+        resizing.current = false;
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        // Commit the new end time
+        const finalHeight = resizeHeight ?? baseHeight;
+        const newEndMinutes =
+          timeToMinutes(block.start_time) + (finalHeight / SLOT_HEIGHT) * 30;
+        const clamped = Math.min(newEndMinutes, HOUR_END * 60);
+        const newEnd = minutesToTime(clamped);
+        if (newEnd !== block.end_time) {
+          onResize(newEnd);
+        }
+        setResizeHeight(null);
+      };
+
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    },
+    [baseHeight, resizeHeight, block.start_time, block.end_time, onResize]
+  );
 
   return (
     <AnimatePresence>
@@ -261,12 +324,17 @@ function FocusBlockCard({
         transition={{ duration: 0.2 }}
         style={{
           top: `${top}px`,
-          height: `${height}px`,
+          height: `${displayHeight}px`,
           backgroundColor: `rgba(${colorRaw[0]}, ${colorRaw[1]}, ${colorRaw[2]}, 0.8)`,
           borderLeftColor: `rgb(${colorRaw[0]}, ${colorRaw[1]}, ${colorRaw[2]})`,
         }}
       >
         <span className="plan-block-title">{block.title}</span>
+        {resizeHeight !== null && (
+          <span className="plan-block-duration">
+            {block.start_time}–{displayEnd}
+          </span>
+        )}
         <button
           className="plan-block-delete"
           onClick={(e) => {
@@ -277,6 +345,10 @@ function FocusBlockCard({
         >
           &#x2715;
         </button>
+        <div
+          className="plan-block-resize-handle"
+          onMouseDown={handleResizeStart}
+        />
       </motion.div>
     </AnimatePresence>
   );
@@ -456,6 +528,41 @@ export default function Plan({ refreshKey }: { refreshKey: number }) {
     []
   );
 
+  const handleResizeBlock = useCallback(
+    async (block: FocusBlock, newEndTime: string) => {
+      try {
+        // Delete old block and create with new end time
+        await invoke("delete_focus_block", {
+          title: block.title,
+          date: block.date,
+          startTime: block.start_time,
+          endTime: block.end_time,
+        });
+        await invoke("create_focus_block", {
+          title: block.title,
+          date: block.date,
+          startTime: block.start_time,
+          endTime: newEndTime,
+          projectName: block.project_name,
+          colorIndex: block.color_index,
+        });
+        setFocusBlocks((prev) =>
+          prev.map((b) =>
+            b.title === block.title &&
+            b.date === block.date &&
+            b.start_time === block.start_time &&
+            b.end_time === block.end_time
+              ? { ...b, end_time: newEndTime }
+              : b
+          )
+        );
+      } catch (err) {
+        console.error("Failed to resize focus block:", err);
+      }
+    },
+    []
+  );
+
   const handleDeleteBlock = useCallback(async (block: FocusBlock) => {
     try {
       await invoke("delete_focus_block", {
@@ -621,6 +728,7 @@ export default function Plan({ refreshKey }: { refreshKey: number }) {
                         key={`${block.date}-${block.start_time}-${i}`}
                         block={block}
                         onDelete={() => handleDeleteBlock(block)}
+                        onResize={(newEnd) => handleResizeBlock(block, newEnd)}
                       />
                     ))}
 

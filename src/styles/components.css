@@ -2126,12 +2126,61 @@
 .solar-system-card {
   position: relative;
   height: 320px;
-  background: var(--bg1);
+  background: radial-gradient(ellipse at 30% 20%, #282828 0%, #1d2021 60%, #141414 100%);
   border-bottom: 1px solid var(--bg2);
   padding: 0;
   overflow: hidden;
+  perspective: 800px;
 }
 
+.solar-system-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: rotateX(65deg);
+  transform-origin: center center;
+  transform-style: preserve-3d;
+}
+
+/* Corona pulse animation */
+.solar-system-corona {
+  animation: corona-pulse 4s ease-in-out infinite;
+}
+
+@keyframes corona-pulse {
+  0%,
+  100% {
+    opacity: 0.12;
+    r: 20;
+  }
+  50% {
+    opacity: 0.2;
+    r: 24;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .solar-system-corona {
+    animation: none;
+  }
+}
+
+/* Empty state */
+.solar-system-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  width: 100%;
+}
+
+.solar-system-empty-text {
+  color: var(--fg3);
+  font-size: var(--font-size-sm);
+  opacity: 0.6;
+}
+
+/* Tooltip — outside perspective transform */
 .solar-system-tooltip {
   position: absolute;
   pointer-events: none;
@@ -2146,6 +2195,7 @@
   align-items: center;
   gap: 2px;
   white-space: nowrap;
+  transform-style: flat;
 }
 
 .solar-system-tooltip-name {
@@ -2464,6 +2514,32 @@
 
 .plan-block-delete:hover {
   color: var(--red);
+}
+
+.plan-block-resize-handle {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: ns-resize;
+  background: transparent;
+  transition: background 150ms var(--ease-smooth);
+  border-radius: 0 0 4px 4px;
+}
+
+.plan-block-resize-handle:hover,
+.plan-block-resize-handle:active {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.plan-block-duration {
+  position: absolute;
+  bottom: 8px;
+  left: var(--space-sm);
+  font-size: 11px;
+  color: var(--fg2);
+  pointer-events: none;
 }
 
 /* ── Meeting Block ── */

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 
 export interface ProjectGravity {
   name: string;
@@ -24,7 +24,16 @@ const PLANET_COLORS = [
   "var(--red)",
 ];
 
-const MAX_TIERS = 5;
+/* Resolve CSS variable to a hex/rgb string for SVG gradient use */
+const COLOR_FALLBACKS: Record<string, string> = {
+  "var(--aqua)": "#8ec07c",
+  "var(--green)": "#b8bb26",
+  "var(--yellow)": "#fabd2f",
+  "var(--blue)": "#83a598",
+  "var(--purple)": "#d3869b",
+  "var(--orange)": "#fe8019",
+  "var(--red)": "#fb4934",
+};
 
 interface PlanetState {
   project: ProjectGravity;
@@ -34,6 +43,7 @@ interface PlanetState {
   speed: number; // radians per second
   direction: number; // 1 or -1
   color: string;
+  colorHex: string;
 }
 
 function buildPlanets(projects: ProjectGravity[], cx: number, cy: number): PlanetState[] {
@@ -41,9 +51,7 @@ function buildPlanets(projects: ProjectGravity[], cx: number, cy: number): Plane
 
   const sorted = [...projects].sort((a, b) => b.gravity - a.gravity);
   const maxGravity = Math.max(...sorted.map((p) => p.gravity), 1);
-
-  // If >12, cluster bottom 30% on outermost ring
-  const clusterThreshold = projects.length > 12 ? Math.ceil(projects.length * 0.7) : projects.length;
+  const count = sorted.length;
 
   const minOrbit = Math.min(cx, cy) * 0.2;
   const maxOrbit = Math.min(cx, cy) * 0.85;
@@ -51,29 +59,14 @@ function buildPlanets(projects: ProjectGravity[], cx: number, cy: number): Plane
   return sorted.map((project, i) => {
     const gravNorm = project.gravity / maxGravity; // 0..1, 1 = highest
 
-    // Orbit: high gravity = close, low = far
-    let tier: number;
-    if (i >= clusterThreshold) {
-      tier = MAX_TIERS - 1; // outermost
-    } else {
-      tier = Math.min(
-        Math.floor((1 - gravNorm) * MAX_TIERS),
-        MAX_TIERS - 1
-      );
-    }
-    const orbitRadius = minOrbit + ((maxOrbit - minOrbit) * tier) / (MAX_TIERS - 1);
+    // Continuous orbit distribution — each planet gets its own unique orbit
+    const orbitRadius = minOrbit + ((maxOrbit - minOrbit) * i) / Math.max(count - 1, 1);
 
-    // Planet size: 10..28 based on gravity, clustered get minimum 8
-    let planetRadius: number;
-    if (i >= clusterThreshold) {
-      planetRadius = 8;
-    } else {
-      planetRadius = 10 + gravNorm * 18;
-    }
+    // Planet size: 12..32 based on gravity
+    const planetRadius = 12 + gravNorm * 20;
 
-    // Speed: heavy = 60-90s period, light = 120-180s
-    const periodBase = 60 + (1 - gravNorm) * 120;
-    // Add some variation per project
+    // Speed: heavy = 40-70s period, light = 100-200s
+    const periodBase = 40 + (1 - gravNorm) * 160;
     const periodVariation = (project.color_index * 7) % 20;
     const period = periodBase + periodVariation;
     const speed = (2 * Math.PI) / period;
@@ -83,6 +76,8 @@ function buildPlanets(projects: ProjectGravity[], cx: number, cy: number): Plane
     // Spread initial angles
     const angle = (i * 2.399) % (2 * Math.PI); // golden angle
 
+    const color = PLANET_COLORS[project.color_index] || PLANET_COLORS[0];
+
     return {
       project,
       angle,
@@ -90,9 +85,32 @@ function buildPlanets(projects: ProjectGravity[], cx: number, cy: number): Plane
       planetRadius,
       speed,
       direction,
-      color: PLANET_COLORS[project.color_index] || PLANET_COLORS[0],
+      color,
+      colorHex: COLOR_FALLBACKS[color] || "#8ec07c",
     };
   });
+}
+
+/** Deterministic pseudo-random from a seed */
+function seededRandom(seed: number): () => number {
+  let s = seed;
+  return () => {
+    s = (s * 16807 + 0) % 2147483647;
+    return (s - 1) / 2147483646;
+  };
+}
+
+function generateStars(width: number, height: number, count: number) {
+  const rand = seededRandom(42);
+  const stars: { x: number; y: number; opacity: number }[] = [];
+  for (let i = 0; i < count; i++) {
+    stars.push({
+      x: rand() * width,
+      y: rand() * height,
+      opacity: 0.1 + rand() * 0.25,
+    });
+  }
+  return stars;
 }
 
 export default function SolarSystem({ projects, onNavigate }: SolarSystemProps) {
@@ -114,6 +132,12 @@ export default function SolarSystem({ projects, onNavigate }: SolarSystemProps) 
     typeof window !== "undefined" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+  // Filter out zero-gravity projects
+  const activeProjects = useMemo(
+    () => projects.filter((p) => p.open_todos > 0),
+    [projects]
+  );
+
   // Measure container
   useEffect(() => {
     const el = containerRef.current;
@@ -134,11 +158,20 @@ export default function SolarSystem({ projects, onNavigate }: SolarSystemProps) 
   // Build planet state when projects or dimensions change
   useEffect(() => {
     if (dimensions.width === 0) return;
-    planetsRef.current = buildPlanets(projects, cx, cy);
-  }, [projects, dimensions, cx, cy]);
+    planetsRef.current = buildPlanets(activeProjects, cx, cy);
+  }, [activeProjects, dimensions, cx, cy]);
 
   // Get unique orbit radii for drawing orbit rings
   const orbitRadii = [...new Set(planetsRef.current.map((p) => p.orbitRadius))];
+
+  // Stars (deterministic)
+  const stars = useMemo(
+    () =>
+      dimensions.width > 0
+        ? generateStars(dimensions.width, dimensions.height, 60)
+        : [],
+    [dimensions.width, dimensions.height]
+  );
 
   // Animate
   useEffect(() => {
@@ -255,6 +288,17 @@ export default function SolarSystem({ projects, onNavigate }: SolarSystemProps) 
     y: cy + Math.sin(p.angle) * p.orbitRadius,
   }));
 
+  // Empty state
+  if (activeProjects.length === 0 && dimensions.width > 0) {
+    return (
+      <div className="solar-system-card" ref={containerRef}>
+        <div className="solar-system-empty">
+          <span className="solar-system-empty-text">All clear -- no active projects</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="solar-system-card" ref={containerRef}>
       {dimensions.width > 0 && (
@@ -263,17 +307,67 @@ export default function SolarSystem({ projects, onNavigate }: SolarSystemProps) 
             ref={svgRef}
             width={dimensions.width}
             height={dimensions.height}
-            style={{ position: "absolute", top: 0, left: 0 }}
+            className="solar-system-svg"
           >
             <defs>
-              <filter id="sun-glow">
-                <feGaussianBlur stdDeviation="4" result="blur" />
+              {/* Sun glow filter */}
+              <filter id="sun-glow" x="-100%" y="-100%" width="300%" height="300%">
+                <feGaussianBlur stdDeviation="6" result="blur" />
                 <feMerge>
                   <feMergeNode in="blur" />
                   <feMergeNode in="SourceGraphic" />
                 </feMerge>
               </filter>
+
+              {/* Per-planet 3D sphere gradient and glow filter */}
+              {planetsRef.current.map((p, i) => (
+                <g key={`defs-${i}`}>
+                  <radialGradient
+                    id={`planet-grad-${i}`}
+                    cx="35%"
+                    cy="35%"
+                    r="65%"
+                    fx="35%"
+                    fy="35%"
+                  >
+                    <stop offset="0%" stopColor="white" stopOpacity={0.6} />
+                    <stop offset="40%" stopColor={p.colorHex} stopOpacity={1} />
+                    <stop offset="100%" stopColor="#1d2021" stopOpacity={0.9} />
+                  </radialGradient>
+                  <filter
+                    id={`glow-${i}`}
+                    x="-50%"
+                    y="-50%"
+                    width="200%"
+                    height="200%"
+                  >
+                    <feGaussianBlur stdDeviation="3" result="blur" />
+                    <feFlood
+                      floodColor={p.colorHex}
+                      floodOpacity={0.35}
+                      result="color"
+                    />
+                    <feComposite in="color" in2="blur" operator="in" result="shadow" />
+                    <feMerge>
+                      <feMergeNode in="shadow" />
+                      <feMergeNode in="SourceGraphic" />
+                    </feMerge>
+                  </filter>
+                </g>
+              ))}
             </defs>
+
+            {/* Stars */}
+            {stars.map((s, i) => (
+              <circle
+                key={`star-${i}`}
+                cx={s.x}
+                cy={s.y}
+                r={1}
+                fill="#fff"
+                opacity={s.opacity}
+              />
+            ))}
 
             {/* Orbit rings */}
             {orbitRadii.map((r, i) => (
@@ -283,22 +377,27 @@ export default function SolarSystem({ projects, onNavigate }: SolarSystemProps) 
                 cy={cy}
                 r={r}
                 fill="none"
-                stroke="var(--bg3)"
-                strokeOpacity={0.08}
-                strokeDasharray="4 4"
-                strokeWidth={1}
+                stroke="#928374"
+                strokeOpacity={0.06}
+                strokeWidth={0.5}
               />
             ))}
 
-            {/* Nucleus */}
+            {/* Layered Sun */}
+            {/* Corona (pulsing) */}
             <circle
+              className="solar-system-corona"
               cx={cx}
               cy={cy}
-              r={6}
+              r={20}
               fill="var(--yellow)"
+              opacity={0.12}
               filter="url(#sun-glow)"
             />
-            <circle cx={cx} cy={cy} r={3} fill="var(--yellow)" opacity={0.9} />
+            {/* Mid glow */}
+            <circle cx={cx} cy={cy} r={12} fill="var(--yellow)" opacity={0.4} />
+            {/* Bright core */}
+            <circle cx={cx} cy={cy} r={6} fill="white" opacity={0.9} />
 
             {/* Planets */}
             {planetsRef.current.map((p, i) => {
@@ -315,8 +414,8 @@ export default function SolarSystem({ projects, onNavigate }: SolarSystemProps) 
                   cx={pos.x}
                   cy={pos.y}
                   r={p.planetRadius}
-                  fill={p.color}
-                  opacity={0.85}
+                  fill={`url(#planet-grad-${i})`}
+                  filter={`url(#glow-${i})`}
                   style={{ cursor: "pointer", transition: "r 0.2s" }}
                   onMouseEnter={() => handleMouseEnter(i)}
                   onMouseMove={() => handleMouseMove(i)}
@@ -327,7 +426,7 @@ export default function SolarSystem({ projects, onNavigate }: SolarSystemProps) 
             })}
           </svg>
 
-          {/* HTML tooltip overlay */}
+          {/* HTML tooltip overlay — outside SVG/perspective */}
           {tooltip && (
             <div
               className="solar-system-tooltip"
@@ -335,6 +434,7 @@ export default function SolarSystem({ projects, onNavigate }: SolarSystemProps) 
                 left: tooltip.x,
                 top: tooltip.y,
                 transform: "translate(-50%, -100%)",
+                transformStyle: "flat",
               }}
             >
               <span className="solar-system-tooltip-name">{tooltip.name}</span>
