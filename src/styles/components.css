@@ -1291,6 +1291,27 @@
   overflow-y: auto;
 }
 
+/* ── Textarea fallback — matches TipTap exactly ── */
+
+.inbox-textarea {
+  width: 100%;
+  height: 100%;
+  padding: var(--space-2xl) var(--space-3xl);
+  font-family: var(--font-mono);
+  font-size: var(--font-size);
+  color: var(--fg);
+  line-height: 1.7;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  box-sizing: border-box;
+}
+
+.inbox-textarea::placeholder {
+  color: var(--fg4);
+}
+
 /* ── TipTap Editor — Obsidian-like ────────────── */
 
 .inbox-tiptap {
@@ -1475,6 +1496,59 @@
 .status-error {
   color: var(--red);
   font-weight: 600;
+}
+
+/* ── Inbox process button + results ────────────── */
+
+.inbox-process-btn {
+  padding: var(--space-xs) var(--space-lg);
+  font-size: var(--font-size-xs);
+  background: var(--bg2);
+  color: var(--fg2);
+  border: 1px solid var(--bg3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 150ms var(--ease-smooth), color 150ms var(--ease-smooth);
+  flex-shrink: 0;
+}
+
+.inbox-process-btn:hover:not(:disabled) {
+  background: var(--bg3);
+  color: var(--fg1);
+}
+
+.inbox-process-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.inbox-process-result {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--bg0-hard);
+  border-top: 1px solid var(--bg2);
+}
+
+.inbox-route-tag {
+  font-size: var(--font-size-xs);
+  background: var(--bg1);
+  color: var(--green);
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--bg3);
+}
+
+.route-count {
+  color: var(--fg4);
+  margin-left: var(--space-xs);
+}
+
+.inbox-route-unknown {
+  font-size: var(--font-size-xs);
+  color: var(--yellow);
+  padding: 2px var(--space-sm);
 }
 
 /* ── Wikilinks [[page]] ──────────────────────────── */

@@ -54,17 +54,24 @@ You are Hum, a personal assistant operating on an Obsidian vault. You have tools
 
 ## Inbox Processing
 
-When asked to "process inbox":
-1. Read `claude-config.md` for active projects
-2. Parse inbox: split by `@projectname` markers. Content after each `@` belongs to that project.
-3. Route todos (`- [ ]` lines) → append to project's `todos.md`
-4. Route notes → append to project's `notes/YYYY-MM-DD.md` (today's date). If file exists, append with blank line.
-5. Update project hub file: add `![[date]]` embed at top of Notes section if new date file created.
-6. Unknown `@project` → check for typos against active list. If clearly new, create project structure and ask work/personal.
-7. Unsorted content (no `@`) → ask user where it goes, don't guess.
-8. Clear inbox after routing.
-9. Update `last_inbox_processing` in `claude-config.md`.
-10. Update `00 Home/dashboard.md`.
+Inbox processing is a **two-phase** operation:
+
+**Phase 1 (deterministic — use the `process_inbox` tool):**
+Call `process_inbox` first. It instantly routes all `@project`-tagged content:
+- Todos → project's `todos.md`
+- Notes → project's `notes/YYYY-MM-DD.md`
+- Updates hub files and config timestamp
+- Returns a summary: what was routed, what's left, any unknown `@tags`
+
+**Phase 2 (your job — AI follow-up):**
+After `process_inbox` returns:
+1. Handle **unknown `@tags`** — check for typos against active projects, ask user if ambiguous, create new project if clearly new.
+2. Handle **untagged content** left in inbox — ask the user where it goes, don't guess.
+3. Run **todo reconciliation** across all active projects.
+4. **Regenerate dashboard** (`00 Home/dashboard.md`).
+5. Report what was done — mention the deterministic routing summary + anything you handled.
+
+Never manually route `@tagged` content with read/write/append — that's what `process_inbox` does.
 
 ## Todo Reconciliation
 
@@ -202,6 +209,15 @@ fn tool_definitions() -> Vec<Value> {
                 "required": []
             }
         }),
+        json!({
+            "name": "process_inbox",
+            "description": "Run the deterministic inbox processor. Instantly routes all @project-tagged content from inbox.md to the correct project files (todos.md, notes/date.md). Returns a JSON summary of what was routed, what's left untagged, and any unknown @tags. Always call this FIRST when the user asks to process the inbox — then handle the leftovers yourself.",
+            "input_schema": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }),
     ]
 }
 
@@ -321,6 +337,12 @@ fn execute_tool(vault: &Path, name: &str, input: &Value) -> String {
                     Err(e) => format!("Error creating directory: {}", e),
                 },
                 None => format!("Error: path '{}' is outside the vault or invalid", path),
+            }
+        }
+        "process_inbox" => {
+            match crate::inbox::process(Some(vault.to_path_buf())) {
+                Ok(result) => serde_json::to_string_pretty(&result).unwrap_or_else(|e| format!("Serialization error: {}", e)),
+                Err(e) => format!("Inbox processing failed: {}", e),
             }
         }
         "fetch_calendar" => {
@@ -631,6 +653,7 @@ pub async fn hum_send(
                     "append_file" => format!("updating {}", tool_input.get("path").and_then(|p| p.as_str()).unwrap_or("file")),
                     "create_directory" => format!("creating {}", tool_input.get("path").and_then(|p| p.as_str()).unwrap_or("folder")),
                     "list_directory" => format!("scanning {}", tool_input.get("path").and_then(|p| p.as_str()).unwrap_or("vault")),
+                    "process_inbox" => "processing inbox".to_string(),
                     "fetch_calendar" => "checking calendar".to_string(),
                     _ => format!("using {}", tool_name),
                 };

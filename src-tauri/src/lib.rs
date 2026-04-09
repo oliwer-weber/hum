@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 mod hum;
+mod inbox;
 
 fn vault_path() -> PathBuf {
     if cfg!(target_os = "windows") {
@@ -295,6 +296,11 @@ fn fetch_calendar() -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
+#[tauri::command]
+fn process_inbox() -> Result<inbox::ProcessResult, String> {
+    inbox::process(None)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Load .env from the project root (one level up from src-tauri)
@@ -338,6 +344,7 @@ pub fn run() {
             vault_read_file,
             vault_write_file,
             hum::hum_send,
+            process_inbox,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
