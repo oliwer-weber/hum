@@ -1,7 +1,5 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import SolarSystem from "./SolarSystem";
-import type { ProjectGravity } from "./SolarSystem";
 
 interface Todo {
   text: string;
@@ -220,7 +218,6 @@ export default function Dashboard({ refreshKey }: DashProps) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [calendar, setCalendar] = useState<CalendarData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [gravityData, setGravityData] = useState<ProjectGravity[]>([]);
 
   async function loadDashboard() {
     try {
@@ -244,7 +241,6 @@ export default function Dashboard({ refreshKey }: DashProps) {
   useEffect(() => {
     loadDashboard();
     loadCalendar();
-    invoke<ProjectGravity[]>("get_project_gravity").then(setGravityData).catch(console.error);
   }, [refreshKey]);
 
   if (error) {
@@ -291,14 +287,6 @@ export default function Dashboard({ refreshKey }: DashProps) {
           </button>
         </div>
       </div>
-
-      {/* ── Solar System ────────────────────────── */}
-      {gravityData.length > 0 && (
-        <SolarSystem
-          projects={gravityData}
-          onNavigate={(path) => console.log("Navigate to project:", path)}
-        />
-      )}
 
       {/* ── Main content ─────────────────────────── */}
       <div className="dash-layout">

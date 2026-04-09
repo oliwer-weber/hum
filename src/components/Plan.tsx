@@ -262,6 +262,10 @@ function FocusBlockCard({
   const resizing = useRef(false);
   const startY = useRef(0);
   const startHeight = useRef(0);
+  const currentHeight = useRef<number>(baseHeight);
+
+  // Keep the ref in sync with the latest resize height
+  currentHeight.current = resizeHeight ?? baseHeight;
 
   const displayHeight = resizeHeight ?? baseHeight;
   const displayEndMinutes =
@@ -276,32 +280,31 @@ function FocusBlockCard({
       e.stopPropagation();
       resizing.current = true;
       startY.current = e.clientY;
-      startHeight.current = resizeHeight ?? baseHeight;
+      startHeight.current = currentHeight.current;
 
       const onMove = (ev: MouseEvent) => {
         if (!resizing.current) return;
         const dy = ev.clientY - startY.current;
         const raw = startHeight.current + dy;
-        // Snap to 15min increments (SLOT_HEIGHT = 24px per 30min, so 12px = 15min)
-        const snapPx = SLOT_HEIGHT / 2; // 12px = 15min
+        const snapPx = SLOT_HEIGHT / 2;
         const snapped = Math.max(snapPx, Math.round(raw / snapPx) * snapPx);
-        // Don't exceed end of day
         const maxHeight =
           ((HOUR_END * 60 - timeToMinutes(block.start_time)) / 30) *
           SLOT_HEIGHT;
-        setResizeHeight(Math.min(snapped, maxHeight));
+        const clamped = Math.min(snapped, maxHeight);
+        currentHeight.current = clamped;
+        setResizeHeight(clamped);
       };
 
       const onUp = () => {
         resizing.current = false;
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
-        // Commit the new end time
-        const finalHeight = resizeHeight ?? baseHeight;
+        const finalHeight = currentHeight.current;
         const newEndMinutes =
           timeToMinutes(block.start_time) + (finalHeight / SLOT_HEIGHT) * 30;
-        const clamped = Math.min(newEndMinutes, HOUR_END * 60);
-        const newEnd = minutesToTime(clamped);
+        const clampedMin = Math.min(newEndMinutes, HOUR_END * 60);
+        const newEnd = minutesToTime(clampedMin);
         if (newEnd !== block.end_time) {
           onResize(newEnd);
         }
@@ -311,7 +314,7 @@ function FocusBlockCard({
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
     },
-    [baseHeight, resizeHeight, block.start_time, block.end_time, onResize]
+    [baseHeight, block.start_time, block.end_time, onResize]
   );
 
   return (
