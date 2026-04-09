@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import SolarSystem, { ProjectGravity } from "./SolarSystem";
+import SolarSystem from "./SolarSystem";
+import type { ProjectGravity } from "./SolarSystem";
 
 interface Todo {
   text: string;

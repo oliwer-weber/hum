@@ -5,12 +5,14 @@ import {
   DragOverlay,
   useDraggable,
   useDroppable,
-  DragStartEvent,
-  DragEndEvent,
-  DragOverEvent,
   PointerSensor,
   useSensor,
   useSensors,
+} from "@dnd-kit/core";
+import type {
+  DragStartEvent,
+  DragEndEvent,
+  DragOverEvent,
 } from "@dnd-kit/core";
 import { motion, AnimatePresence } from "framer-motion";
 
