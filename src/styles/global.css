@@ -1,0 +1,262 @@
+/* ═══════════════════════════════════════════════════════════════════
+ * Global styles — layout, reset, scrollbars, tab system
+ * ═══════════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background-color: var(--bg-hard);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--font-size);
+  line-height: var(--line-height);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Scrollbars ─────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: var(--scrollbar-width);
+  height: var(--scrollbar-width);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bg2);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--bg3);
+}
+
+/* ── App Layout ─────────────────────────────────────── */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background-color: var(--bg-hard);
+}
+
+/* ── Tab Bar ────────────────────────────────────────── */
+
+.tab-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0 0 var(--space-lg);
+  background-color: var(--bg);
+  border-bottom: 1px solid var(--bg2);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.tab-group {
+  display: flex;
+  gap: var(--space-xs);
+  padding-top: var(--space-sm);
+}
+
+/* ── Window Controls ─────────────────────────────── */
+
+.window-controls {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+}
+
+.window-btn {
+  width: 46px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--fg3);
+  font-size: 12px;
+  padding: 0;
+  cursor: pointer;
+  transition: opacity 150ms var(--ease-smooth);
+}
+
+.window-btn:hover {
+  opacity: 1;
+  background-color: var(--bg1);
+}
+
+.window-btn:focus-visible {
+  outline: 2px solid var(--aqua-dim);
+  outline-offset: -2px;
+}
+
+.window-btn:active {
+  transform: none;
+}
+
+.window-btn-close:hover {
+  background-color: var(--red);
+  color: var(--fg);
+}
+
+.tab {
+  position: relative;
+  padding: var(--space-sm) var(--space-xl);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg4);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-s) var(--radius-s) 0 0;
+  cursor: pointer;
+  transition: color 150ms var(--ease-smooth),
+              transform 150ms var(--ease-smooth);
+}
+
+.tab:hover {
+  color: var(--fg2);
+  background: transparent;
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--aqua-dim);
+  outline-offset: -2px;
+}
+
+.tab:active {
+  transform: scale(0.97);
+}
+
+.tab-active {
+  color: var(--aqua);
+  background: var(--bg-hard);
+}
+
+.tab-active::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--aqua);
+  border-radius: 2px 2px 0 0;
+}
+
+.tab-active:hover {
+  color: var(--aqua);
+  background: var(--bg-hard);
+}
+
+/* ── Tab Content ────────────────────────────────────── */
+
+.tab-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.tab-panel {
+  display: none;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.tab-panel-active {
+  display: flex;
+}
+
+/* ── Shared input styles ─────────────────────────── */
+
+input, textarea {
+  font-family: var(--font-mono);
+  font-size: var(--font-size);
+  color: var(--fg);
+  background-color: var(--bg1);
+  border: 1px solid var(--bg2);
+  border-radius: var(--radius-s);
+  padding: var(--space-sm) var(--space-md);
+  outline: none;
+  transition: border-color 150ms var(--ease-smooth),
+              box-shadow 150ms var(--ease-smooth);
+}
+
+input:hover, textarea:hover {
+  border-color: var(--bg3);
+}
+
+input:focus-visible, textarea:focus-visible {
+  border-color: var(--aqua-dim);
+  box-shadow: 0 0 0 2px rgba(142, 192, 124, 0.15);
+}
+
+textarea {
+  resize: none;
+}
+
+/* ── Buttons ─────────────────────────────────────── */
+
+button {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--bg-hard);
+  background-color: var(--aqua);
+  border: none;
+  border-radius: var(--radius-s);
+  padding: var(--space-sm) var(--space-lg);
+  cursor: pointer;
+  transition: transform 150ms var(--ease-smooth),
+              opacity 150ms var(--ease-smooth);
+}
+
+button:hover {
+  opacity: 0.9;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent-hover);
+  outline-offset: 2px;
+}
+
+button:active {
+  transform: scale(0.97);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+button.secondary {
+  background-color: var(--bg2);
+  color: var(--fg2);
+}
+
+button.secondary:hover {
+  opacity: 1;
+  background-color: var(--bg3);
+  color: var(--fg);
+}
