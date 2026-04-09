@@ -6,6 +6,16 @@ use std::process::Command;
 mod hum;
 mod inbox;
 
+#[derive(serde::Serialize)]
+struct ProjectGravity {
+    name: String,
+    path: String,
+    open_todos: usize,
+    completed_todos: usize,
+    gravity: f64,
+    color_index: usize,
+}
+
 fn vault_path() -> PathBuf {
     if cfg!(target_os = "windows") {
         PathBuf::from(r"C:\Users\oliwer.weber\Documents\Oliwers Remote Vault")
@@ -301,6 +311,59 @@ fn process_inbox() -> Result<inbox::ProcessResult, String> {
     inbox::process(None)
 }
 
+#[tauri::command]
+fn get_project_gravity() -> Result<Vec<ProjectGravity>, String> {
+    let vault = vault_path();
+    let config_path = vault.join("claude-config.md");
+    let config = fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read claude-config.md: {}", e))?;
+
+    let mut results = Vec::new();
+
+    for line in config.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("- 01 projects/") {
+            continue;
+        }
+        let rel = trimmed.trim_start_matches("- ").to_string();
+        let name = rel.rsplit('/').next().unwrap_or(&rel).to_string();
+
+        let todos_path = vault.join(&rel).join("todos.md");
+        let (open, completed) = if let Ok(content) = fs::read_to_string(&todos_path) {
+            let mut o = 0usize;
+            let mut c = 0usize;
+            for l in content.lines() {
+                let t = l.trim();
+                if t.starts_with("- [ ]") {
+                    o += 1;
+                } else if t.starts_with("- [x]") {
+                    c += 1;
+                }
+            }
+            (o, c)
+        } else {
+            (0, 0)
+        };
+
+        let gravity = (open as f64) * 10.0 + if open > 5 { 20.0 } else { 0.0 };
+
+        // Simple hash for color_index
+        let hash: usize = name.bytes().map(|b| b as usize).sum();
+        let color_index = hash % 7;
+
+        results.push(ProjectGravity {
+            name,
+            path: rel,
+            open_todos: open,
+            completed_todos: completed,
+            gravity,
+            color_index,
+        });
+    }
+
+    Ok(results)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Load .env from the project root (one level up from src-tauri)
@@ -345,6 +408,7 @@ pub fn run() {
             vault_write_file,
             hum::hum_send,
             process_inbox,
+            get_project_gravity,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

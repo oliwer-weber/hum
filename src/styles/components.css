@@ -2120,3 +2120,41 @@
   border-radius: var(--radius-m);
   box-shadow: var(--shadow-elevated);
 }
+
+/* ── Solar System ────────────────────────────────── */
+
+.solar-system-card {
+  position: relative;
+  height: 320px;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--bg2);
+  padding: 0;
+  overflow: hidden;
+}
+
+.solar-system-tooltip {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  background: var(--bg-soft);
+  border: 1px solid var(--bg3);
+  border-radius: var(--radius-s);
+  padding: var(--space-xs) var(--space-sm);
+  box-shadow: var(--shadow-elevated);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.solar-system-tooltip-name {
+  color: var(--fg);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.solar-system-tooltip-count {
+  color: var(--fg3);
+  font-size: var(--font-size-xs);
+}
