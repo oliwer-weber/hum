@@ -869,8 +869,8 @@
 
 .dash {
   flex: 1;
-  overflow-y: auto;
-  padding: var(--space-xl) var(--space-2xl) var(--space-3xl);
+  overflow: hidden;
+  padding: var(--space-xl) var(--space-2xl) var(--space-2xl);
 }
 
 .dash-loading,
@@ -881,93 +881,13 @@
 
 .dash-error { color: var(--red); }
 
-/* Stats row — last column aligns with sidebar */
-.dash-stats {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr) 300px;
-  gap: var(--space-lg);
+/* ── Gravity tiers ──────────────────────────────── */
+
+.dash-tier {
   margin-bottom: var(--space-xl);
 }
 
-.stat-card {
-  background-color: var(--bg);
-  border: 1px solid var(--bg1);
-  border-radius: var(--radius-m);
-  padding: var(--space-lg) var(--space-xl);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-  box-shadow: var(--shadow-card);
-  transition: transform 150ms var(--ease-smooth),
-              box-shadow 150ms var(--ease-smooth);
-}
-
-.stat-card:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-elevated);
-}
-
-.stat-value {
-  font-size: var(--font-size-2xl);
-  font-weight: 700;
-  line-height: var(--line-height-tight);
-  letter-spacing: -0.03em;
-}
-
-.stat-value-aqua { color: var(--aqua); }
-.stat-value-green { color: var(--green); }
-.stat-value-orange { color: var(--orange); }
-.stat-value-yellow {
-  color: var(--yellow);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  letter-spacing: 0;
-  margin-top: var(--space-xs);
-}
-
-.stat-label {
-  font-size: var(--font-size-xs);
-  color: var(--fg4);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.stat-card-meta {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  align-items: flex-start;
-}
-
-.dash-refresh {
-  padding: var(--space-xs) var(--space-md) !important;
-  font-size: var(--font-size-xs) !important;
-  margin-top: var(--space-sm);
-}
-
-/* Main layout — projects left, calendar sidebar right */
-.dash-layout {
-  display: grid;
-  grid-template-columns: 1fr 300px;
-  gap: var(--space-2xl);
-}
-
-.dash-main {
-  min-width: 0;
-}
-
-.dash-sidebar {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xl);
-}
-
-/* Section titles */
-.dash-section {
-  margin-bottom: var(--space-xl);
-}
-
-.dash-section-title {
+.dash-tier-title {
   font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--fg3);
@@ -978,24 +898,191 @@
   border-bottom: 1px solid var(--bg1);
 }
 
-/* ── Project groups (original style) ─────────── */
-
-.project-group {
-  margin-bottom: var(--space-xl);
+.dash-tier-fill {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
 }
 
-.project-group-name {
-  font-size: var(--font-size);
-  font-weight: 600;
-  color: var(--green);
-  margin-bottom: var(--space-sm);
-}
-
-.project-group-count {
+.dash-empty {
   color: var(--fg4);
-  font-weight: 400;
-  margin-left: var(--space-sm);
+  font-size: var(--font-size-sm);
+  padding: var(--space-sm) 0;
 }
+
+/* Tier 1: Gravity-ranked todos */
+.gravity-todo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) 0;
+  border-bottom: 1px solid var(--bg1);
+}
+
+.gravity-todo:last-child {
+  border-bottom: none;
+}
+
+.gravity-todo:first-child {
+  padding-top: 0;
+}
+
+.gravity-todo-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg1);
+  font-size: var(--font-size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gravity-todo-age {
+  font-size: var(--font-size-xs);
+  color: var(--fg4);
+  flex-shrink: 0;
+  min-width: 24px;
+  text-align: right;
+}
+
+.gravity-todo-age-warm {
+  color: var(--orange);
+}
+
+/* Tier 2: Stuck (blocked/waiting) */
+.dash-tier-stuck {
+  opacity: 0.7;
+}
+
+.gravity-todo-stuck {
+  border-left: 2px dashed var(--bg3);
+  padding-left: var(--space-sm);
+}
+
+.gravity-todo-tag {
+  font-size: var(--font-size-xs);
+  flex-shrink: 0;
+  padding: 1px var(--space-sm);
+  border-radius: var(--radius-s);
+}
+
+.gravity-tag-blocked {
+  color: var(--red-dim);
+  background-color: rgba(251, 73, 52, 0.08);
+}
+
+.gravity-tag-waiting {
+  color: var(--yellow-dim, var(--yellow));
+  background-color: rgba(250, 189, 47, 0.08);
+}
+
+.gravity-more {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--fg4);
+  padding-top: var(--space-sm);
+}
+
+/* Tier 3: Collapsed project rows */
+.dash-tier-projects {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dash-projects-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.dash-project-row {
+  border-bottom: 1px solid var(--bg1);
+}
+
+.dash-project-row:last-child {
+  border-bottom: none;
+}
+
+.dash-project-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) 0;
+  cursor: pointer;
+  transition: background-color 100ms var(--ease-smooth);
+}
+
+.dash-project-header:hover {
+  background-color: var(--bg);
+}
+
+.dash-project-name {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--fg2);
+  cursor: pointer;
+  transition: color 150ms var(--ease-smooth);
+}
+
+.dash-project-name:hover {
+  color: var(--aqua);
+}
+
+.dash-project-count {
+  font-size: var(--font-size-xs);
+  color: var(--fg4);
+  background-color: var(--bg1);
+  padding: 1px var(--space-sm);
+  border-radius: var(--radius-s);
+  min-width: 20px;
+  text-align: center;
+}
+
+.dash-project-chevron {
+  font-size: var(--font-size-xs);
+  color: var(--fg4);
+  transition: transform 150ms var(--ease-smooth);
+}
+
+.dash-project-chevron-open {
+  transform: rotate(90deg);
+}
+
+.dash-project-todos {
+  padding: 0 0 var(--space-sm) var(--space-lg);
+}
+
+.gravity-todo-nested {
+  padding: var(--space-xs) 0;
+}
+
+/* Main layout — full-height two-column grid */
+.dash-layout {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: var(--space-2xl);
+  height: 100%;
+  overflow: hidden;
+}
+
+.dash-main {
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.dash-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  min-height: 0;
+}
+
+/* (old section/project-group styles removed — replaced by gravity tiers above)
 
 /* ── Monthly Calendar ──────────────────────────── */
 
@@ -1166,39 +1253,6 @@
 .cal-details {
   display: flex;
   flex-direction: column;
-}
-
-/* ── Activity — compact ────────────────────────── */
-
-.activity-compact {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-.activity-row-compact {
-  display: flex;
-  gap: var(--space-md);
-  padding: var(--space-xs) 0;
-  font-size: var(--font-size-xs);
-  border-bottom: 1px solid var(--bg1);
-}
-
-.activity-row-compact:last-child {
-  border-bottom: none;
-}
-
-.activity-date-compact {
-  color: var(--fg4);
-  min-width: 44px;
-  flex-shrink: 0;
-}
-
-.activity-desc-compact {
-  color: var(--fg3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* ── Todo items ────────────────────────────────── */
@@ -1549,6 +1603,131 @@
   font-size: var(--font-size-xs);
   color: var(--yellow);
   padding: 2px var(--space-sm);
+}
+
+/* ── Status bar right group ────────────────────── */
+
+.inbox-status-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* ── Review badge ──────────────────────────────── */
+
+.inbox-review-badge {
+  font-size: var(--font-size-xs);
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: default;
+}
+
+.inbox-review-badge-active {
+  color: var(--fg4);
+  background: none;
+}
+
+.inbox-review-badge-issues {
+  color: var(--yellow);
+  background: rgba(250, 189, 47, 0.1);
+  border: 1px solid rgba(250, 189, 47, 0.25);
+  cursor: pointer;
+  transition: transform 150ms var(--ease-smooth),
+              opacity 150ms var(--ease-smooth);
+}
+
+.inbox-review-badge-issues:hover {
+  transform: translateY(-1px);
+}
+
+.inbox-review-badge-issues:focus-visible {
+  outline: 2px solid var(--yellow);
+  outline-offset: 2px;
+}
+
+.inbox-review-badge-issues:active {
+  transform: translateY(0);
+}
+
+/* ── Review popup panel ─────────────────────────── */
+
+.inbox-review-panel {
+  background: var(--bg);
+  border-top: 1px solid var(--bg2);
+  border-left: 3px solid var(--yellow);
+  padding: var(--space-md) var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  flex-shrink: 0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.inbox-review-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.inbox-review-title {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--yellow);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.inbox-review-dismiss {
+  background: none;
+  border: none;
+  color: var(--fg4);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  padding: 0 var(--space-xs);
+  transition: color 150ms var(--ease-smooth);
+}
+
+.inbox-review-dismiss:hover {
+  color: var(--fg);
+}
+
+.inbox-review-dismiss:focus-visible {
+  outline: 2px solid var(--yellow);
+  outline-offset: 2px;
+}
+
+.inbox-review-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.inbox-review-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--bg1);
+  border-radius: var(--radius-s);
+}
+
+.inbox-review-type {
+  font-size: 10px;
+  color: var(--fg4);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.inbox-review-detail {
+  font-size: var(--font-size-xs);
+  color: var(--fg2);
+  line-height: 1.5;
+}
+
+.inbox-review-detail strong {
+  color: var(--fg);
 }
 
 /* ── Wikilinks [[page]] ──────────────────────────── */
@@ -2586,4 +2765,145 @@
   padding: var(--space-sm) var(--space-xl);
   border: 2px dashed var(--bg3);
   border-radius: var(--radius-l);
+}
+
+/* ── Dashboard Schedule ──────────────────────────── */
+
+.dash-schedule-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-md);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--bg1);
+}
+
+.dash-today-btn {
+  background: none;
+  border: 1px solid var(--bg3);
+  color: var(--fg3);
+  font-size: var(--font-size-xs);
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  transition: color 150ms var(--ease-smooth), border-color 150ms var(--ease-smooth);
+}
+
+.dash-today-btn:hover {
+  color: var(--aqua);
+  border-color: var(--aqua);
+}
+
+.dash-schedule {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--radius-s);
+}
+
+/* (old drop zone styles removed)
+
+/* ── Meeting blocks ── */
+
+.dash-meeting-block {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  background-color: var(--bg1);
+  border: none;
+  border-left: 3px solid var(--aqua-dim);
+  border-radius: var(--radius-s);
+  padding: var(--space-xs) var(--space-sm);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  z-index: 2;
+  transition: transform 150ms var(--ease-smooth),
+              background-color 150ms var(--ease-smooth);
+}
+
+.dash-meeting-block:hover {
+  transform: translateY(-1px);
+  background-color: var(--bg2);
+}
+
+.dash-meeting-time {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--aqua);
+}
+
+.dash-meeting-title {
+  font-size: var(--font-size-sm);
+  color: var(--fg);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-meeting-location {
+  font-size: 10px;
+  color: var(--fg4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* (old focus block styles removed)
+
+/* ── Schedule empty state ── */
+
+.dash-schedule-empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--fg4);
+  font-size: var(--font-size-sm);
+}
+
+.month-cal-day-selected {
+  background-color: var(--bg3);
+  color: var(--fg);
+  font-weight: 600;
+}
+
+/* ── Project pip (color dot) ── */
+
+.project-pip {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: var(--space-xs);
+  flex-shrink: 0;
+}
+.project-pip-filled-circle  { border-radius: 50%; background-color: var(--pip-color); }
+.project-pip-filled-square  { border-radius: 1px; background-color: var(--pip-color); }
+.project-pip-outline-circle { border-radius: 50%; background: transparent; border: 1.5px solid var(--pip-color); }
+.project-pip-outline-square { border-radius: 1px;  background: transparent; border: 1.5px solid var(--pip-color); }
+
+/* ── Vault tags (#tag pills) ────────────────────── */
+
+.vault-tag {
+  color: var(--aqua);
+  background-color: rgba(142, 192, 124, 0.1);
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 0.88em;
+  transition: all 0.15s ease;
+}
+.vault-tag-blocked {
+  color: var(--red-dim);
+  background-color: rgba(251, 73, 52, 0.08);
+}
+.vault-tag-waiting {
+  color: var(--yellow-dim, var(--yellow));
+  background-color: rgba(250, 189, 47, 0.08);
+}
+.vault-tag-onhold {
+  color: var(--orange-dim, var(--orange));
+  background-color: rgba(254, 128, 25, 0.08);
 }

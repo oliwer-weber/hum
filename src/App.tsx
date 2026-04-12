@@ -1,20 +1,25 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import Chat from "./components/Chat";
 import Dashboard from "./components/Dashboard";
 import Inbox from "./components/Inbox";
-import Plan from "./components/Plan";
 import Vault from "./components/Vault";
 
-type Tab = "inbox" | "dashboard" | "plan" | "vault" | "hum";
+type Tab = "inbox" | "dashboard" | "vault" | "hum";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("inbox");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [vaultOpenPath, setVaultOpenPath] = useState<string | null>(null);
   const appWindow = getCurrentWindow();
 
   const triggerVaultRefresh = useCallback(() => {
     setRefreshKey((k) => k + 1);
+  }, []);
+
+  const navigateToVaultFile = useCallback((path: string) => {
+    setVaultOpenPath(path);
+    setActiveTab("vault");
   }, []);
 
   return (
@@ -32,12 +37,6 @@ export default function App() {
             onClick={() => setActiveTab("dashboard")}
           >
             Dashboard
-          </button>
-          <button
-            className={`tab ${activeTab === "plan" ? "tab-active" : ""}`}
-            onClick={() => setActiveTab("plan")}
-          >
-            Plan
           </button>
           <button
             className={`tab ${activeTab === "vault" ? "tab-active" : ""}`}
@@ -77,16 +76,13 @@ export default function App() {
 
       <main className="tab-content">
         <div className={`tab-panel ${activeTab === "inbox" ? "tab-panel-active" : ""}`}>
-          <Inbox refreshKey={refreshKey} />
+          <Inbox refreshKey={refreshKey} onVaultChanged={triggerVaultRefresh} />
         </div>
         <div className={`tab-panel ${activeTab === "dashboard" ? "tab-panel-active" : ""}`}>
-          <Dashboard refreshKey={refreshKey} />
-        </div>
-        <div className={`tab-panel ${activeTab === "plan" ? "tab-panel-active" : ""}`}>
-          <Plan refreshKey={refreshKey} />
+          <Dashboard refreshKey={refreshKey} onNavigateToFile={navigateToVaultFile} />
         </div>
         <div className={`tab-panel ${activeTab === "vault" ? "tab-panel-active" : ""}`}>
-          <Vault refreshKey={refreshKey} />
+          <Vault refreshKey={refreshKey} openPath={vaultOpenPath} onOpenPathHandled={() => setVaultOpenPath(null)} />
         </div>
         <div className={`tab-panel ${activeTab === "hum" ? "tab-panel-active" : ""}`}>
           <Chat onVaultChanged={triggerVaultRefresh} />

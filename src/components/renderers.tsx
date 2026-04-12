@@ -8,6 +8,7 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { tagComponents } from "./TaggedText";
 import type {
   ActionReportData,
   StructuredListData,
@@ -20,7 +21,7 @@ import type {
 export function MarkdownRenderer({ text }: { text: string }) {
   return (
     <div className="res-markdown">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={tagComponents}>{text}</ReactMarkdown>
     </div>
   );
 }
@@ -157,12 +158,12 @@ export function ConversationalBlock({ data }: { data: ConversationalData }) {
     <div className="res-conversational res-enter">
       {data.body && (
         <div className="res-conversational-body">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.body}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={tagComponents}>{data.body}</ReactMarkdown>
         </div>
       )}
       <div className="res-conversational-prompt">
         <div className="res-conversational-question">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.question}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={tagComponents}>{data.question}</ReactMarkdown>
         </div>
         <div className="res-conversational-hint">reply below</div>
       </div>

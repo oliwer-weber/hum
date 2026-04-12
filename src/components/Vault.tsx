@@ -10,6 +10,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { Markdown } from "tiptap-markdown";
 import { WikiLink, WikiEmbed, convertTextToWikiLinks } from "./wikilink";
 import type { VaultFileInfo } from "./wikilink";
+import { HashTag } from "./hashtag";
 
 /* ── Types ────────────────────────────────────────── */
 
@@ -27,6 +28,8 @@ interface ColumnState {
 
 interface VaultProps {
   refreshKey: number;
+  openPath?: string | null;
+  onOpenPathHandled?: () => void;
 }
 
 /* ── File icons ───────────────────────────────────── */
@@ -100,7 +103,7 @@ const CLOSE_CHARS = new Set(Object.values(PAIRS));
 
 /* ── Vault Component ──────────────────────────────── */
 
-export default function Vault({ refreshKey }: VaultProps) {
+export default function Vault({ refreshKey, openPath, onOpenPathHandled }: VaultProps) {
   const [columns, setColumns] = useState<ColumnState[]>([]);
   const [openFile, setOpenFile] = useState<{ path: string; entry: VaultEntry } | null>(null);
   const [fileContent, setFileContent] = useState("");
@@ -224,6 +227,7 @@ export default function Vault({ refreshKey }: VaultProps) {
         getVaultFiles: () => vaultFilesRef.current,
       }),
       WikiEmbed,
+      HashTag,
     ],
     editorProps: {
       attributes: { class: "vault-editor-tiptap" },
@@ -323,6 +327,46 @@ export default function Vault({ refreshKey }: VaultProps) {
     loadDirectory("", 0);
   }, [refreshKey]);
 
+  // Navigate to an externally requested file path — build miller columns to match
+  useEffect(() => {
+    if (!openPath) return;
+    const segments = openPath.split("/");
+    const fileName = segments.pop() || "";
+
+    (async () => {
+      // Build columns for each directory level
+      const newColumns: ColumnState[] = [];
+      let currentPath = "";
+
+      // Root column
+      try {
+        const rootEntries = await invoke<VaultEntry[]>("vault_list", { relativePath: "" });
+        newColumns.push({ path: "", entries: rootEntries, selected: segments[0] || null });
+      } catch { return; }
+
+      // Intermediate directory columns
+      for (let i = 0; i < segments.length; i++) {
+        currentPath = currentPath ? `${currentPath}/${segments[i]}` : segments[i];
+        try {
+          const entries = await invoke<VaultEntry[]>("vault_list", { relativePath: currentPath });
+          const nextSelected = i < segments.length - 1 ? segments[i + 1] : fileName;
+          newColumns.push({ path: currentPath, entries, selected: nextSelected });
+        } catch { break; }
+      }
+
+      setColumns(newColumns);
+
+      // Open the file
+      const entry: VaultEntry = {
+        name: fileName,
+        is_dir: false,
+        extension: fileName.includes(".") ? fileName.split(".").pop()! : null,
+      };
+      openFileInEditor(openPath, entry, true);
+      onOpenPathHandled?.();
+    })();
+  }, [openPath]);
+
   // Load a directory into a specific column index
   const loadDirectory = useCallback(async (path: string, colIndex: number) => {
     try {
@@ -373,12 +417,23 @@ export default function Vault({ refreshKey }: VaultProps) {
     [columns, loadDirectory, openFileInEditor]
   );
 
+  // Stamp completion dates on checked todos that don't have one yet
+  const stampCompletionDates = useCallback((markdown: string): string => {
+    const today = new Date().toISOString().slice(0, 10);
+    return markdown.replace(/^(- \[x\].*?)$/gm, (line) => {
+      if (line.includes("✅")) return line; // already stamped
+      // Strip trailing whitespace, append date
+      return `${line.trimEnd()} ✅ ${today}`;
+    });
+  }, []);
+
   // Save file
   const saveFile = useCallback(
     async (markdown: string) => {
       if (!openFile) return;
       try {
-        const content = frontmatter ? frontmatter + markdown : markdown;
+        const stamped = stampCompletionDates(markdown);
+        const content = frontmatter ? frontmatter + stamped : stamped;
         await invoke("vault_write_file", {
           relativePath: openFile.path,
           content,
@@ -390,7 +445,7 @@ export default function Vault({ refreshKey }: VaultProps) {
         setSaveStatus("error");
       }
     },
-    [openFile, frontmatter]
+    [openFile, frontmatter, stampCompletionDates]
   );
 
   // Keyboard shortcut for saving non-md files

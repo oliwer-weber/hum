@@ -3,6 +3,7 @@ import { Command } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { tagComponents } from "./TaggedText";
 import {
   classify,
   type ResponseType,
@@ -123,7 +124,7 @@ function useElapsedTime(startedAt: number, isActive: boolean) {
 function StreamingMarkdown({ content }: { content: string }) {
   return (
     <div className="res-markdown res-streaming">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={tagComponents}>{content}</ReactMarkdown>
       <span className="res-cursor" />
     </div>
   );

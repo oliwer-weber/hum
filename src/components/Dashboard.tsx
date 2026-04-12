@@ -1,28 +1,34 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { TaggedText } from "./TaggedText";
 
-interface Todo {
+/* ── Interfaces ─────────────────────────────────────── */
+
+interface GravityTodo {
   text: string;
-  completed: boolean;
-  subtasks?: string[];
+  project_name: string;
+  project_path: string;
+  color_index: number;
+  age_days: number;
+  is_blocked: boolean;
+  is_waiting: boolean;
 }
 
-interface Project {
+interface ProjectGravity {
   name: string;
-  openCount: number;
-  todos: Todo[];
-}
-
-interface ActivityItem {
-  date: string;
-  description: string;
-}
-
-interface DashboardData {
-  lastUpdated: string;
-  projects: Project[];
-  blocked: string[];
-  activity: ActivityItem[];
+  path: string;
+  open_todos: number;
+  completed_todos: number;
+  gravity: number;
+  color_index: number;
+  todo_pressure: number;
+  neglect_signal: number;
+  silence_penalty: number;
+  blocked_weight: number;
+  blocked_count: number;
+  waiting_count: number;
+  days_silent: number;
+  top_todos: GravityTodo[];
 }
 
 interface CalendarEvent {
@@ -41,72 +47,43 @@ interface CalendarData {
   events: CalendarEvent[];
 }
 
-function parseDashboard(raw: string): DashboardData {
-  const lines = raw.split("\n");
-  const data: DashboardData = {
-    lastUpdated: "",
-    projects: [],
-    blocked: [],
-    activity: [],
-  };
+/* ── Constants ──────────────────────────────────────── */
 
-  let section = "";
-  let currentProject: Project | null = null;
+const PROJECT_COLORS = [
+  "var(--aqua)", "var(--green)", "var(--yellow)",
+  "var(--blue)", "var(--purple)", "var(--orange)",
+];
 
-  for (const line of lines) {
-    if (line.startsWith("*Last updated:")) {
-      data.lastUpdated = line.replace(/\*/g, "").replace("Last updated:", "").trim();
-      continue;
-    }
-    if (line.startsWith("## Open Todos")) { section = "todos"; continue; }
-    if (line.startsWith("## Blocked")) { section = "blocked"; continue; }
-    if (line.startsWith("## Recent Activity")) { section = "activity"; continue; }
+const DAY_START = 8;
+const DAY_END = 17;
+const TOTAL_MINUTES = (DAY_END - DAY_START) * 60;
 
-    if (section === "todos" && line.startsWith("### ")) {
-      const nameMatch = line.match(/\\?\[\\?\[(?:.*?\/)?(.+?)\\?\]\\?\]/);
-      const countMatch = line.match(/\((\d+) open\)/);
-      if (nameMatch) {
-        currentProject = {
-          name: nameMatch[1],
-          openCount: countMatch ? parseInt(countMatch[1]) : 0,
-          todos: [],
-        };
-        data.projects.push(currentProject);
-      }
-      continue;
-    }
-
-    if (section === "todos" && currentProject && line.match(/^- \[[ x]\]/)) {
-      const completed = line.includes("[x]");
-      const text = line.replace(/^- \[[ x]\]\s*/, "").trim();
-      currentProject.todos.push({ text, completed });
-      continue;
-    }
-
-    if (section === "todos" && currentProject && line.match(/^\t/)) {
-      const lastTodo = currentProject.todos[currentProject.todos.length - 1];
-      if (lastTodo) {
-        if (!lastTodo.subtasks) lastTodo.subtasks = [];
-        lastTodo.subtasks.push(line.trim().replace(/^- /, ""));
-      }
-      continue;
-    }
-
-    if (section === "activity" && line.startsWith("- ")) {
-      const actMatch = line.match(/^- (\d{4}-\d{2}-\d{2}):\s*(.+)/);
-      if (actMatch) {
-        data.activity.push({ date: actMatch[1], description: actMatch[2] });
-      }
-      continue;
-    }
-  }
-
-  return data;
-}
-
+/* ── Helpers ────────────────────────────────────────── */
 
 function getTodayStr(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function parseDateStr(dateStr: string): string {
+  if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) return dateStr.substring(0, 10);
+  const d = new Date(dateStr);
+  if (!isNaN(d.getTime())) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+  return dateStr;
+}
+
+function formatDateLabel(dateStr: string): string {
+  const today = getTodayStr();
+  if (dateStr === today) return "Today";
+  const d = new Date(dateStr + "T00:00:00");
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
 }
 
 function getWeekNumber(date: Date): number {
@@ -116,6 +93,29 @@ function getWeekNumber(date: Date): number {
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
 }
+
+function timeToMinutes(time: string): number {
+  const [h, m] = time.split(":").map(Number);
+  return h * 60 + m;
+}
+
+function minutesToPercent(minutes: number): number {
+  return ((minutes - DAY_START * 60) / TOTAL_MINUTES) * 100;
+}
+
+function durationPercent(startMin: number, endMin: number): number {
+  return ((endMin - startMin) / TOTAL_MINUTES) * 100;
+}
+
+function formatAge(days: number): string {
+  if (days === 0) return "today";
+  if (days === 1) return "1d";
+  if (days < 7) return `${days}d`;
+  if (days < 30) return `${Math.floor(days / 7)}w`;
+  return `${Math.floor(days / 30)}mo`;
+}
+
+/* ── Month calendar ────────────────────────────────── */
 
 interface MonthGrid {
   year: number;
@@ -129,44 +129,39 @@ function buildMonthGrid(now: Date): MonthGrid {
   const month = now.getMonth();
   const monthNames = ["January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"];
-
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
   const daysInMonth = lastDay.getDate();
-
-  // Monday = 0
   let startDow = firstDay.getDay() - 1;
   if (startDow < 0) startDow = 6;
-
   const weeks: { weekNum: number; days: (number | null)[] }[] = [];
   let currentDay = 1;
-
-  // Build weeks
   while (currentDay <= daysInMonth) {
     const week: (number | null)[] = [];
     const weekDate = new Date(year, month, currentDay);
     const weekNum = getWeekNumber(weekDate);
-
     for (let dow = 0; dow < 7; dow++) {
-      if (weeks.length === 0 && dow < startDow) {
-        week.push(null);
-      } else if (currentDay > daysInMonth) {
-        week.push(null);
-      } else {
-        week.push(currentDay);
-        currentDay++;
-      }
+      if (weeks.length === 0 && dow < startDow) week.push(null);
+      else if (currentDay > daysInMonth) week.push(null);
+      else { week.push(currentDay); currentDay++; }
     }
-
     weeks.push({ weekNum, days: week });
   }
-
   return { year, month, monthName: monthNames[month], weeks };
 }
 
-function MonthCalendar({ events }: { events: CalendarEvent[] }) {
+function MonthCalendar({
+  events,
+  selectedDate,
+  onDayClick,
+}: {
+  events: CalendarEvent[];
+  selectedDate: string;
+  onDayClick: (dateStr: string) => void;
+}) {
   const now = new Date();
   const today = now.getDate();
+  const todayStr = getTodayStr();
   const grid = buildMonthGrid(now);
 
   const eventDates = new Set(events.map((e) => {
@@ -189,20 +184,28 @@ function MonthCalendar({ events }: { events: CalendarEvent[] }) {
         {grid.weeks.map((week, wi) => (
           <div key={wi} className="month-cal-row">
             <span className="month-cal-wk">{week.weekNum}</span>
-            {week.days.map((day, di) => (
-              <span
-                key={di}
-                className={[
-                  "month-cal-day",
-                  day === null ? "month-cal-day-empty" : "",
-                  day === today ? "month-cal-day-today" : "",
-                  day && eventDates.has(day) ? "month-cal-day-event" : "",
-                  di >= 5 ? "month-cal-day-weekend" : "",
-                ].filter(Boolean).join(" ")}
-              >
-                {day ?? ""}
-              </span>
-            ))}
+            {week.days.map((day, di) => {
+              const dateStr = day !== null
+                ? `${grid.year}-${String(grid.month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+                : null;
+              return (
+                <span
+                  key={di}
+                  className={[
+                    "month-cal-day",
+                    day === null ? "month-cal-day-empty" : "",
+                    day === today ? "month-cal-day-today" : "",
+                    dateStr === selectedDate && dateStr !== todayStr ? "month-cal-day-selected" : "",
+                    day !== null && eventDates.has(day) ? "month-cal-day-event" : "",
+                    di >= 5 ? "month-cal-day-weekend" : "",
+                  ].filter(Boolean).join(" ")}
+                  onClick={() => dateStr && day !== null && onDayClick(dateStr)}
+                  style={{ cursor: day !== null ? "pointer" : undefined }}
+                >
+                  {day ?? ""}
+                </span>
+              );
+            })}
           </div>
         ))}
       </div>
@@ -210,19 +213,44 @@ function MonthCalendar({ events }: { events: CalendarEvent[] }) {
   );
 }
 
-interface DashProps {
-  refreshKey: number;
+/* ── Schedule (read-only) ──────────────────────────── */
+
+function ScheduleMeetingBlock({ event }: { event: CalendarEvent }) {
+  const startMin = timeToMinutes(event.start);
+  const endMin = event.end ? timeToMinutes(event.end) : startMin + 60;
+  const top = minutesToPercent(Math.max(startMin, DAY_START * 60));
+  const height = durationPercent(
+    Math.max(startMin, DAY_START * 60),
+    Math.min(endMin, DAY_END * 60),
+  );
+
+  return (
+    <div className="dash-meeting-block" style={{ top: `${top}%`, height: `${Math.max(height, 3)}%` }}>
+      <span className="dash-meeting-time">{event.start}{event.end ? `–${event.end}` : ""}</span>
+      <span className="dash-meeting-title">{event.title}</span>
+      {event.location && <span className="dash-meeting-location">{event.location}</span>}
+    </div>
+  );
 }
 
-export default function Dashboard({ refreshKey }: DashProps) {
-  const [data, setData] = useState<DashboardData | null>(null);
+/* ── Main Dashboard ────────────────────────────────── */
+
+interface DashProps {
+  refreshKey: number;
+  onNavigateToFile?: (path: string) => void;
+}
+
+export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
+  const [projects, setProjects] = useState<ProjectGravity[]>([]);
   const [calendar, setCalendar] = useState<CalendarData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState(getTodayStr());
+  const [expandedProject, setExpandedProject] = useState<string | null>(null);
 
-  async function loadDashboard() {
+  async function loadGravity() {
     try {
-      const raw = await invoke<string>("read_dashboard");
-      setData(parseDashboard(raw));
+      const data = await invoke<ProjectGravity[]>("get_project_gravity");
+      setProjects(data);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -239,162 +267,264 @@ export default function Dashboard({ refreshKey }: DashProps) {
   }
 
   useEffect(() => {
-    loadDashboard();
+    loadGravity();
     loadCalendar();
   }, [refreshKey]);
 
+  // ── Tier 1: Top 5 gravity-ranked todos across all projects ──
+  const topTodos = useMemo(() => {
+    const all: GravityTodo[] = [];
+    for (const p of projects) {
+      for (const t of p.top_todos) {
+        if (!t.is_blocked && !t.is_waiting) {
+          all.push(t);
+        }
+      }
+    }
+    // Sort by individual neglect score (age_days / 14, capped) * project gravity
+    all.sort((a, b) => {
+      const aProject = projects.find(p => p.name === a.project_name);
+      const bProject = projects.find(p => p.name === b.project_name);
+      const aScore = Math.min(a.age_days / 14, 5.0) + (aProject?.gravity ?? 0) / 10;
+      const bScore = Math.min(b.age_days / 14, 5.0) + (bProject?.gravity ?? 0) / 10;
+      return bScore - aScore;
+    });
+    return all.slice(0, 5);
+  }, [projects]);
+
+  // ── Tier 2: Blocked & waiting todos ──
+  const stuckTodos = useMemo(() => {
+    const all: GravityTodo[] = [];
+    for (const p of projects) {
+      for (const t of p.top_todos) {
+        if (t.is_blocked || t.is_waiting) {
+          all.push(t);
+        }
+      }
+    }
+    return all;
+  }, [projects]);
+
+  // ── Tier 3: Projects sorted by gravity ──
+  const projectsWithOpenTodos = useMemo(
+    () => projects.filter(p => p.open_todos > 0),
+    [projects],
+  );
+
+  // ── Assign unique color+shape to visible projects ──
+  // 4 shape tiers × 6 colors = 24 unique combos before repeating
+  const PIP_SHAPES = ["filled-circle", "filled-square", "outline-circle", "outline-square"] as const;
+
+  const projectPipMap = useMemo(() => {
+    const map = new Map<string, { color: string; shape: string }>();
+    for (const p of projectsWithOpenTodos) {
+      if (!map.has(p.name)) {
+        const idx = map.size;
+        const colorIdx = idx % PROJECT_COLORS.length;
+        const shapeIdx = Math.floor(idx / PROJECT_COLORS.length) % PIP_SHAPES.length;
+        map.set(p.name, { color: PROJECT_COLORS[colorIdx], shape: PIP_SHAPES[shapeIdx] });
+      }
+    }
+    return map;
+  }, [projectsWithOpenTodos]);
+
+  const pipFor = useCallback(
+    (name: string) => projectPipMap.get(name) ?? { color: PROJECT_COLORS[0], shape: PIP_SHAPES[0] },
+    [projectPipMap],
+  );
+
+  // Schedule events for selected date
+  const selectedDateEvents = useMemo(
+    () => calendar?.events.filter((e) => parseDateStr(e.date) === selectedDate) ?? [],
+    [calendar, selectedDate],
+  );
+
+  const handleToggleTodo = useCallback(async (todo: GravityTodo) => {
+    // Optimistic: remove the todo from local state immediately
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.name === todo.project_name
+          ? {
+              ...p,
+              open_todos: Math.max(0, p.open_todos - 1),
+              completed_todos: p.completed_todos + 1,
+              top_todos: p.top_todos.filter((t) => t.text !== todo.text),
+            }
+          : p
+      )
+    );
+    try {
+      await invoke("toggle_dashboard_todo", {
+        project: todo.project_name,
+        todoText: todo.text,
+        checked: true,
+      });
+      // Reload full gravity data so rankings recalculate
+      loadGravity();
+    } catch (err) {
+      console.error("Failed to toggle todo:", err);
+      // Revert on error
+      loadGravity();
+    }
+  }, []);
+
+  const handleNavigateToProject = useCallback((name: string) => {
+    invoke<string>("vault_resolve_link", { target: name })
+      .then((path) => onNavigateToFile?.(path))
+      .catch((err) => console.error("Failed to resolve link:", err));
+  }, [onNavigateToFile]);
+
+  // ── Render ───────────────────────────────────────
+
   if (error) {
-    return (
-      <div className="dash">
-        <div className="dash-error">Failed to load dashboard: {error}</div>
-      </div>
-    );
+    return <div className="dash"><div className="dash-error">Failed to load: {error}</div></div>;
   }
-
-  if (!data) {
-    return (
-      <div className="dash">
-        <div className="dash-loading">Loading...</div>
-      </div>
-    );
-  }
-
-  const totalOpen = data.projects.reduce((sum, p) => sum + p.todos.filter(t => !t.completed).length, 0);
-  const activeProjects = data.projects.filter((p) => p.todos.some(t => !t.completed)).length;
-  const today = getTodayStr();
-  const todayEvents = calendar?.events.filter((e) => e.date === today) ?? [];
 
   return (
     <div className="dash">
-      {/* ── Stats row ────────────────────────────── */}
-      <div className="dash-stats">
-        <div className="stat-card">
-          <span className="stat-value stat-value-aqua">{totalOpen}</span>
-          <span className="stat-label">Open todos</span>
-        </div>
-        <div className="stat-card">
-          <span className="stat-value stat-value-green">{activeProjects}</span>
-          <span className="stat-label">Active projects</span>
-        </div>
-        <div className="stat-card">
-          <span className="stat-value stat-value-orange">{todayEvents.length}</span>
-          <span className="stat-label">Meetings today</span>
-        </div>
-        <div className="stat-card stat-card-meta">
-          <span className="stat-label">Updated {data.lastUpdated}</span>
-          <button className="secondary dash-refresh" onClick={() => { loadDashboard(); loadCalendar(); }}>
-            Refresh
-          </button>
-        </div>
-      </div>
-
-      {/* ── Main content ─────────────────────────── */}
       <div className="dash-layout">
-        {/* Left: Projects + Activity */}
+        {/* Left: Gravity tiers */}
         <div className="dash-main">
-          <div className="dash-section">
-            <h3 className="dash-section-title">Open Todos</h3>
-            {data.projects.map((project) => (
-              <div key={project.name} className="project-group">
-                <h4 className="project-group-name">
-                  {project.name}
-                  <span className="project-group-count">({project.todos.filter(t => !t.completed).length})</span>
-                </h4>
-                {project.todos.map((todo, i) => (
-                  <div
-                    key={i}
-                    className={`todo-row ${todo.completed ? "todo-done" : ""}`}
-                  >
-                    <input
-                      type="checkbox"
-                      className="todo-checkbox"
-                      checked={todo.completed}
-                      onChange={async () => {
-                        // Optimistic local update — instant feedback
-                        setData((prev) => {
-                          if (!prev) return prev;
-                          return {
-                            ...prev,
-                            projects: prev.projects.map((p) =>
-                              p.name === project.name
-                                ? {
-                                    ...p,
-                                    todos: p.todos.map((t, ti) =>
-                                      ti === i ? { ...t, completed: !t.completed } : t
-                                    ),
-                                  }
-                                : p
-                            ),
-                          };
-                        });
-                        // Persist to file
-                        try {
-                          await invoke("toggle_dashboard_todo", {
-                            project: project.name,
-                            todoText: todo.text,
-                            checked: !todo.completed,
-                          });
-                        } catch (err) {
-                          console.error("Failed to toggle todo:", err);
-                          loadDashboard(); // revert on error
-                        }
-                      }}
-                    />
-                    <div>
-                      <span className="todo-label">{todo.text}</span>
-                      {todo.subtasks && (
-                        <div className="todo-subs">
-                          {todo.subtasks.map((st, j) => (
-                            <div key={j} className="todo-sub">{st}</div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
+
+          {/* Tier 1: Needs attention */}
+          <div className="dash-tier">
+            <h3 className="dash-tier-title">Needs attention</h3>
+            {topTodos.length === 0 && (
+              <div className="dash-empty">No open items</div>
+            )}
+            {topTodos.map((todo, i) => (
+              <div key={i} className="gravity-todo">
+                <input
+                  type="checkbox"
+                  className="todo-checkbox"
+                  checked={false}
+                  onChange={() => handleToggleTodo(todo)}
+                />
+                <span
+                  className={`project-pip project-pip-${pipFor(todo.project_name).shape}`}
+                  style={{ "--pip-color": pipFor(todo.project_name).color } as React.CSSProperties}
+                />
+                <span className="gravity-todo-text"><TaggedText text={todo.text} /></span>
+                <span className={`gravity-todo-age ${todo.age_days >= 14 ? "gravity-todo-age-warm" : ""}`}>
+                  {formatAge(todo.age_days)}
+                </span>
               </div>
             ))}
           </div>
 
-          {data.activity.length > 0 && (
-            <div className="dash-section">
-              <h3 className="dash-section-title">Recent Activity</h3>
-              <div className="activity-compact">
-                {data.activity.slice(0, 5).map((item, i) => (
-                  <div key={i} className="activity-row-compact">
-                    <span className="activity-date-compact">{item.date.slice(5)}</span>
-                    <span className="activity-desc-compact">{item.description}</span>
-                  </div>
-                ))}
-              </div>
+          {/* Tier 2: Stuck */}
+          {stuckTodos.length > 0 && (
+            <div className="dash-tier dash-tier-stuck">
+              <h3 className="dash-tier-title">Stuck</h3>
+              {stuckTodos.slice(0, 3).map((todo, i) => (
+                <div key={i} className="gravity-todo gravity-todo-stuck">
+                  <input
+                    type="checkbox"
+                    className="todo-checkbox"
+                    checked={false}
+                    onChange={() => handleToggleTodo(todo)}
+                  />
+                  <span className="gravity-todo-text"><TaggedText text={todo.text} /></span>
+                  <span className={`vault-tag ${todo.is_blocked ? "vault-tag-blocked" : "vault-tag-waiting"}`}>
+                    {todo.is_blocked ? "#blocked" : "#waiting"}
+                  </span>
+                </div>
+              ))}
+              {stuckTodos.length > 3 && (
+                <span className="gravity-more">+{stuckTodos.length - 3} more</span>
+              )}
             </div>
           )}
+
+          {/* Tier 3: All projects (collapsed) */}
+          <div className="dash-tier dash-tier-projects">
+            <h3 className="dash-tier-title">Projects</h3>
+            <div className="dash-projects-list">
+              {projectsWithOpenTodos.map((project) => (
+                <div key={project.name} className="dash-project-row">
+                  <div className="dash-project-header">
+                    <span
+                      className={`project-pip project-pip-${pipFor(project.name).shape}`}
+                      style={{ "--pip-color": pipFor(project.name).color } as React.CSSProperties}
+                    />
+                    <span
+                      className="dash-project-name"
+                      onClick={() => setExpandedProject(
+                        expandedProject === project.name ? null : project.name
+                      )}
+                    >
+                      {project.name}
+                    </span>
+                    <span className="dash-project-count">{project.open_todos}</span>
+                    <span
+                      className={`dash-project-chevron ${expandedProject === project.name ? "dash-project-chevron-open" : ""}`}
+                      onClick={() => handleNavigateToProject(project.name)}
+                    >
+                      &#x25B8;
+                    </span>
+                  </div>
+                  {expandedProject === project.name && (
+                    <div className="dash-project-todos">
+                      {project.top_todos.map((todo, i) => (
+                        <div key={i} className="gravity-todo gravity-todo-nested">
+                          <input
+                            type="checkbox"
+                            className="todo-checkbox"
+                            checked={false}
+                            onChange={() => handleToggleTodo(todo)}
+                          />
+                          <span className="gravity-todo-text"><TaggedText text={todo.text} /></span>
+                          <span className={`gravity-todo-age ${todo.age_days >= 14 ? "gravity-todo-age-warm" : ""}`}>
+                            {formatAge(todo.age_days)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
-        {/* Right: Calendar sidebar */}
+        {/* Right: Calendar sidebar (read-only) */}
         <div className="dash-sidebar">
-          <MonthCalendar events={calendar?.events ?? []} />
+          <MonthCalendar
+            events={calendar?.events ?? []}
+            selectedDate={selectedDate}
+            onDayClick={setSelectedDate}
+          />
 
-          <div className="dash-section">
-            <h3 className="dash-section-title">Today's Schedule</h3>
-            {todayEvents.length === 0 ? (
-              <div className="calendar-empty">No meetings today</div>
-            ) : (
-              <div className="calendar-events">
-                {todayEvents.map((ev, i) => (
-                  <div key={i} className="cal-event">
-                    <div className="cal-time">
-                      {ev.start}
-                      {ev.end && <span className="cal-time-end"> — {ev.end}</span>}
-                    </div>
-                    <div className="cal-details">
-                      <span className="cal-title">{ev.title}</span>
-                      {ev.location && <span className="cal-location">{ev.location}</span>}
-                    </div>
-                  </div>
+          <div className="dash-tier dash-tier-fill">
+            <div className="dash-schedule-header">
+              <h3 className="dash-tier-title" style={{ marginBottom: 0 }}>
+                {formatDateLabel(selectedDate)}
+              </h3>
+              {selectedDate !== getTodayStr() && (
+                <button
+                  className="dash-today-btn"
+                  onClick={() => setSelectedDate(getTodayStr())}
+                >
+                  Today
+                </button>
+              )}
+            </div>
+
+            <div className="dash-schedule">
+              {selectedDateEvents
+                .filter((e) => {
+                  const startMin = timeToMinutes(e.start);
+                  const endMin = e.end ? timeToMinutes(e.end) : startMin + 60;
+                  return endMin > DAY_START * 60 && startMin < DAY_END * 60;
+                })
+                .map((event, i) => (
+                  <ScheduleMeetingBlock key={i} event={event} />
                 ))}
-              </div>
-            )}
+
+              {selectedDateEvents.length === 0 && (
+                <div className="dash-schedule-empty">No events</div>
+              )}
+            </div>
           </div>
         </div>
       </div>
