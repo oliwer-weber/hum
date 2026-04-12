@@ -347,10 +347,7 @@ pub fn process(vault_override: Option<PathBuf>) -> Result<ProcessResult, String>
         match section.tag {
             None => {
                 // Untagged content — keep in inbox
-                let non_empty: Vec<String> = section.lines.iter()
-                    .filter(|l| !l.trim().is_empty() || true) // keep blank lines for structure
-                    .cloned()
-                    .collect();
+                let non_empty: Vec<String> = section.lines.clone();
                 if non_empty.iter().any(|l| !l.trim().is_empty()) {
                     all_untagged.extend(non_empty);
                 }

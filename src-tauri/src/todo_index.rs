@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::todo_parser;
@@ -276,7 +276,3 @@ pub fn rebuild_and_persist(vault: &Path) -> Result<TodoIndex, String> {
     Ok(index)
 }
 
-/// Get the index file path for a vault.
-pub fn index_path(vault: &Path) -> PathBuf {
-    vault.join(INDEX_FILENAME)
-}

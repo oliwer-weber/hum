@@ -9,9 +9,7 @@ mod todo_index;
 mod todo_parser;
 
 use chrono::{Datelike, Local};
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 
 /// Number of project pip colors (excludes red which signals errors).
 const NUM_PROJECT_COLORS: usize = 6;
@@ -723,97 +721,6 @@ fn get_project_gravity() -> Result<Vec<ProjectGravity>, String> {
     Ok(results)
 }
 
-/* ── Safety snapshot ─────────────────────────────── */
-
-#[derive(serde::Serialize)]
-struct SnapshotTodo {
-    file: String,          // relative path from vault root
-    line: usize,           // 1-based line number
-    raw: String,           // full raw line text
-    checked: bool,
-}
-
-#[tauri::command]
-fn snapshot_todos() -> Result<String, String> {
-    let vault = vault_path();
-    let config_path = vault.join("claude-config.md");
-    let config = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config: {}", e))?;
-
-    let mut todos: Vec<SnapshotTodo> = Vec::new();
-
-    // Scan all project todos.md (active projects from config)
-    for line in config.lines() {
-        let trimmed = line.trim();
-        if !trimmed.starts_with("- 01 projects/") {
-            continue;
-        }
-        let rel_path = trimmed.trim_start_matches("- ").to_string();
-        let todos_file = format!("{}/todos.md", rel_path);
-        let todos_path = vault.join(&rel_path).join("todos.md");
-
-        if let Ok(content) = fs::read_to_string(&todos_path) {
-            for (i, todo_line) in content.lines().enumerate() {
-                let t = todo_line.trim();
-                if t.starts_with("- [ ]") || t.starts_with("- [x]") {
-                    todos.push(SnapshotTodo {
-                        file: todos_file.clone(),
-                        line: i + 1,
-                        raw: todo_line.to_string(),
-                        checked: t.starts_with("- [x]"),
-                    });
-                }
-            }
-        }
-    }
-
-    // Also scan archived projects
-    let archive_dir = vault.join("01 projects").join("99 Archived projects");
-    if archive_dir.exists() {
-        fn scan_archive(dir: &std::path::Path, vault: &std::path::Path, todos: &mut Vec<SnapshotTodo>) {
-            let Ok(entries) = fs::read_dir(dir) else { return };
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    let todos_path = path.join("todos.md");
-                    if todos_path.exists() {
-                        let rel = todos_path.strip_prefix(vault)
-                            .map(|p| p.to_string_lossy().replace('\\', "/"))
-                            .unwrap_or_default();
-                        if let Ok(content) = fs::read_to_string(&todos_path) {
-                            for (i, line) in content.lines().enumerate() {
-                                let t = line.trim();
-                                if t.starts_with("- [ ]") || t.starts_with("- [x]") {
-                                    todos.push(SnapshotTodo {
-                                        file: rel.clone(),
-                                        line: i + 1,
-                                        raw: line.to_string(),
-                                        checked: t.starts_with("- [x]"),
-                                    });
-                                }
-                            }
-                        }
-                    }
-                    scan_archive(&path, vault, todos);
-                }
-            }
-        }
-        scan_archive(&archive_dir, &vault, &mut todos);
-    }
-
-    // Write snapshot to vault root
-    let json = serde_json::to_string_pretty(&todos)
-        .map_err(|e| format!("Failed to serialize snapshot: {}", e))?;
-
-    let timestamp = Local::now().format("%Y%m%d_%H%M%S");
-    let snapshot_path = vault.join(format!(".todo-snapshot-{}.json", timestamp));
-    fs::write(&snapshot_path, &json)
-        .map_err(|e| format!("Failed to write snapshot: {}", e))?;
-
-    Ok(format!("Snapshot saved: {} todos captured to {}", todos.len(),
-        snapshot_path.file_name().unwrap_or_default().to_string_lossy()))
-}
-
 /* ── Todo index commands ─────────────────────────── */
 
 /// Rebuild the todo index from scratch (stamps UUIDs on active projects, scans all files).
@@ -838,80 +745,7 @@ fn get_todo_index() -> Result<todo_index::TodoIndex, String> {
     }
 }
 
-/* ── Plan (Time Canvas) commands ──────────────────── */
-
-#[derive(serde::Serialize, Clone)]
-struct TodoItem {
-    id: String,
-    text: String,
-    project_name: String,
-    project_path: String,
-    color_index: usize,
-}
-
-fn hash_string(s: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    s.hash(&mut hasher);
-    hasher.finish()
-}
-
-#[tauri::command]
-fn get_all_open_todos() -> Result<Vec<TodoItem>, String> {
-    let vault = vault_path();
-    let config_path = vault.join("claude-config.md");
-    let config = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read claude-config.md: {}", e))?;
-
-    let color_map = build_project_color_map(&config);
-    let mut todos = Vec::new();
-
-    for line in config.lines() {
-        let trimmed = line.trim();
-        if !trimmed.starts_with("- 01 projects/") {
-            continue;
-        }
-        let rel_path = trimmed.trim_start_matches("- ").to_string();
-        let project_name = rel_path
-            .trim_end_matches('/')
-            .rsplit('/')
-            .next()
-            .unwrap_or(&rel_path)
-            .to_string();
-        let color_index = color_map.get(&project_name).copied().unwrap_or(0);
-
-        let todos_path = vault.join(&rel_path).join("todos.md");
-        let content = match fs::read_to_string(&todos_path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-
-        let blocks = todo_parser::parse_todo_blocks(&content);
-        for block in &blocks {
-            if block.checked {
-                continue;
-            }
-            // Use UUID if available, fall back to hash
-            let id = match &block.id {
-                Some(uuid) => uuid.clone(),
-                None => {
-                    let id_source = format!("{}:{}", rel_path, block.text);
-                    format!("{:x}", hash_string(&id_source))
-                }
-            };
-            todos.push(TodoItem {
-                id,
-                text: block.text.clone(),
-                project_name: project_name.clone(),
-                project_path: rel_path.clone(),
-                color_index,
-            });
-        }
-    }
-
-    Ok(todos)
-}
-
-/* ── Weekly Summary ───────────────────���──────────── */
+/* ── Weekly Summary ──────────────────────────────────────────── */
 
 #[derive(serde::Serialize)]
 struct WeeklySummaryDay {
@@ -1089,10 +923,7 @@ pub fn run() {
             hum::hum_review,
             process_inbox,
             get_project_gravity,
-            get_all_open_todos,
-
             get_weekly_summary,
-            snapshot_todos,
             rebuild_todo_index,
             get_todo_index,
         ])
