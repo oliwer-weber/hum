@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 use chrono::Local;
 use serde::Serialize;
 
+use crate::todo_index;
+use crate::todo_parser;
 use crate::vault_path;
 
 // ── Types ────────────────────────────────────────────
@@ -156,14 +158,40 @@ fn strip_frontmatter(content: &str) -> &str {
 
 // ── File operations ──────────────────────────────────
 
-fn append_todos(vault: &Path, project_path: &str, todos: &[String]) -> Result<(), String> {
+/// Append todo blocks to a project's todos.md. Each block is the full raw
+/// markdown (checkbox line + continuation lines). UUID and created tag are
+/// stamped on the first line of each block.
+fn append_todos(vault: &Path, project_path: &str, todo_blocks: &[String], date_str: &str) -> Result<(), String> {
     let path = vault.join(project_path).join("todos.md");
     let existing = fs::read_to_string(&path).unwrap_or_default();
+    let created_tag = format!(" <!-- created:{} -->", date_str);
 
     let mut new_content = existing.trim_end().to_string();
-    for todo in todos {
+    for block in todo_blocks {
         new_content.push('\n');
-        new_content.push_str(todo);
+        let mut lines = block.lines();
+        if let Some(first_line) = lines.next() {
+            let mut stamped = first_line.trim_end().to_string();
+
+            // Stamp UUID if not already present
+            if !stamped.contains("<!-- id:") {
+                let id = todo_index::generate_id();
+                stamped = format!("{} <!-- id:{} -->", stamped, id);
+            }
+
+            // Stamp created date if not already present
+            if !stamped.contains("<!-- created:") {
+                stamped = format!("{}{}", stamped, created_tag);
+            }
+
+            new_content.push_str(&stamped);
+
+            // Append continuation lines as-is
+            for continuation in lines {
+                new_content.push('\n');
+                new_content.push_str(continuation);
+            }
+        }
     }
     new_content.push('\n');
 
@@ -337,24 +365,35 @@ pub fn process(vault_override: Option<PathBuf>) -> Result<ProcessResult, String>
                         all_untagged.extend(section.lines);
                     }
                     Some(project) => {
-                        // Split lines into todos and notes
-                        let mut todos: Vec<String> = Vec::new();
-                        let mut notes: Vec<String> = Vec::new();
+                        // Block-aware split: parse todo blocks (checkbox + continuations),
+                        // everything else goes to notes
+                        let section_text = section.lines.join("\n");
+                        let blocks = todo_parser::parse_todo_blocks(&section_text);
 
-                        for line in &section.lines {
-                            let trimmed = line.trim();
-                            if trimmed.starts_with("- [ ]") || trimmed.starts_with("- [x]") {
-                                todos.push(line.clone());
-                            } else if !trimmed.is_empty() {
+                        // Collect line ranges covered by todo blocks
+                        let mut todo_line_ranges: Vec<(usize, usize)> = Vec::new();
+                        let mut todo_raw_blocks: Vec<String> = Vec::new();
+                        for block in &blocks {
+                            let start = block.line_number - 1; // 0-based
+                            let end = start + block.line_count;
+                            todo_line_ranges.push((start, end));
+                            todo_raw_blocks.push(todo_parser::block_to_markdown(block));
+                        }
+
+                        // Lines not covered by any todo block are notes
+                        let mut notes: Vec<String> = Vec::new();
+                        for (i, line) in section.lines.iter().enumerate() {
+                            let in_todo = todo_line_ranges.iter().any(|(s, e)| i >= *s && i < *e);
+                            if !in_todo && !line.trim().is_empty() {
                                 notes.push(line.clone());
                             }
                         }
 
-                        let todo_count = todos.len();
+                        let todo_count = blocks.len();
                         let note_count = notes.len();
 
-                        if !todos.is_empty() {
-                            append_todos(&vault, &project.rel_path, &todos)?;
+                        if !todo_raw_blocks.is_empty() {
+                            append_todos(&vault, &project.rel_path, &todo_raw_blocks, &today)?;
                         }
 
                         if !notes.is_empty() {
@@ -389,6 +428,11 @@ pub fn process(vault_override: Option<PathBuf>) -> Result<ProcessResult, String>
 
     // Update config timestamp
     update_config_timestamp(&vault, &timestamp)?;
+
+    // Rebuild todo index after routing
+    if let Err(e) = todo_index::rebuild_and_persist(&vault) {
+        eprintln!("Warning: todo index rebuild failed: {}", e);
+    }
 
     Ok(ProcessResult {
         routed,

@@ -67,33 +67,42 @@ Call `process_inbox` first. It instantly routes all `@project`-tagged content:
 After `process_inbox` returns:
 1. Handle **unknown `@tags`** — check for typos against active projects, ask user if ambiguous, create new project if clearly new.
 2. Handle **untagged content** left in inbox — ask the user where it goes, don't guess.
-3. Run **todo reconciliation** across all active projects.
-4. **Regenerate dashboard** (`00 Home/dashboard.md`).
-5. Report what was done — mention the deterministic routing summary + anything you handled.
+3. Report what was done — mention the deterministic routing summary + anything you handled.
 
 Never manually route `@tagged` content with read/write/append — that's what `process_inbox` does.
 
-## Todo Reconciliation
+## Todo System
 
-On any operation, reconcile todos: if checked in one place but unchecked elsewhere, mark checked everywhere. Match by content (fuzzy). Append completion date: `- [x] Task ✅ YYYY-MM-DD`.
+Todos are tracked by UUID in `.todo-index.json`. Each todo in `todos.md` has an HTML comment `<!-- id:xxxx -->` on its checkbox line. The deterministic system handles:
+- UUID assignment (at inbox routing time)
+- Index building (scanning all todos.md files)
+- Dashboard regeneration
+- Duplicate detection, staleness, reconciliation
 
-## Dashboard Format
+**You do NOT need to:**
+- Manually reconcile todos across files
+- Stamp creation dates or UUIDs
+- Regenerate the dashboard
+- Detect duplicates or stale todos
 
-Regenerate after inbox processing or when asked. Format:
-```
-# Dashboard
-*Last updated: YYYY-MM-DD HH:MM*
+**You CAN:**
+- Read todos via the index or by reading todos.md files
+- Create new todos (the system will stamp UUIDs on next index rebuild)
+- Complete todos by checking them off with `✅ YYYY-MM-DD`
 
-## Open Todos
-### Project Name (N open)
-- [ ] Todo item
+## Weekly Summary
 
-## Blocked / Waiting
-- [ ] Item — project-name #waiting
+When the user asks for a weekly summary (or "what did I do this week", etc.):
+1. Call `get_weekly_summary` with the appropriate `week_offset` (0 = this week, -1 = last week)
+2. Present the structured data conversationally, grouped by day
+3. For each active day, list the project and what was completed / noted
+4. Add a brief human observation at the end (busy week, quiet week, heavy on one project, etc.)
+5. This is for timesheet reporting — focus on what was DONE, not what's still open
+6. Do NOT scan the vault manually for this — the tool already gathers everything deterministically
 
-## Recent Activity
-- YYYY-MM-DD: Brief description
-```
+## Dashboard
+
+The dashboard is regenerated deterministically by the app after inbox processing or todo toggling. You do not need to regenerate it manually.
 
 ## Tagging
 
@@ -216,6 +225,20 @@ fn tool_definitions() -> Vec<Value> {
                 "type": "object",
                 "properties": {},
                 "required": []
+            }
+        }),
+        json!({
+            "name": "get_weekly_summary",
+            "description": "Get a structured summary of what was done during a week. Returns per-day, per-project data: completed todos (with text) and whether notes were written. Use week_offset 0 for current week, -1 for last week, etc. Always call this FIRST when the user asks for a weekly summary — then present the data conversationally.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "week_offset": {
+                        "type": "integer",
+                        "description": "Week offset from current week. 0 = this week, -1 = last week, etc."
+                    }
+                },
+                "required": ["week_offset"]
             }
         }),
     ]
@@ -343,6 +366,16 @@ fn execute_tool(vault: &Path, name: &str, input: &Value) -> String {
             match crate::inbox::process(Some(vault.to_path_buf())) {
                 Ok(result) => serde_json::to_string_pretty(&result).unwrap_or_else(|e| format!("Serialization error: {}", e)),
                 Err(e) => format!("Inbox processing failed: {}", e),
+            }
+        }
+        "get_weekly_summary" => {
+            let week_offset = input.get("week_offset")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as i32;
+            match crate::get_weekly_summary(week_offset) {
+                Ok(summary) => serde_json::to_string_pretty(&summary)
+                    .unwrap_or_else(|e| format!("Serialization error: {}", e)),
+                Err(e) => format!("Weekly summary failed: {}", e),
             }
         }
         "fetch_calendar" => {
@@ -678,4 +711,233 @@ pub async fn hum_send(
         // Loop continues — Claude will process the tool results and either
         // call more tools or give a final text response
     }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Background review — separate from Hum chat
+ * ═══════════════════════════════════════════════════════════════════ */
+
+const REVIEW_PROMPT: &str = r#"You are a background vault reviewer. You just received the results of a deterministic inbox processing script. Your job is to silently verify correctness and catch anything the script missed.
+
+## Rules
+- Be extremely concise. Only report issues that need human input.
+- If everything looks fine, respond with exactly: `{"status":"ok"}`
+- If you find issues, respond with JSON: `{"status":"issues","items":[{"type":"unknown_tag","tag":"...","suggestion":"..."},{"type":"duplicate_todo","project":"...","todos":["...","..."]},{"type":"missed_content","description":"..."}]}`
+- You have vault tools available. Use them to verify the routed content landed correctly and check for duplicate todos.
+- Do NOT modify any files unless you are certain about a fix (e.g. obvious typo in a tag that matches exactly one project).
+- For ambiguous cases, always report back instead of guessing.
+
+## Review checklist
+1. Unknown tags: check if any are typos of known projects (Levenshtein distance ≤ 2)
+2. Duplicate todos: scan routed projects for near-duplicate open todos
+3. Untagged content: flag if anything meaningful was left behind
+4. Dashboard: verify dashboard.md was updated correctly (it was rebuilt deterministically)
+"#;
+
+const CONSOLIDATION_PROMPT: &str = r#"You are running a periodic vault health check. Scan all active projects and consolidate.
+
+## Rules
+- Be concise. Report findings as JSON.
+- Response format: `{"status":"ok"}` if clean, or `{"status":"issues","items":[...]}`
+- Item types: `duplicate_todo`, `stale_todo`, `inconsistent_state`, `suggestion`
+
+## Tasks
+1. Read all active project todos. Flag duplicates (same or very similar text across projects or within a project).
+2. Check for stale todos — items that have been open for a long time with no related activity.
+3. Verify dashboard.md accurately reflects current vault state.
+4. Check that all project hub files have consistent structure.
+5. If you find safe fixes (exact duplicates), apply them. For anything ambiguous, report it.
+"#;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ReviewItem {
+    #[serde(rename = "type")]
+    pub item_type: String,
+    #[serde(flatten)]
+    pub details: Value,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ReviewResult {
+    pub status: String,
+    #[serde(default)]
+    pub items: Vec<ReviewItem>,
+}
+
+#[tauri::command]
+pub async fn hum_review(
+    app: AppHandle,
+    process_result: String,
+    review_type: String,  // "process" or "consolidation"
+) -> Result<ReviewResult, String> {
+    let api_key = std::env::var("ANTHROPIC_API_KEY")
+        .map_err(|_| "ANTHROPIC_API_KEY not set.".to_string())?;
+
+    let vault = crate::vault_path();
+    let tools = tool_definitions();
+    let client = Client::new();
+
+    let now = chrono::Local::now();
+    let system_prompt = match review_type.as_str() {
+        "consolidation" => format!(
+            "Current date: {} ({})\n\n{}",
+            now.format("%Y-%m-%d %H:%M"),
+            now.format("%A"),
+            CONSOLIDATION_PROMPT
+        ),
+        _ => format!(
+            "Current date: {} ({})\n\n{}",
+            now.format("%Y-%m-%d %H:%M"),
+            now.format("%A"),
+            REVIEW_PROMPT
+        ),
+    };
+
+    let user_message = match review_type.as_str() {
+        "consolidation" => "Run a full vault health check and consolidation pass.".to_string(),
+        _ => format!("Inbox processing just completed. Here are the results:\n\n{}\n\nReview the results and check for issues.", process_result),
+    };
+
+    let mut conversation = vec![ChatMessage {
+        role: "user".to_string(),
+        content: json!(user_message),
+    }];
+
+    let mut rounds = 0;
+    let mut final_text = String::new();
+
+    let _ = app.emit("review:start", &review_type);
+
+    loop {
+        rounds += 1;
+        if rounds > 15 {
+            let _ = app.emit("review:error", "Review exceeded max rounds");
+            return Err("Exceeded max review rounds".to_string());
+        }
+
+        let request = ApiRequest {
+            model: MODEL.to_string(),
+            max_tokens: MAX_TOKENS,
+            system: system_prompt.clone(),
+            messages: conversation.clone(),
+            tools: tools.clone(),
+            stream: true,
+        };
+
+        // Don't emit text to the main chat — this is a background review
+        let (content_blocks, stop_reason) = match stream_response(&client, &api_key, &request, &app, false).await {
+            Ok(result) => result,
+            Err(e) => {
+                let _ = app.emit("review:error", e.clone());
+                return Err(e);
+            }
+        };
+
+        // Collect any final text from this round
+        // (text blocks aren't in content_blocks since we set emit_text=false,
+        // but we need to capture the response somehow)
+        // Actually, text blocks are NOT in content_blocks — only tool_use blocks are.
+        // We need to track the streamed text separately. Let me fix this.
+
+        if stop_reason != "tool_use" || content_blocks.is_empty() {
+            // Final round — parse the result
+            break;
+        }
+
+        // Tool use round
+        let mut assistant_content: Vec<Value> = Vec::new();
+        for block in &content_blocks {
+            assistant_content.push(block.clone());
+        }
+
+        conversation.push(ChatMessage {
+            role: "assistant".to_string(),
+            content: json!(assistant_content),
+        });
+
+        let mut tool_results: Vec<Value> = Vec::new();
+
+        for block in &content_blocks {
+            if block.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
+                let tool_id = block.get("id").and_then(|i| i.as_str()).unwrap_or("");
+                let tool_name = block.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                let empty = json!({});
+                let tool_input = block.get("input").unwrap_or(&empty);
+
+                let _ = app.emit("review:activity", format!("reviewing: {}", tool_name));
+                let result = execute_tool(&vault, tool_name, tool_input);
+
+                tool_results.push(json!({
+                    "type": "tool_result",
+                    "tool_use_id": tool_id,
+                    "content": result,
+                }));
+            }
+        }
+
+        conversation.push(ChatMessage {
+            role: "user".to_string(),
+            content: json!(tool_results),
+        });
+    }
+
+    // The text was streamed but not captured since emit_text was false.
+    // We need to make one more non-streaming call to get the final text response,
+    // OR we need to modify stream_response to also collect text.
+    // Simpler: make a non-streaming call for the final response.
+
+    // Actually, let me re-approach: use stream_response with emit_text=false but
+    // we need to capture the text. The issue is stream_response only returns
+    // tool_use content blocks. Let me fix this by making a simple non-streaming call
+    // for the final round.
+
+    let final_request = ApiRequest {
+        model: MODEL.to_string(),
+        max_tokens: MAX_TOKENS,
+        system: system_prompt.clone(),
+        messages: conversation.clone(),
+        tools: Vec::new(), // No tools for final response
+        stream: false,
+    };
+
+    let response = client
+        .post(API_URL)
+        .header("x-api-key", &api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .json(&final_request)
+        .send()
+        .await
+        .map_err(|e| format!("API request failed: {}", e))?;
+
+    let body: Value = response.json().await
+        .map_err(|e| format!("Failed to parse API response: {}", e))?;
+
+    if let Some(content) = body.get("content").and_then(|c| c.as_array()) {
+        for block in content {
+            if block.get("type").and_then(|t| t.as_str()) == Some("text") {
+                if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
+                    final_text.push_str(text);
+                }
+            }
+        }
+    }
+
+    // Parse the JSON response
+    let result: ReviewResult = if let Some(json_start) = final_text.find('{') {
+        let json_end = final_text.rfind('}').unwrap_or(final_text.len() - 1);
+        let json_str = &final_text[json_start..=json_end];
+        serde_json::from_str(json_str).unwrap_or(ReviewResult {
+            status: "ok".to_string(),
+            items: Vec::new(),
+        })
+    } else {
+        ReviewResult {
+            status: "ok".to_string(),
+            items: Vec::new(),
+        }
+    };
+
+    let _ = app.emit("review:done", &result);
+    Ok(result)
 }

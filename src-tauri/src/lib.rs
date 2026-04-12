@@ -5,9 +5,37 @@ use std::process::Command;
 
 mod hum;
 mod inbox;
+mod todo_index;
+mod todo_parser;
 
+use chrono::{Datelike, Local};
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+
+/// Number of project pip colors (excludes red which signals errors).
+const NUM_PROJECT_COLORS: usize = 6;
+
+/// Build a deterministic project-name → color_index map from claude-config.md.
+/// Colors are assigned in config order, cycling after all 6 are used.
+/// The palette order (matching the frontend): aqua=0, green=1, yellow=2, blue=3, purple=4, orange=5.
+/// Red (index 6) is intentionally excluded.
+fn build_project_color_map(config: &str) -> HashMap<String, usize> {
+    let mut map = HashMap::new();
+    let mut idx = 0usize;
+    for line in config.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("- 01 projects/") {
+            let rel = trimmed.trim_start_matches("- ");
+            let name = rel.rsplit('/').next().unwrap_or(rel).to_string();
+            if !map.contains_key(&name) {
+                map.insert(name, idx % NUM_PROJECT_COLORS);
+                idx += 1;
+            }
+        }
+    }
+    map
+}
 
 #[derive(serde::Serialize)]
 struct ProjectGravity {
@@ -17,6 +45,27 @@ struct ProjectGravity {
     completed_todos: usize,
     gravity: f64,
     color_index: usize,
+    // Gravity breakdown (for potential UI use)
+    todo_pressure: f64,
+    neglect_signal: f64,
+    silence_penalty: f64,
+    blocked_weight: f64,
+    blocked_count: usize,
+    waiting_count: usize,
+    days_silent: u32,
+    // Top todos ranked by individual weight (age)
+    top_todos: Vec<GravityTodo>,
+}
+
+#[derive(serde::Serialize, Clone)]
+struct GravityTodo {
+    text: String,
+    project_name: String,
+    project_path: String,
+    color_index: usize,
+    age_days: u32,
+    is_blocked: bool,
+    is_waiting: bool,
 }
 
 fn vault_path() -> PathBuf {
@@ -69,23 +118,112 @@ fn get_vault_path() -> String {
 
 #[tauri::command]
 fn toggle_dashboard_todo(project: String, todo_text: String, checked: bool) -> Result<(), String> {
-    let path = vault_path().join("00 Home").join("dashboard.md");
-    let content = fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read dashboard: {}", e))?;
+    let vault = vault_path();
 
-    let from = if checked {
-        format!("- [ ] {}", todo_text)
+    // Find the project's todos.md by scanning config for matching project name
+    let config_path = vault.join("claude-config.md");
+    let config = fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read config: {}", e))?;
+
+    let mut project_rel: Option<String> = None;
+    for line in config.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("- 01 projects/") {
+            let rel = trimmed.trim_start_matches("- ").to_string();
+            let name = rel.rsplit('/').next().unwrap_or(&rel);
+            if name.eq_ignore_ascii_case(&project) {
+                project_rel = Some(rel);
+                break;
+            }
+        }
+    }
+
+    let rel = project_rel.ok_or_else(|| format!("Project not found: {}", project))?;
+    let todos_path = vault.join(&rel).join("todos.md");
+    let content = fs::read_to_string(&todos_path)
+        .map_err(|e| format!("Failed to read todos.md: {}", e))?;
+
+    let blocks = todo_parser::parse_todo_blocks(&content);
+    let today_str = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+    // Find the target block — try UUID match first (if todo_text looks like a UUID),
+    // then fall back to text match
+    let target_line = blocks.iter().find(|b| {
+        // UUID match: todo_text matches the block's id
+        if let Some(ref id) = b.id {
+            if id == &todo_text {
+                return true;
+            }
+        }
+        // Text match (backwards compat): clean text matches todo_text
+        b.text == todo_text
+    });
+
+    let target = target_line
+        .ok_or_else(|| format!("Todo not found: {}", todo_text))?;
+
+    // Replace the checkbox line in the raw content
+    let lines: Vec<&str> = content.lines().collect();
+    let mut updated_lines: Vec<String> = Vec::new();
+
+    for (i, line) in lines.iter().enumerate() {
+        let line_num = i + 1; // 1-based
+        if line_num == target.line_number {
+            let trimmed = line.trim();
+            if checked && trimmed.starts_with("- [ ]") {
+                // Check it off: rebuild as - [x] text ✅ date <!-- id:xxx --> <!-- created:xxx -->
+                let mut new_line = format!("- [x] {}", target.text);
+                // Add status tags back
+                for tag in &target.tags {
+                    new_line.push(' ');
+                    new_line.push_str(tag);
+                }
+                new_line.push_str(&format!(" ✅ {}", today_str));
+                // Preserve id and created comments
+                if let Some(ref id) = target.id {
+                    new_line.push_str(&format!(" <!-- id:{} -->", id));
+                }
+                if let Some(ref created) = target.created {
+                    new_line.push_str(&format!(" <!-- created:{} -->", created));
+                }
+                updated_lines.push(new_line);
+            } else if !checked && trimmed.starts_with("- [x]") {
+                // Uncheck it
+                let mut new_line = format!("- [ ] {}", target.text);
+                for tag in &target.tags {
+                    new_line.push(' ');
+                    new_line.push_str(tag);
+                }
+                if let Some(ref id) = target.id {
+                    new_line.push_str(&format!(" <!-- id:{} -->", id));
+                }
+                if let Some(ref created) = target.created {
+                    new_line.push_str(&format!(" <!-- created:{} -->", created));
+                }
+                updated_lines.push(new_line);
+            } else {
+                updated_lines.push(line.to_string());
+            }
+        } else {
+            updated_lines.push(line.to_string());
+        }
+    }
+
+    let result = updated_lines.join("\n");
+    let result = if content.ends_with('\n') && !result.ends_with('\n') {
+        result + "\n"
     } else {
-        format!("- [x] {}", todo_text)
-    };
-    let to = if checked {
-        format!("- [x] {}", todo_text)
-    } else {
-        format!("- [ ] {}", todo_text)
+        result
     };
 
-    let updated = content.replacen(&from, &to, 1);
-    fs::write(&path, updated).map_err(|e| format!("Failed to write dashboard: {}", e))
+    fs::write(&todos_path, result).map_err(|e| format!("Failed to write todos.md: {}", e))?;
+
+    // Update the todo index after toggling
+    if let Err(e) = todo_index::rebuild_and_persist(&vault) {
+        eprintln!("Warning: todo index rebuild failed: {}", e);
+    }
+
+    Ok(())
 }
 
 /// File info returned by vault_all_files — used for wikilink suggestions and existence checks.
@@ -157,33 +295,43 @@ fn vault_resolve_link(target: String) -> Result<String, String> {
         .map(|f| f.to_string_lossy().to_lowercase())
         .unwrap_or_default();
 
-    fn find_file(dir: &Path, name: &str) -> Option<PathBuf> {
-        let Ok(entries) = fs::read_dir(dir) else { return None };
+    fn find_all(dir: &Path, name: &str, results: &mut Vec<PathBuf>) {
+        let Ok(entries) = fs::read_dir(dir) else { return };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
                 if entry.file_name().to_string_lossy().starts_with('.') {
                     continue;
                 }
-                if let Some(found) = find_file(&path, name) {
-                    return Some(found);
-                }
+                find_all(&path, name, results);
             } else if path.file_name()
                 .map(|f| f.to_string_lossy().to_lowercase()) == Some(name.to_string())
             {
-                return Some(path);
+                results.push(path);
             }
         }
-        None
     }
 
-    match find_file(&base, &file_name) {
-        Some(path) => {
-            let relative = path.strip_prefix(&base).unwrap_or(&path);
-            Ok(relative.to_string_lossy().replace('\\', "/"))
-        }
-        None => Err(format!("Not found: {}", target))
+    let mut matches = Vec::new();
+    find_all(&base, &file_name, &mut matches);
+
+    if matches.is_empty() {
+        return Err(format!("Not found: {}", target));
     }
+
+    // Prefer hub file: parent directory name matches the file stem (e.g. Project/Project.md)
+    let stem = file_name.trim_end_matches(".md");
+    let best = matches.iter()
+        .find(|p| {
+            p.parent()
+                .and_then(|d| d.file_name())
+                .map(|d| d.to_string_lossy().to_lowercase() == stem)
+                .unwrap_or(false)
+        })
+        .unwrap_or(&matches[0]);
+
+    let relative = best.strip_prefix(&base).unwrap_or(best);
+    Ok(relative.to_string_lossy().replace('\\', "/"))
 }
 
 /* ── Vault browser commands ────────────────────────── */
@@ -309,9 +457,142 @@ fn fetch_calendar() -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
+/// Deterministic dashboard rebuild — scans all project todos and regenerates
+/// the Open Todos section of dashboard.md, preserving Blocked and Activity sections.
+fn regenerate_dashboard() -> Result<(), String> {
+    let vault = vault_path();
+    let config_path = vault.join("claude-config.md");
+    let config = fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read claude-config.md: {}", e))?;
+
+    let dashboard_path = vault.join("00 Home").join("dashboard.md");
+    let existing = fs::read_to_string(&dashboard_path).unwrap_or_default();
+
+    // Extract preserved sections from existing dashboard
+    let mut blocked_lines: Vec<String> = Vec::new();
+    let mut activity_lines: Vec<String> = Vec::new();
+    {
+        let mut section = "";
+        for line in existing.lines() {
+            if line.starts_with("## Blocked") {
+                section = "blocked";
+                continue;
+            }
+            if line.starts_with("## Recent Activity") {
+                section = "activity";
+                continue;
+            }
+            if line.starts_with("## ") {
+                section = "";
+                continue;
+            }
+            match section {
+                "blocked" => blocked_lines.push(line.to_string()),
+                "activity" => activity_lines.push(line.to_string()),
+                _ => {}
+            }
+        }
+    }
+
+    // Scan all projects for todos using block parser
+    struct ProjectTodos {
+        display: String,
+        open: Vec<String>, // raw markdown blocks for open todos
+    }
+
+    let mut projects: Vec<ProjectTodos> = Vec::new();
+
+    for line in config.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("- 01 projects/") {
+            continue;
+        }
+        let rel_path = trimmed.trim_start_matches("- ").to_string();
+        let display = rel_path
+            .trim_end_matches('/')
+            .rsplit('/')
+            .next()
+            .unwrap_or(&rel_path)
+            .to_string();
+
+        let todos_path = vault.join(&rel_path).join("todos.md");
+        let content = match fs::read_to_string(&todos_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let blocks = todo_parser::parse_todo_blocks(&content);
+        let open: Vec<String> = blocks.iter()
+            .filter(|b| !b.checked)
+            .map(todo_parser::block_to_markdown)
+            .collect();
+
+        if !open.is_empty() {
+            projects.push(ProjectTodos {
+                display,
+                open,
+            });
+        }
+    }
+
+    // Sort: most open todos first
+    projects.sort_by(|a, b| b.open.len().cmp(&a.open.len()));
+
+    // Build dashboard markdown
+    let now = Local::now();
+    let mut md = String::new();
+    md.push_str(&format!(
+        "*Last updated: {}*\n\n",
+        now.format("%Y-%m-%d %H:%M")
+    ));
+
+    md.push_str("## Open Todos\n\n");
+    for p in &projects {
+        if p.open.is_empty() {
+            continue;
+        }
+        md.push_str(&format!(
+            "### \\[\\[{}\\]\\] ({} open)\n",
+            p.display,
+            p.open.len()
+        ));
+        for todo in &p.open {
+            md.push_str(todo);
+            md.push('\n');
+        }
+        md.push('\n');
+    }
+
+    md.push_str("## Blocked / Waiting\n");
+    let blocked_content: String = blocked_lines.join("\n");
+    let blocked_trimmed = blocked_content.trim();
+    if !blocked_trimmed.is_empty() {
+        md.push_str(blocked_trimmed);
+        md.push('\n');
+    }
+    md.push('\n');
+
+    md.push_str("## Recent Activity\n");
+    let activity_content: String = activity_lines.join("\n");
+    let activity_trimmed = activity_content.trim();
+    if !activity_trimmed.is_empty() {
+        md.push_str(activity_trimmed);
+        md.push('\n');
+    }
+    md.push('\n');
+
+    fs::write(&dashboard_path, md)
+        .map_err(|e| format!("Failed to write dashboard: {}", e))
+}
+
 #[tauri::command]
 fn process_inbox() -> Result<inbox::ProcessResult, String> {
-    inbox::process(None)
+    let result = inbox::process(None)?;
+    // Deterministically rebuild dashboard after inbox processing
+    if let Err(e) = regenerate_dashboard() {
+        eprintln!("Warning: dashboard rebuild failed: {}", e);
+    }
+    Ok(result)
 }
 
 #[tauri::command]
@@ -321,6 +602,8 @@ fn get_project_gravity() -> Result<Vec<ProjectGravity>, String> {
     let config = fs::read_to_string(&config_path)
         .map_err(|e| format!("Failed to read claude-config.md: {}", e))?;
 
+    let today = chrono::Local::now().date_naive();
+    let color_map = build_project_color_map(&config);
     let mut results = Vec::new();
 
     for line in config.lines() {
@@ -331,28 +614,90 @@ fn get_project_gravity() -> Result<Vec<ProjectGravity>, String> {
         let rel = trimmed.trim_start_matches("- ").to_string();
         let name = rel.rsplit('/').next().unwrap_or(&rel).to_string();
 
+        let color_index = color_map.get(&name).copied().unwrap_or(0);
+
+        // Parse todos using block parser
         let todos_path = vault.join(&rel).join("todos.md");
-        let (open, completed) = if let Ok(content) = fs::read_to_string(&todos_path) {
-            let mut o = 0usize;
-            let mut c = 0usize;
-            for l in content.lines() {
-                let t = l.trim();
-                if t.starts_with("- [ ]") {
-                    o += 1;
-                } else if t.starts_with("- [x]") {
-                    c += 1;
+        let mut open = 0usize;
+        let mut completed = 0usize;
+        let mut blocked_count = 0usize;
+        let mut waiting_count = 0usize;
+        let mut neglect_signal = 0.0f64;
+        let mut top_todos: Vec<GravityTodo> = Vec::new();
+
+        if let Ok(content) = fs::read_to_string(&todos_path) {
+            let blocks = todo_parser::parse_todo_blocks(&content);
+            for block in &blocks {
+                if block.checked {
+                    completed += 1;
+                    continue;
+                }
+                open += 1;
+
+                let is_blocked = block.tags.contains(&"#blocked".to_string());
+                let is_waiting = block.tags.contains(&"#waiting".to_string());
+                if is_blocked { blocked_count += 1; }
+                if is_waiting { waiting_count += 1; }
+
+                let age_days = if let Some(ref created_str) = block.created {
+                    if let Ok(created) = chrono::NaiveDate::parse_from_str(created_str, "%Y-%m-%d") {
+                        (today - created).num_days().max(0) as u32
+                    } else {
+                        14
+                    }
+                } else {
+                    14
+                };
+
+                let neglect_i = (age_days as f64 / 14.0).min(5.0);
+                neglect_signal += neglect_i;
+
+                top_todos.push(GravityTodo {
+                    text: block.text.clone(),
+                    project_name: name.clone(),
+                    project_path: rel.clone(),
+                    color_index,
+                    age_days,
+                    is_blocked,
+                    is_waiting,
+                });
+            }
+        }
+
+        // Last activity: scan notes/ folder for most recent YYYY-MM-DD.md
+        let notes_dir = vault.join(&rel).join("notes");
+        let mut last_note_date: Option<chrono::NaiveDate> = None;
+        if let Ok(entries) = fs::read_dir(&notes_dir) {
+            for entry in entries.flatten() {
+                let fname = entry.file_name().to_string_lossy().to_string();
+                if let Some(date_part) = fname.strip_suffix(".md") {
+                    if let Ok(d) = chrono::NaiveDate::parse_from_str(date_part, "%Y-%m-%d") {
+                        if last_note_date.map_or(true, |prev| d > prev) {
+                            last_note_date = Some(d);
+                        }
+                    }
                 }
             }
-            (o, c)
-        } else {
-            (0, 0)
-        };
+        }
 
-        let gravity = (open as f64) * 10.0 + if open > 5 { 20.0 } else { 0.0 };
+        let days_silent = last_note_date
+            .map(|d| (today - d).num_days().max(0) as u32)
+            .unwrap_or(30); // no notes at all — treat as 30 days silent
 
-        // Simple hash for color_index
-        let hash: usize = name.bytes().map(|b| b as usize).sum();
-        let color_index = hash % 7;
+        // ── Gravity formula ──────────────────────────────
+        // todo_pressure: ln(1 + open) * 10
+        let todo_pressure = (1.0 + open as f64).ln() * 10.0;
+
+        // silence_penalty: min(days_silent/7, 8) * ln(1 + open)
+        let silence_penalty = (days_silent as f64 / 7.0).min(8.0) * (1.0 + open as f64).ln();
+
+        // blocked_weight: blocked * 3.0 + waiting * 1.5
+        let blocked_weight = blocked_count as f64 * 3.0 + waiting_count as f64 * 1.5;
+
+        let gravity = todo_pressure + neglect_signal + silence_penalty + blocked_weight;
+
+        // Sort top_todos by age descending (oldest first = most neglected)
+        top_todos.sort_by(|a, b| b.age_days.cmp(&a.age_days));
 
         results.push(ProjectGravity {
             name,
@@ -361,10 +706,136 @@ fn get_project_gravity() -> Result<Vec<ProjectGravity>, String> {
             completed_todos: completed,
             gravity,
             color_index,
+            todo_pressure,
+            neglect_signal,
+            silence_penalty,
+            blocked_weight,
+            blocked_count,
+            waiting_count,
+            days_silent,
+            top_todos,
         });
     }
 
+    // Sort projects by gravity descending
+    results.sort_by(|a, b| b.gravity.partial_cmp(&a.gravity).unwrap_or(std::cmp::Ordering::Equal));
+
     Ok(results)
+}
+
+/* ── Safety snapshot ─────────────────────────────── */
+
+#[derive(serde::Serialize)]
+struct SnapshotTodo {
+    file: String,          // relative path from vault root
+    line: usize,           // 1-based line number
+    raw: String,           // full raw line text
+    checked: bool,
+}
+
+#[tauri::command]
+fn snapshot_todos() -> Result<String, String> {
+    let vault = vault_path();
+    let config_path = vault.join("claude-config.md");
+    let config = fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read config: {}", e))?;
+
+    let mut todos: Vec<SnapshotTodo> = Vec::new();
+
+    // Scan all project todos.md (active projects from config)
+    for line in config.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("- 01 projects/") {
+            continue;
+        }
+        let rel_path = trimmed.trim_start_matches("- ").to_string();
+        let todos_file = format!("{}/todos.md", rel_path);
+        let todos_path = vault.join(&rel_path).join("todos.md");
+
+        if let Ok(content) = fs::read_to_string(&todos_path) {
+            for (i, todo_line) in content.lines().enumerate() {
+                let t = todo_line.trim();
+                if t.starts_with("- [ ]") || t.starts_with("- [x]") {
+                    todos.push(SnapshotTodo {
+                        file: todos_file.clone(),
+                        line: i + 1,
+                        raw: todo_line.to_string(),
+                        checked: t.starts_with("- [x]"),
+                    });
+                }
+            }
+        }
+    }
+
+    // Also scan archived projects
+    let archive_dir = vault.join("01 projects").join("99 Archived projects");
+    if archive_dir.exists() {
+        fn scan_archive(dir: &std::path::Path, vault: &std::path::Path, todos: &mut Vec<SnapshotTodo>) {
+            let Ok(entries) = fs::read_dir(dir) else { return };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    let todos_path = path.join("todos.md");
+                    if todos_path.exists() {
+                        let rel = todos_path.strip_prefix(vault)
+                            .map(|p| p.to_string_lossy().replace('\\', "/"))
+                            .unwrap_or_default();
+                        if let Ok(content) = fs::read_to_string(&todos_path) {
+                            for (i, line) in content.lines().enumerate() {
+                                let t = line.trim();
+                                if t.starts_with("- [ ]") || t.starts_with("- [x]") {
+                                    todos.push(SnapshotTodo {
+                                        file: rel.clone(),
+                                        line: i + 1,
+                                        raw: line.to_string(),
+                                        checked: t.starts_with("- [x]"),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    scan_archive(&path, vault, todos);
+                }
+            }
+        }
+        scan_archive(&archive_dir, &vault, &mut todos);
+    }
+
+    // Write snapshot to vault root
+    let json = serde_json::to_string_pretty(&todos)
+        .map_err(|e| format!("Failed to serialize snapshot: {}", e))?;
+
+    let timestamp = Local::now().format("%Y%m%d_%H%M%S");
+    let snapshot_path = vault.join(format!(".todo-snapshot-{}.json", timestamp));
+    fs::write(&snapshot_path, &json)
+        .map_err(|e| format!("Failed to write snapshot: {}", e))?;
+
+    Ok(format!("Snapshot saved: {} todos captured to {}", todos.len(),
+        snapshot_path.file_name().unwrap_or_default().to_string_lossy()))
+}
+
+/* ── Todo index commands ─────────────────────────── */
+
+/// Rebuild the todo index from scratch (stamps UUIDs on active projects, scans all files).
+#[tauri::command]
+fn rebuild_todo_index() -> Result<String, String> {
+    let vault = vault_path();
+    let index = todo_index::rebuild_and_persist(&vault)?;
+    let open = index.entries.values().filter(|e| e.status == "open" && !e.archived).count();
+    let completed = index.entries.values().filter(|e| e.status == "completed" && !e.archived).count();
+    let archived = index.entries.values().filter(|e| e.archived).count();
+    Ok(format!("Index rebuilt: {} open, {} completed, {} archived", open, completed, archived))
+}
+
+/// Get the current todo index as JSON.
+#[tauri::command]
+fn get_todo_index() -> Result<todo_index::TodoIndex, String> {
+    let vault = vault_path();
+    // Try reading existing index; rebuild if missing
+    match todo_index::read_index(&vault) {
+        Ok(idx) => Ok(idx),
+        Err(_) => todo_index::rebuild_and_persist(&vault),
+    }
 }
 
 /* ── Plan (Time Canvas) commands ──────────────────── */
@@ -375,16 +846,6 @@ struct TodoItem {
     text: String,
     project_name: String,
     project_path: String,
-    color_index: usize,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
-struct FocusBlock {
-    title: String,
-    date: String,
-    start_time: String,
-    end_time: String,
-    project_name: String,
     color_index: usize,
 }
 
@@ -401,6 +862,7 @@ fn get_all_open_todos() -> Result<Vec<TodoItem>, String> {
     let config = fs::read_to_string(&config_path)
         .map_err(|e| format!("Failed to read claude-config.md: {}", e))?;
 
+    let color_map = build_project_color_map(&config);
     let mut todos = Vec::new();
 
     for line in config.lines() {
@@ -415,7 +877,7 @@ fn get_all_open_todos() -> Result<Vec<TodoItem>, String> {
             .next()
             .unwrap_or(&rel_path)
             .to_string();
-        let color_index = (hash_string(&project_name) % 7) as usize;
+        let color_index = color_map.get(&project_name).copied().unwrap_or(0);
 
         let todos_path = vault.join(&rel_path).join("todos.md");
         let content = match fs::read_to_string(&todos_path) {
@@ -423,150 +885,150 @@ fn get_all_open_todos() -> Result<Vec<TodoItem>, String> {
             Err(_) => continue,
         };
 
-        for todo_line in content.lines() {
-            let t = todo_line.trim();
-            if t.starts_with("- [ ] ") {
-                let text = t.trim_start_matches("- [ ] ").to_string();
-                let id_source = format!("{}:{}", rel_path, text);
-                let id = format!("{:x}", hash_string(&id_source));
-                todos.push(TodoItem {
-                    id,
-                    text,
-                    project_name: project_name.clone(),
-                    project_path: rel_path.clone(),
-                    color_index,
-                });
+        let blocks = todo_parser::parse_todo_blocks(&content);
+        for block in &blocks {
+            if block.checked {
+                continue;
             }
+            // Use UUID if available, fall back to hash
+            let id = match &block.id {
+                Some(uuid) => uuid.clone(),
+                None => {
+                    let id_source = format!("{}:{}", rel_path, block.text);
+                    format!("{:x}", hash_string(&id_source))
+                }
+            };
+            todos.push(TodoItem {
+                id,
+                text: block.text.clone(),
+                project_name: project_name.clone(),
+                project_path: rel_path.clone(),
+                color_index,
+            });
         }
     }
 
     Ok(todos)
 }
 
+/* ── Weekly Summary ───────────────────���──────────── */
+
+#[derive(serde::Serialize)]
+struct WeeklySummaryDay {
+    date: String,          // YYYY-MM-DD
+    weekday: String,       // "Monday", "Tuesday", etc.
+    projects: Vec<WeeklySummaryProject>,
+}
+
+#[derive(serde::Serialize)]
+struct WeeklySummaryProject {
+    name: String,
+    color_index: usize,
+    todos_completed: Vec<String>,
+    has_notes: bool,
+}
+
+#[derive(serde::Serialize)]
+struct WeeklySummary {
+    week_start: String,
+    week_end: String,
+    days: Vec<WeeklySummaryDay>,
+    total_completed: usize,
+    active_project_count: usize,
+}
+
 #[tauri::command]
-fn get_focus_blocks() -> Result<Vec<FocusBlock>, String> {
-    let path = vault_path().join("00 Home").join("focus-blocks.md");
-    let content = match fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(_) => return Ok(Vec::new()),
-    };
+fn get_weekly_summary(week_offset: i32) -> Result<WeeklySummary, String> {
+    let vault = vault_path();
+    let config_path = vault.join("claude-config.md");
+    let config = fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read config: {}", e))?;
 
-    let mut blocks = Vec::new();
-    let lines: Vec<&str> = content.lines().collect();
-    let mut i = 0;
-    while i < lines.len() {
-        let line = lines[i].trim();
-        // Match: ## YYYY-MM-DD HH:MM-HH:MM
-        if line.starts_with("## ") {
-            let header = line.trim_start_matches("## ");
-            // Parse "YYYY-MM-DD HH:MM-HH:MM"
-            let parts: Vec<&str> = header.splitn(2, ' ').collect();
-            if parts.len() == 2 {
-                let date = parts[0].to_string();
-                let time_parts: Vec<&str> = parts[1].splitn(2, '-').collect();
-                if time_parts.len() == 2 {
-                    let start_time = time_parts[0].to_string();
-                    let end_time = time_parts[1].to_string();
+    // Calculate week boundaries (Mon-Sun)
+    let today = chrono::Local::now().date_naive();
+    let weekday_num = today.weekday().num_days_from_monday() as i64;
+    let this_monday = today - chrono::Duration::days(weekday_num);
+    let target_monday = this_monday + chrono::Duration::weeks(week_offset as i64);
+    let target_sunday = target_monday + chrono::Duration::days(6);
 
-                    // Next line: **ProjectName** — Todo text
-                    if i + 1 < lines.len() {
-                        let body = lines[i + 1].trim();
-                        // Parse **ProjectName** — text
-                        if body.starts_with("**") {
-                            if let Some(end_bold) = body[2..].find("**") {
-                                let project_name = body[2..2 + end_bold].to_string();
-                                let rest = &body[2 + end_bold + 2..];
-                                let title = rest
-                                    .trim_start_matches(" — ")
-                                    .trim_start_matches(" - ")
-                                    .trim()
-                                    .to_string();
-                                let color_index =
-                                    (hash_string(&project_name) % 7) as usize;
-                                blocks.push(FocusBlock {
-                                    title,
-                                    date,
-                                    start_time,
-                                    end_time,
-                                    project_name,
-                                    color_index,
-                                });
+    let weekday_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+    // Collect project paths
+    let color_map = build_project_color_map(&config);
+    let mut project_entries: Vec<(String, String, usize)> = Vec::new(); // (name, rel_path, color_index)
+    for line in config.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("- 01 projects/") {
+            let rel = trimmed.trim_start_matches("- ").to_string();
+            let name = rel.rsplit('/').next().unwrap_or(&rel).to_string();
+            let color_index = color_map.get(&name).copied().unwrap_or(0);
+            project_entries.push((name, rel, color_index));
+        }
+    }
+
+    // For each day in the week, collect data per project
+    let mut days: Vec<WeeklySummaryDay> = Vec::new();
+    let mut total_completed = 0usize;
+    let mut active_projects = std::collections::HashSet::new();
+
+    for day_offset in 0..7 {
+        let date = target_monday + chrono::Duration::days(day_offset);
+        let date_str = date.format("%Y-%m-%d").to_string();
+        let weekday = weekday_names[day_offset as usize].to_string();
+
+        let mut day_projects: Vec<WeeklySummaryProject> = Vec::new();
+
+        for (name, rel, color_index) in &project_entries {
+            let mut todos_completed: Vec<String> = Vec::new();
+
+            // Scan todos.md for completed todos matching this date
+            let todos_path = vault.join(rel).join("todos.md");
+            if let Ok(content) = fs::read_to_string(&todos_path) {
+                let blocks = todo_parser::parse_todo_blocks(&content);
+                for block in &blocks {
+                    if block.checked {
+                        if let Some(ref completed) = block.completed {
+                            if completed == &date_str {
+                                todos_completed.push(block.text.clone());
                             }
                         }
-                        i += 2;
-                        continue;
                     }
                 }
             }
-        }
-        i += 1;
-    }
 
-    Ok(blocks)
-}
+            // Check for notes on this date
+            let note_path = vault.join(rel).join("notes").join(format!("{}.md", date_str));
+            let has_notes = note_path.exists();
 
-#[tauri::command]
-fn create_focus_block(
-    title: String,
-    date: String,
-    start_time: String,
-    end_time: String,
-    project_name: String,
-    color_index: usize,
-) -> Result<(), String> {
-    let _ = color_index; // stored in format implicitly via project_name
-    let path = vault_path().join("00 Home").join("focus-blocks.md");
-    let existing = fs::read_to_string(&path).unwrap_or_default();
-
-    let entry = format!(
-        "\n## {} {}-{}\n**{}** — {}\n",
-        date, start_time, end_time, project_name, title
-    );
-
-    let new_content = if existing.is_empty() {
-        entry.trim_start().to_string() + "\n"
-    } else {
-        format!("{}{}", existing.trim_end(), entry)
-    };
-
-    fs::write(&path, new_content).map_err(|e| format!("Failed to write focus-blocks.md: {}", e))
-}
-
-#[tauri::command]
-fn delete_focus_block(
-    title: String,
-    date: String,
-    start_time: String,
-    end_time: String,
-) -> Result<(), String> {
-    let path = vault_path().join("00 Home").join("focus-blocks.md");
-    let content = fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read focus-blocks.md: {}", e))?;
-
-    let header_match = format!("## {} {}-{}", date, start_time, end_time);
-    let lines: Vec<&str> = content.lines().collect();
-    let mut result_lines: Vec<&str> = Vec::new();
-    let mut i = 0;
-    while i < lines.len() {
-        if lines[i].trim() == header_match {
-            // Check next line contains the title
-            if i + 1 < lines.len() && lines[i + 1].contains(&title) {
-                // Skip both lines
-                i += 2;
-                // Also skip any trailing blank line
-                if i < lines.len() && lines[i].trim().is_empty() {
-                    i += 1;
-                }
-                continue;
+            if !todos_completed.is_empty() || has_notes {
+                total_completed += todos_completed.len();
+                active_projects.insert(name.clone());
+                day_projects.push(WeeklySummaryProject {
+                    name: name.clone(),
+                    color_index: *color_index,
+                    todos_completed,
+                    has_notes,
+                });
             }
         }
-        result_lines.push(lines[i]);
-        i += 1;
+
+        // Only include days that have activity
+        if !day_projects.is_empty() {
+            days.push(WeeklySummaryDay {
+                date: date_str,
+                weekday,
+                projects: day_projects,
+            });
+        }
     }
 
-    let new_content = result_lines.join("\n");
-    fs::write(&path, new_content.trim_end().to_string() + "\n")
-        .map_err(|e| format!("Failed to write focus-blocks.md: {}", e))
+    Ok(WeeklySummary {
+        week_start: target_monday.format("%Y-%m-%d").to_string(),
+        week_end: target_sunday.format("%Y-%m-%d").to_string(),
+        days,
+        total_completed,
+        active_project_count: active_projects.len(),
+    })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -596,6 +1058,18 @@ pub fn run() {
                         .build(),
                 )?;
             }
+
+            // Rebuild todo index on app launch (stamps UUIDs on unstamped todos,
+            // builds .todo-index.json from authoritative markdown files)
+            let vault = vault_path();
+            match todo_index::rebuild_and_persist(&vault) {
+                Ok(index) => {
+                    let open = index.entries.values().filter(|e| e.status == "open" && !e.archived).count();
+                    eprintln!("Todo index rebuilt on launch: {} open todos indexed", open);
+                }
+                Err(e) => eprintln!("Warning: todo index rebuild failed on launch: {}", e),
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -612,12 +1086,15 @@ pub fn run() {
             vault_read_file,
             vault_write_file,
             hum::hum_send,
+            hum::hum_review,
             process_inbox,
             get_project_gravity,
             get_all_open_todos,
-            get_focus_blocks,
-            create_focus_block,
-            delete_focus_block,
+
+            get_weekly_summary,
+            snapshot_todos,
+            rebuild_todo_index,
+            get_todo_index,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

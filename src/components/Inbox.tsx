@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import TaskList from "@tiptap/extension-task-list";
@@ -9,6 +10,7 @@ import Image from "@tiptap/extension-image";
 import Placeholder from "@tiptap/extension-placeholder";
 import { Markdown } from "tiptap-markdown";
 import { WikiLink, WikiEmbed, convertTextToWikiLinks } from "./wikilink";
+import { HashTag } from "./hashtag";
 import type { VaultFileInfo } from "./wikilink";
 
 const FRONTMATTER = "---\ncssclasses:\n  - home-title\n---";
@@ -27,6 +29,7 @@ const CLOSE_CHARS = new Set(Object.values(PAIRS));
 
 interface InboxProps {
   refreshKey: number;
+  onVaultChanged?: () => void;
 }
 
 interface ProcessResult {
@@ -37,16 +40,47 @@ interface ProcessResult {
   timestamp: string;
 }
 
-export default function Inbox({ refreshKey }: InboxProps) {
+interface ReviewItem {
+  type: string;
+  [key: string]: unknown;
+}
+
+interface ReviewResult {
+  status: string;
+  items?: ReviewItem[];
+}
+
+export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
   const [rawMarkdown, setRawMarkdown] = useState<string | null>(null);
   const [editorReady, setEditorReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [lastResult, setLastResult] = useState<ProcessResult | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const [reviewResult, setReviewResult] = useState<ReviewResult | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const saveTimeoutRef = useRef<number | null>(null);
   const skipNextSave = useRef(false);
   const editorRef = useRef<ReturnType<typeof useEditor>>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Listen for background review events
+  useEffect(() => {
+    const unlistenStart = listen("review:start", () => setReviewing(true));
+    const unlistenDone = listen<ReviewResult>("review:done", (event) => {
+      setReviewing(false);
+      const result = event.payload;
+      if (result.status === "issues" && result.items && result.items.length > 0) {
+        setReviewResult(result);
+      }
+    });
+    const unlistenError = listen("review:error", () => setReviewing(false));
+    return () => {
+      unlistenStart.then((f) => f());
+      unlistenDone.then((f) => f());
+      unlistenError.then((f) => f());
+    };
+  }, []);
 
   // Vault file index for suggestions
   const vaultFilesRef = useRef<VaultFileInfo[]>([]);
@@ -161,10 +195,42 @@ export default function Inbox({ refreshKey }: InboxProps) {
         checkExists: (stem: string) => vaultStemsRef.current.has(stem),
       }),
       WikiEmbed,
+      HashTag,
     ],
     editorProps: {
       attributes: { class: "inbox-tiptap" },
       handleKeyDown: (_view, event) => {
+        // Tab / Shift+Tab: indent or nest
+        if (event.key === "Tab" && editorRef.current) {
+          event.preventDefault();
+          const ed = editorRef.current;
+          if (ed.isActive("taskList")) {
+            // Inside a task list: sink/lift the list item to nest/unnest
+            if (event.shiftKey) {
+              ed.chain().focus().liftListItem("taskItem").run();
+            } else {
+              ed.chain().focus().sinkListItem("taskItem").run();
+            }
+          } else {
+            // Plain text: insert/remove indentation
+            if (event.shiftKey) {
+              // Dedent: remove up to 2 leading spaces from current line
+              const { from } = ed.state.selection;
+              const $pos = ed.state.doc.resolve(from);
+              const lineStart = $pos.start($pos.depth);
+              const lineText = ed.state.doc.textBetween(lineStart, $pos.end($pos.depth));
+              const spaces = lineText.match(/^ {1,2}/);
+              if (spaces) {
+                const tr = ed.state.tr.delete(lineStart, lineStart + spaces[0].length);
+                ed.view.dispatch(tr);
+              }
+            } else {
+              ed.chain().focus().insertContent("  ").run();
+            }
+          }
+          return true;
+        }
+
         // Ctrl+L: toggle task list
         if (event.ctrlKey && event.key === "l") {
           event.preventDefault();
@@ -262,10 +328,10 @@ export default function Inbox({ refreshKey }: InboxProps) {
   // ── Switchover: when editor is ready, transfer content ──
   useEffect(() => {
     if (!editor || editorReady) return;
-    // Get the latest content (user may have typed in textarea)
-    const current = rawMarkdown ?? "";
+    // Don't switch over until the async read has finished
+    if (rawMarkdown === null) return;
     skipNextSave.current = true;
-    editor.commands.setContent(current || "");
+    editor.commands.setContent(rawMarkdown || "");
     convertTextToWikiLinks(editor);
 
     // Transfer cursor to end of editor
@@ -305,6 +371,7 @@ export default function Inbox({ refreshKey }: InboxProps) {
     }
     setProcessing(true);
     setLastResult(null);
+    setReviewResult(null);
     try {
       const result = await invoke<ProcessResult>("process_inbox");
       setLastResult(result);
@@ -316,6 +383,21 @@ export default function Inbox({ refreshKey }: InboxProps) {
         skipNextSave.current = true;
         currentEditor.commands.setContent(stripped || "");
         convertTextToWikiLinks(currentEditor);
+      }
+
+      // Signal that vault files changed (triggers Dashboard reload etc.)
+      onVaultChanged?.();
+
+      // AI review only needed for unknown tags or untagged content
+      // (periodic consolidation is no longer needed — the index handles it deterministically)
+      const hasUnknowns = result.unknown_tags.length > 0;
+      const hasUntagged = result.untagged_remaining.length > 0;
+
+      if (hasUnknowns || hasUntagged) {
+        invoke("hum_review", {
+          processResult: JSON.stringify(result),
+          reviewType: "process",
+        }).catch((err: unknown) => console.error("Background review failed:", err));
       }
     } catch (err) {
       console.error("Inbox processing failed:", err);
@@ -372,6 +454,44 @@ export default function Inbox({ refreshKey }: InboxProps) {
           )}
         </div>
       )}
+      {/* Review popup panel */}
+      {reviewResult && reviewOpen && (
+        <div className="inbox-review-panel">
+          <div className="inbox-review-header">
+            <span className="inbox-review-title">Review findings</span>
+            <button
+              className="inbox-review-dismiss"
+              onClick={() => { setReviewOpen(false); setReviewResult(null); }}
+            >
+              &#x2715;
+            </button>
+          </div>
+          <div className="inbox-review-items">
+            {reviewResult.items?.map((item, i) => (
+              <div key={i} className="inbox-review-item">
+                <span className="inbox-review-type">{item.type.replace(/_/g, " ")}</span>
+                <span className="inbox-review-detail">
+                  {item.type === "unknown_tag" && (
+                    <>Unknown tag <strong>@{item.tag as string}</strong>{item.suggestion ? <> — did you mean <strong>{item.suggestion as string}</strong>?</> : null}</>
+                  )}
+                  {item.type === "duplicate_todo" && (
+                    <>Duplicate in <strong>{item.project as string}</strong>: {(item.todos as string[])?.join(" / ")}</>
+                  )}
+                  {item.type === "missed_content" && (
+                    <>{item.description as string}</>
+                  )}
+                  {item.type === "stale_todo" && (
+                    <>{item.description as string}</>
+                  )}
+                  {item.type === "suggestion" && (
+                    <>{item.description as string}</>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="inbox-status-bar">
         <span className="inbox-status-left">
           {saving ? (
@@ -380,13 +500,27 @@ export default function Inbox({ refreshKey }: InboxProps) {
             <span className="inbox-hint">@project to route — edits auto-save — Ctrl+B bold, Ctrl+I italic, Ctrl+L checkbox</span>
           )}
         </span>
-        <button
-          className="inbox-process-btn"
-          onClick={handleProcess}
-          disabled={processing}
-        >
-          {processing ? "Processing..." : "Process inbox"}
-        </button>
+        <div className="inbox-status-right">
+          {/* Review badge */}
+          {reviewing && (
+            <span className="inbox-review-badge inbox-review-badge-active">reviewing...</span>
+          )}
+          {reviewResult && !reviewOpen && (
+            <button
+              className="inbox-review-badge inbox-review-badge-issues"
+              onClick={() => setReviewOpen(true)}
+            >
+              {reviewResult.items?.length} issue{reviewResult.items?.length !== 1 ? "s" : ""} found
+            </button>
+          )}
+          <button
+            className="inbox-process-btn"
+            onClick={handleProcess}
+            disabled={processing}
+          >
+            {processing ? "Processing..." : "Process inbox"}
+          </button>
+        </div>
       </div>
     </div>
   );
