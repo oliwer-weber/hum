@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, useCallback, memo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Command } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
 import ReactMarkdown from "react-markdown";
@@ -132,7 +132,7 @@ function StreamingMarkdown({ content }: { content: string }) {
 
 /* ── Response block ───────────────────────────────── */
 
-const ResponseBlock = memo(function ResponseBlock({ interaction }: { interaction: Interaction }) {
+function ResponseBlock({ interaction }: { interaction: Interaction }) {
   const { response, status, classified } = interaction;
 
   if (status === "error") {
@@ -167,7 +167,7 @@ const ResponseBlock = memo(function ResponseBlock({ interaction }: { interaction
         </div>
       );
   }
-});
+}
 
 /* ── Thinking indicator ───────────────────────────── */
 
@@ -282,9 +282,11 @@ export default function Chat({ onVaultChanged }: ChatProps) {
 
       command.stdout.on("data", (data) => {
         output += data;
-        setInteractions((prev) =>
-          prev.map((item, i) => i === idx ? { ...item, response: output } : item)
-        );
+        setInteractions((prev) => {
+          const updated = [...prev];
+          updated[idx] = { ...updated[idx], response: output };
+          return updated;
+        });
       });
 
       command.stderr.on("data", (data) => {
@@ -293,11 +295,16 @@ export default function Chat({ onVaultChanged }: ChatProps) {
         if (line.includes("stdin") || line.includes("piping from")) return;
         if (line.includes("Warning:") || line.includes("warn")) return;
 
-        let activity = line.length > 80 ? line.slice(0, 77) + "..." : line;
+        let activity = line;
+        if (activity.length > 80) {
+          activity = activity.slice(0, 77) + "...";
+        }
 
-        setInteractions((prev) =>
-          prev.map((item, i) => i === idx ? { ...item, activity } : item)
-        );
+        setInteractions((prev) => {
+          const updated = [...prev];
+          updated[idx] = { ...updated[idx], activity };
+          return updated;
+        });
       });
 
       await command.spawn();
