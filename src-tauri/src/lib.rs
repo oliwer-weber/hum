@@ -1,6 +1,6 @@
 // Project Assistant — Tauri backend
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 mod hum;
@@ -412,6 +412,380 @@ fn vault_write_file(relative_path: String, content: String) -> Result<(), String
         }
     }
     fs::write(&resolved, content).map_err(|e| format!("Failed to write file: {}", e))
+}
+
+#[tauri::command]
+fn vault_create_file(relative_path: String, content: String) -> Result<(), String> {
+    let base = vault_path();
+    let resolved = base.join(&relative_path);
+    if let Some(parent) = resolved.parent() {
+        if parent.exists() {
+            let parent_canon = parent.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+            let base_canon = base.canonicalize().map_err(|e| format!("Vault error: {}", e))?;
+            if !parent_canon.starts_with(&base_canon) {
+                return Err("Path outside vault".to_string());
+            }
+        }
+    }
+    if resolved.exists() {
+        return Err("File already exists".to_string());
+    }
+    if let Some(parent) = resolved.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create directories: {}", e))?;
+    }
+    fs::write(&resolved, content).map_err(|e| format!("Failed to create file: {}", e))
+}
+
+#[tauri::command]
+fn vault_create_dir(relative_path: String) -> Result<(), String> {
+    let base = vault_path();
+    let resolved = base.join(&relative_path);
+    if let Some(parent) = resolved.parent() {
+        if parent.exists() {
+            let parent_canon = parent.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+            let base_canon = base.canonicalize().map_err(|e| format!("Vault error: {}", e))?;
+            if !parent_canon.starts_with(&base_canon) {
+                return Err("Path outside vault".to_string());
+            }
+        }
+    }
+    if resolved.exists() {
+        return Err("Directory already exists".to_string());
+    }
+    fs::create_dir_all(&resolved).map_err(|e| format!("Failed to create directory: {}", e))
+}
+
+#[tauri::command]
+fn vault_rename(relative_path: String, new_name: String) -> Result<String, String> {
+    let base = vault_path();
+    let resolved = base.join(&relative_path);
+    let canon = resolved.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+    let base_canon = base.canonicalize().map_err(|e| format!("Vault error: {}", e))?;
+    if !canon.starts_with(&base_canon) {
+        return Err("Path outside vault".to_string());
+    }
+    let new_path = resolved.parent()
+        .ok_or("Cannot determine parent directory")?
+        .join(&new_name);
+    let new_canon_parent = new_path.parent()
+        .ok_or("Cannot determine parent directory")?
+        .canonicalize()
+        .map_err(|e| format!("Invalid path: {}", e))?;
+    if !new_canon_parent.starts_with(&base_canon) {
+        return Err("Path outside vault".to_string());
+    }
+    if new_path.exists() {
+        return Err(format!("'{}' already exists", new_name));
+    }
+    fs::rename(&resolved, &new_path).map_err(|e| format!("Failed to rename: {}", e))?;
+    // Return new relative path
+    let new_relative = new_path.strip_prefix(&base)
+        .map_err(|_| "Failed to compute relative path".to_string())?
+        .to_string_lossy()
+        .replace('\\', "/");
+    Ok(new_relative)
+}
+
+#[tauri::command]
+fn vault_delete(relative_path: String) -> Result<(), String> {
+    let base = vault_path();
+    let resolved = base.join(&relative_path);
+    let canon = resolved.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+    let base_canon = base.canonicalize().map_err(|e| format!("Vault error: {}", e))?;
+    if !canon.starts_with(&base_canon) {
+        return Err("Path outside vault".to_string());
+    }
+    // Don't allow deleting the vault root
+    if canon == base_canon {
+        return Err("Cannot delete vault root".to_string());
+    }
+    if resolved.is_dir() {
+        fs::remove_dir_all(&resolved).map_err(|e| format!("Failed to delete directory: {}", e))
+    } else {
+        fs::remove_file(&resolved).map_err(|e| format!("Failed to delete file: {}", e))
+    }
+}
+
+#[tauri::command]
+fn vault_move(source: String, dest_dir: String) -> Result<String, String> {
+    let base = vault_path();
+    let base_canon = base.canonicalize().map_err(|e| format!("Vault error: {}", e))?;
+
+    let src_resolved = base.join(&source);
+    let src_canon = src_resolved.canonicalize().map_err(|e| format!("Invalid source: {}", e))?;
+    if !src_canon.starts_with(&base_canon) {
+        return Err("Source outside vault".to_string());
+    }
+
+    let dest_resolved = base.join(&dest_dir);
+    let dest_canon = dest_resolved.canonicalize().map_err(|e| format!("Invalid destination: {}", e))?;
+    if !dest_canon.starts_with(&base_canon) {
+        return Err("Destination outside vault".to_string());
+    }
+    if !dest_resolved.is_dir() {
+        return Err("Destination is not a directory".to_string());
+    }
+
+    let file_name = src_resolved.file_name()
+        .ok_or("Cannot determine file name")?;
+    let new_path = dest_resolved.join(file_name);
+    if new_path.exists() {
+        return Err(format!("'{}' already exists in destination", file_name.to_string_lossy()));
+    }
+
+    fs::rename(&src_resolved, &new_path).map_err(|e| format!("Failed to move: {}", e))?;
+
+    let new_relative = new_path.strip_prefix(&base)
+        .map_err(|_| "Failed to compute relative path".to_string())?
+        .to_string_lossy()
+        .replace('\\', "/");
+    Ok(new_relative)
+}
+
+fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), String> {
+    fs::create_dir_all(dst).map_err(|e| format!("Failed to create directory: {}", e))?;
+    for entry in fs::read_dir(src).map_err(|e| format!("Failed to read directory: {}", e))? {
+        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir_all(&src_path, &dst_path)?;
+        } else {
+            fs::copy(&src_path, &dst_path).map_err(|e| format!("Failed to copy file: {}", e))?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn vault_copy(source: String, dest_dir: String) -> Result<String, String> {
+    let base = vault_path();
+    let base_canon = base.canonicalize().map_err(|e| format!("Vault error: {}", e))?;
+
+    let src_resolved = base.join(&source);
+    let src_canon = src_resolved.canonicalize().map_err(|e| format!("Invalid source: {}", e))?;
+    if !src_canon.starts_with(&base_canon) {
+        return Err("Source outside vault".to_string());
+    }
+
+    let dest_resolved = base.join(&dest_dir);
+    let dest_canon = dest_resolved.canonicalize().map_err(|e| format!("Invalid destination: {}", e))?;
+    if !dest_canon.starts_with(&base_canon) {
+        return Err("Destination outside vault".to_string());
+    }
+    if !dest_resolved.is_dir() {
+        return Err("Destination is not a directory".to_string());
+    }
+
+    let stem = src_resolved.file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let ext = src_resolved.extension()
+        .map(|e| format!(".{}", e.to_string_lossy()));
+
+    // Find a non-conflicting name
+    let mut copy_name = if let Some(ref ext) = ext {
+        format!("{} (copy){}", stem, ext)
+    } else {
+        format!("{} (copy)", stem)
+    };
+    let mut new_path = dest_resolved.join(&copy_name);
+    let mut counter = 2;
+    while new_path.exists() {
+        copy_name = if let Some(ref ext) = ext {
+            format!("{} (copy {}){}", stem, counter, ext)
+        } else {
+            format!("{} (copy {})", stem, counter)
+        };
+        new_path = dest_resolved.join(&copy_name);
+        counter += 1;
+    }
+
+    if src_resolved.is_dir() {
+        copy_dir_all(&src_resolved, &new_path)?;
+    } else {
+        fs::copy(&src_resolved, &new_path).map_err(|e| format!("Failed to copy: {}", e))?;
+    }
+
+    let new_relative = new_path.strip_prefix(&base)
+        .map_err(|_| "Failed to compute relative path".to_string())?
+        .to_string_lossy()
+        .replace('\\', "/");
+    Ok(new_relative)
+}
+
+#[tauri::command]
+fn vault_search_files(query: String) -> Result<Vec<VaultFileInfo>, String> {
+    let all_files = vault_all_files()?;
+    let q = query.to_lowercase();
+    if q.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut results: Vec<(usize, VaultFileInfo)> = all_files
+        .into_iter()
+        .filter_map(|f| {
+            let stem_lower = f.stem.to_lowercase();
+            let name_lower = f.name.to_lowercase();
+            if stem_lower.starts_with(&q) {
+                Some((0, f)) // prefix match = highest priority
+            } else if name_lower.contains(&q) {
+                Some((1, f)) // contains match
+            } else if f.path.to_lowercase().contains(&q) {
+                Some((2, f)) // path match
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    results.sort_by_key(|(priority, _)| *priority);
+    let files: Vec<VaultFileInfo> = results.into_iter().take(50).map(|(_, f)| f).collect();
+    Ok(files)
+}
+
+#[derive(serde::Serialize)]
+struct ContentSearchResult {
+    path: String,
+    name: String,
+    line_number: u32,
+    line_content: String,
+    context_before: String,
+    context_after: String,
+}
+
+fn walk_text_files(dir: &Path, base: &Path, results: &mut Vec<PathBuf>) {
+    let skip_dirs: std::collections::HashSet<&str> = [".git", ".obsidian", ".trash", ".claude", "node_modules"].iter().copied().collect();
+    let binary_exts: std::collections::HashSet<&str> = ["png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "pdf", "mp3", "mp4", "zip", "tar", "gz", "exe", "dll", "woff", "woff2", "ttf", "otf"].iter().copied().collect();
+
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if !skip_dirs.contains(name.as_str()) {
+                    walk_text_files(&path, base, results);
+                }
+            } else {
+                let ext = path.extension()
+                    .map(|e| e.to_string_lossy().to_lowercase())
+                    .unwrap_or_default();
+                if !binary_exts.contains(ext.as_str()) {
+                    results.push(path);
+                }
+            }
+        }
+    }
+}
+
+#[tauri::command]
+fn vault_search_content(query: String, max_results: Option<u32>) -> Result<Vec<ContentSearchResult>, String> {
+    let base = vault_path();
+    let limit = max_results.unwrap_or(100) as usize;
+    let q = query.to_lowercase();
+    if q.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut file_paths = Vec::new();
+    walk_text_files(&base, &base, &mut file_paths);
+
+    let mut results = Vec::new();
+
+    for file_path in file_paths {
+        if results.len() >= limit { break; }
+
+        let content = match fs::read_to_string(&file_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let lines: Vec<&str> = content.lines().collect();
+        for (i, line) in lines.iter().enumerate() {
+            if results.len() >= limit { break; }
+            if line.to_lowercase().contains(&q) {
+                let relative = file_path.strip_prefix(&base)
+                    .unwrap_or(&file_path)
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                let name = file_path.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+
+                results.push(ContentSearchResult {
+                    path: relative,
+                    name,
+                    line_number: (i + 1) as u32,
+                    line_content: line.trim().to_string(),
+                    context_before: if i > 0 { lines[i - 1].trim().to_string() } else { String::new() },
+                    context_after: if i + 1 < lines.len() { lines[i + 1].trim().to_string() } else { String::new() },
+                });
+            }
+        }
+    }
+
+    Ok(results)
+}
+
+#[derive(serde::Serialize)]
+struct BacklinkResult {
+    path: String,
+    name: String,
+    line_number: u32,
+    line_content: String,
+}
+
+#[tauri::command]
+fn vault_get_backlinks(target_stem: String) -> Result<Vec<BacklinkResult>, String> {
+    let base = vault_path();
+    let stem_lower = target_stem.to_lowercase();
+
+    // Build regex: [[stem]] or [[stem|display]]
+    let pattern = format!(r"(?i)\[\[{0}(\|[^\]]+)?\]\]", regex::escape(&stem_lower));
+    let re = regex::Regex::new(&pattern).map_err(|e| format!("Invalid pattern: {}", e))?;
+
+    let mut md_files = Vec::new();
+    walk_text_files(&base, &base, &mut md_files);
+
+    let mut results = Vec::new();
+
+    for file_path in md_files {
+        // Only scan markdown files
+        let ext = file_path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+        if ext != "md" { continue; }
+
+        // Skip the target file itself
+        let file_stem = file_path.file_stem()
+            .map(|s| s.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        if file_stem == stem_lower { continue; }
+
+        let content = match fs::read_to_string(&file_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        for (i, line) in content.lines().enumerate() {
+            if re.is_match(&line.to_lowercase()) {
+                let relative = file_path.strip_prefix(&base)
+                    .unwrap_or(&file_path)
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                let name = file_path.file_stem()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+
+                results.push(BacklinkResult {
+                    path: relative,
+                    name,
+                    line_number: (i + 1) as u32,
+                    line_content: line.trim().to_string(),
+                });
+            }
+        }
+    }
+
+    Ok(results)
 }
 
 #[tauri::command]
@@ -919,6 +1293,15 @@ pub fn run() {
             vault_list,
             vault_read_file,
             vault_write_file,
+            vault_create_file,
+            vault_create_dir,
+            vault_rename,
+            vault_delete,
+            vault_move,
+            vault_copy,
+            vault_search_files,
+            vault_search_content,
+            vault_get_backlinks,
             hum::hum_send,
             hum::hum_review,
             process_inbox,

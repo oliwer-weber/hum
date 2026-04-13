@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useEditor, EditorContent } from "@tiptap/react";
+import { DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import StarterKit from "@tiptap/starter-kit";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
@@ -101,6 +102,55 @@ const PAIRS: Record<string, string> = {
 
 const CLOSE_CHARS = new Set(Object.values(PAIRS));
 
+/* ── Search highlight helper ──────────────────────── */
+
+function highlightMatch(text: string, query: string): React.ReactNode {
+  if (!query) return text;
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const parts = text.split(new RegExp(`(${escaped})`, "gi"));
+  return parts.map((part, i) =>
+    i % 2 === 1 ? <mark key={i} className="search-highlight">{part}</mark> : part
+  );
+}
+
+/* ── Draggable/Droppable entry wrappers ──────────── */
+
+function DraggableEntry({ id, children }: { id: string; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id });
+  return (
+    <div ref={setNodeRef} {...listeners} {...attributes} style={{ opacity: isDragging ? 0.4 : 1 }}>
+      {children}
+    </div>
+  );
+}
+
+function DroppableDir({ id, children }: { id: string; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div ref={setNodeRef} className={isOver ? "vault-entry-drop-target" : ""}>
+      {children}
+    </div>
+  );
+}
+
+function DroppableColumn({ id, children, className }: { id: string; children: React.ReactNode; className?: string }) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div ref={setNodeRef} className={`${className || ""} ${isOver ? "vault-column-drop-target" : ""}`}>
+      {children}
+    </div>
+  );
+}
+
+/* ── Modal types ──────────────────────────────────── */
+
+type ModalState =
+  | null
+  | { kind: "create-file"; dir: string; colIndex: number }
+  | { kind: "create-dir"; dir: string; colIndex: number }
+  | { kind: "rename"; path: string; name: string; is_dir: boolean; colIndex: number }
+  | { kind: "delete"; path: string; name: string; is_dir: boolean; colIndex: number };
+
 /* ── Vault Component ──────────────────────────────── */
 
 export default function Vault({ refreshKey, openPath, onOpenPathHandled }: VaultProps) {
@@ -112,6 +162,48 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const saveTimerRef = useRef<number | null>(null);
   const skipAutoSaveRef = useRef(false);
+
+  // Modal state
+  const [modal, setModal] = useState<ModalState>(null);
+  const [modalInput, setModalInput] = useState("");
+  const [modalError, setModalError] = useState("");
+  const [showCreateMenu, setShowCreateMenu] = useState(false);
+  const createBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Context menu state
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string; entry: VaultEntry; colIndex: number } | null>(null);
+
+  // Move modal state
+  const [moveSource, setMoveSource] = useState<{ path: string; name: string } | null>(null);
+  const [moveBrowsePath, setMoveBrowsePath] = useState("");
+  const [moveBrowseEntries, setMoveBrowseEntries] = useState<VaultEntry[]>([]);
+  const [moveError, setMoveError] = useState("");
+
+  // Search state
+  const [searchMode, setSearchMode] = useState<null | "files" | "content">(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Array<{ path: string; name: string; line_number?: number; line_content?: string }>>([]);
+  const [searchActiveIdx, setSearchActiveIdx] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchDebounceRef = useRef<number | null>(null);
+  const searchGenRef = useRef(0);
+
+  // Find/replace in editor
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [replaceQuery, setReplaceQuery] = useState("");
+  const [showReplace, setShowReplace] = useState(false);
+  const [findMatches, setFindMatches] = useState<{ from: number; to: number }[]>([]);
+  const [findActiveIdx, setFindActiveIdx] = useState(0);
+  const findInputRef = useRef<HTMLInputElement>(null);
+
+  // Drag and drop state
+  const [draggedEntry, setDraggedEntry] = useState<{ path: string; entry: VaultEntry } | null>(null);
+  const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+
+  // Backlinks state
+  const [backlinks, setBacklinks] = useState<Array<{ path: string; name: string; line_number: number; line_content: string }>>([]);
+  const [showBacklinks, setShowBacklinks] = useState(true);
 
   // Vault file index
   const vaultFilesRef = useRef<VaultFileInfo[]>([]);
@@ -367,6 +459,18 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
     })();
   }, [openPath]);
 
+  // Fetch backlinks when a markdown file is opened
+  useEffect(() => {
+    if (!openFile || openFile.entry.extension !== "md") {
+      setBacklinks([]);
+      return;
+    }
+    const stem = openFile.entry.name.replace(/\.md$/, "");
+    invoke<Array<{ path: string; name: string; line_number: number; line_content: string }>>(
+      "vault_get_backlinks", { targetStem: stem }
+    ).then(setBacklinks).catch(() => setBacklinks([]));
+  }, [openFile]);
+
   // Load a directory into a specific column index
   const loadDirectory = useCallback(async (path: string, colIndex: number) => {
     try {
@@ -460,6 +564,369 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
     [saveFile]
   );
 
+  // Close context menu on click-away or Escape
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const handleClick = () => setCtxMenu(null);
+    const handleKey = (e: KeyboardEvent) => { if (e.key === "Escape") setCtxMenu(null); };
+    document.addEventListener("click", handleClick);
+    document.addEventListener("keydown", handleKey);
+    return () => { document.removeEventListener("click", handleClick); document.removeEventListener("keydown", handleKey); };
+  }, [ctxMenu]);
+
+  // Close create menu on click-away
+  useEffect(() => {
+    if (!showCreateMenu) return;
+    const handleClick = () => setShowCreateMenu(false);
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, [showCreateMenu]);
+
+  // Context menu right-click handler
+  const handleContextMenu = useCallback((e: React.MouseEvent, path: string, entry: VaultEntry, colIndex: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({ x: e.clientX, y: e.clientY, path, entry, colIndex });
+  }, []);
+
+  // Copy a file/folder in place
+  const handleCopy = useCallback(async (path: string, colIndex: number) => {
+    try {
+      const parentPath = path.includes("/") ? path.substring(0, path.lastIndexOf("/")) : "";
+      await invoke<string>("vault_copy", { source: path, destDir: parentPath || "." });
+      const col = columns[colIndex];
+      if (col) await loadDirectory(col.path, colIndex);
+    } catch (err) {
+      console.error("Copy failed:", err);
+    }
+  }, [columns, loadDirectory]);
+
+  // Open the move modal
+  const openMoveModal = useCallback(async (path: string, name: string) => {
+    setMoveSource({ path, name });
+    setMoveBrowsePath("");
+    setMoveError("");
+    try {
+      const entries = await invoke<VaultEntry[]>("vault_list", { relativePath: "" });
+      setMoveBrowseEntries(entries.filter((e) => e.is_dir));
+    } catch { setMoveBrowseEntries([]); }
+  }, []);
+
+  // Navigate within the move modal
+  const moveBrowseNavigate = useCallback(async (dirPath: string) => {
+    setMoveBrowsePath(dirPath);
+    setMoveError("");
+    try {
+      const entries = await invoke<VaultEntry[]>("vault_list", { relativePath: dirPath });
+      setMoveBrowseEntries(entries.filter((e) => e.is_dir));
+    } catch { setMoveBrowseEntries([]); }
+  }, []);
+
+  // Execute the move
+  const handleMoveSubmit = useCallback(async () => {
+    if (!moveSource) return;
+    setMoveError("");
+    try {
+      const destDir = moveBrowsePath || ".";
+      await invoke<string>("vault_move", { source: moveSource.path, destDir });
+      setMoveSource(null);
+      // Refresh all visible columns
+      for (let i = 0; i < columns.length; i++) {
+        await loadDirectory(columns[i].path, i);
+      }
+      // Update file index
+      const files = await invoke<VaultFileInfo[]>("vault_all_files");
+      vaultFilesRef.current = files;
+      vaultStemsRef.current = new Set(files.map((f) => f.stem));
+      // Clear editor if moved file was open
+      if (openFile && openFile.path === moveSource.path) {
+        setOpenFile(null);
+        setImageUrl(null);
+      }
+    } catch (err) {
+      setMoveError(err instanceof Error ? err.message : String(err));
+    }
+  }, [moveSource, moveBrowsePath, columns, loadDirectory, openFile]);
+
+  // ── Global keyboard shortcuts (search, find) ──
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+P — file search
+      if ((e.ctrlKey || e.metaKey) && e.key === "p" && !e.shiftKey) {
+        e.preventDefault();
+        setSearchMode("files");
+        setSearchQuery("");
+        setSearchResults([]);
+        setSearchActiveIdx(0);
+        setTimeout(() => searchInputRef.current?.focus(), 50);
+        return;
+      }
+      // Ctrl+Shift+F — content search
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "F") {
+        e.preventDefault();
+        setSearchMode("content");
+        setSearchQuery("");
+        setSearchResults([]);
+        setSearchActiveIdx(0);
+        setTimeout(() => searchInputRef.current?.focus(), 50);
+        return;
+      }
+      // Ctrl+F — find in editor (only when md file is open)
+      if ((e.ctrlKey || e.metaKey) && e.key === "f" && !e.shiftKey && openFile?.entry.extension === "md") {
+        e.preventDefault();
+        setFindOpen(true);
+        setShowReplace(false);
+        setTimeout(() => findInputRef.current?.focus(), 50);
+        return;
+      }
+      // Ctrl+H — find+replace in editor
+      if ((e.ctrlKey || e.metaKey) && e.key === "h" && openFile?.entry.extension === "md") {
+        e.preventDefault();
+        setFindOpen(true);
+        setShowReplace(true);
+        setTimeout(() => findInputRef.current?.focus(), 50);
+        return;
+      }
+      // Escape — close search/find
+      if (e.key === "Escape") {
+        if (searchMode) { setSearchMode(null); return; }
+        if (findOpen) { setFindOpen(false); return; }
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [searchMode, findOpen, openFile]);
+
+  // Debounced search execution with stale-result guard
+  useEffect(() => {
+    if (!searchMode || !searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    const gen = ++searchGenRef.current;
+    searchDebounceRef.current = window.setTimeout(async () => {
+      try {
+        if (searchMode === "files") {
+          const results = await invoke<VaultFileInfo[]>("vault_search_files", { query: searchQuery });
+          if (gen !== searchGenRef.current) return; // stale
+          setSearchResults(results.map((f) => ({ path: f.path, name: f.name })));
+        } else {
+          const results = await invoke<Array<{ path: string; name: string; line_number: number; line_content: string }>>(
+            "vault_search_content", { query: searchQuery, maxResults: 30 }
+          );
+          if (gen !== searchGenRef.current) return; // stale
+          setSearchResults(results);
+        }
+        setSearchActiveIdx(0);
+      } catch (err) {
+        if (gen === searchGenRef.current) console.error("Search failed:", err);
+      }
+    }, 400);
+    return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
+  }, [searchQuery, searchMode]);
+
+  // Open a search result
+  const openSearchResult = useCallback(async (result: { path: string; name: string }) => {
+    const entry: VaultEntry = {
+      name: result.name,
+      is_dir: false,
+      extension: result.name.includes(".") ? result.name.split(".").pop()! : null,
+    };
+    await openFileInEditor(result.path, entry, true);
+    setSearchMode(null);
+  }, [openFileInEditor]);
+
+  // Search keyboard navigation
+  const handleSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSearchActiveIdx((prev) => Math.min(prev + 1, searchResults.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSearchActiveIdx((prev) => Math.max(prev - 1, 0));
+    } else if (e.key === "Enter" && searchResults[searchActiveIdx]) {
+      openSearchResult(searchResults[searchActiveIdx]);
+    } else if (e.key === "Escape") {
+      setSearchMode(null);
+    }
+  }, [searchResults, searchActiveIdx, openSearchResult]);
+
+  // ── Find in editor logic ──
+  useEffect(() => {
+    if (!findOpen || !findQuery || !editor) {
+      setFindMatches([]);
+      return;
+    }
+    const doc = editor.state.doc;
+    const text = doc.textBetween(0, doc.content.size, "\n");
+    const q = findQuery.toLowerCase();
+    const matches: { from: number; to: number }[] = [];
+    let idx = 0;
+    const textLower = text.toLowerCase();
+    while (idx < textLower.length) {
+      const found = textLower.indexOf(q, idx);
+      if (found === -1) break;
+      matches.push({ from: found + 1, to: found + 1 + q.length }); // +1 for ProseMirror offset
+      idx = found + 1;
+    }
+    setFindMatches(matches);
+    setFindActiveIdx(0);
+  }, [findQuery, findOpen, editor]);
+
+  // Scroll to active find match
+  useEffect(() => {
+    if (!editor || findMatches.length === 0) return;
+    const match = findMatches[findActiveIdx];
+    if (!match) return;
+    editor.commands.setTextSelection({ from: match.from, to: match.to });
+    editor.commands.scrollIntoView();
+  }, [findActiveIdx, findMatches, editor]);
+
+  const findNext = useCallback(() => {
+    setFindActiveIdx((prev) => (prev + 1) % Math.max(findMatches.length, 1));
+  }, [findMatches]);
+
+  const findPrev = useCallback(() => {
+    setFindActiveIdx((prev) => (prev - 1 + findMatches.length) % Math.max(findMatches.length, 1));
+  }, [findMatches]);
+
+  const handleReplace = useCallback(() => {
+    if (!editor || findMatches.length === 0) return;
+    const match = findMatches[findActiveIdx];
+    if (!match) return;
+    editor.chain().focus().setTextSelection({ from: match.from, to: match.to }).insertContent(replaceQuery).run();
+    // Re-trigger find
+    setFindQuery((q) => q + ""); // force re-render
+  }, [editor, findMatches, findActiveIdx, replaceQuery]);
+
+  const handleReplaceAll = useCallback(() => {
+    if (!editor || findMatches.length === 0) return;
+    // Replace from end to start to preserve positions
+    const sorted = [...findMatches].sort((a, b) => b.from - a.from);
+    const chain = editor.chain().focus();
+    for (const match of sorted) {
+      chain.setTextSelection({ from: match.from, to: match.to }).insertContent(replaceQuery);
+    }
+    chain.run();
+    setFindMatches([]);
+  }, [editor, findMatches, replaceQuery]);
+
+  // ── Drag and drop handlers ──
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const id = String(event.active.id);
+    // id format: "drag:<path>"
+    const path = id.replace("drag:", "");
+    const name = path.split("/").pop() || "";
+    const entry: VaultEntry = {
+      name,
+      is_dir: false, // We'll determine from context
+      extension: name.includes(".") ? name.split(".").pop()! : null,
+    };
+    // Check if it's a directory by looking in columns
+    for (const col of columns) {
+      const found = col.entries.find((e) => {
+        const ePath = col.path ? `${col.path}/${e.name}` : e.name;
+        return ePath === path;
+      });
+      if (found) {
+        entry.is_dir = found.is_dir;
+        entry.extension = found.extension;
+        break;
+      }
+    }
+    setDraggedEntry({ path, entry });
+  }, [columns]);
+
+  const handleDragEnd = useCallback(async (event: DragEndEvent) => {
+    setDraggedEntry(null);
+    const { active, over } = event;
+    if (!over) return;
+
+    const sourcePath = String(active.id).replace("drag:", "");
+    const destDir = String(over.id).replace("drop:", "");
+
+    // Don't drop onto self or same parent
+    const sourceParent = sourcePath.includes("/") ? sourcePath.substring(0, sourcePath.lastIndexOf("/")) : "";
+    if (destDir === sourceParent || destDir === sourcePath) return;
+
+    try {
+      await invoke<string>("vault_move", { source: sourcePath, destDir: destDir || "." });
+      // Refresh all visible columns
+      for (let i = 0; i < columns.length; i++) {
+        await loadDirectory(columns[i].path, i);
+      }
+      const files = await invoke<VaultFileInfo[]>("vault_all_files");
+      vaultFilesRef.current = files;
+      vaultStemsRef.current = new Set(files.map((f) => f.stem));
+    } catch (err) {
+      console.error("Drag-move failed:", err);
+    }
+  }, [columns, loadDirectory]);
+
+  // Refresh a column + vault file index after mutations
+  const refreshAfterMutation = useCallback(async (colIndex: number) => {
+    const col = columns[colIndex];
+    if (col) await loadDirectory(col.path, colIndex);
+    const files = await invoke<VaultFileInfo[]>("vault_all_files");
+    vaultFilesRef.current = files;
+    vaultStemsRef.current = new Set(files.map((f) => f.stem));
+  }, [columns, loadDirectory]);
+
+  // Get the directory path for the rightmost column
+  const currentDir = columns.length > 0 ? columns[columns.length - 1].path : "";
+  const currentColIndex = columns.length - 1;
+
+  // Open a modal
+  const openModal = useCallback((state: ModalState) => {
+    setModal(state);
+    setModalInput(state?.kind === "rename" ? state.name : "");
+    setModalError("");
+  }, []);
+
+  // Modal submit handler
+  const handleModalSubmit = useCallback(async () => {
+    if (!modal) return;
+    setModalError("");
+
+    try {
+      if (modal.kind === "create-file") {
+        const name = modalInput.trim();
+        if (!name) return;
+        const fullName = name.includes(".") ? name : `${name}.md`;
+        const path = modal.dir ? `${modal.dir}/${fullName}` : fullName;
+        await invoke("vault_create_file", { relativePath: path, content: "" });
+        await refreshAfterMutation(modal.colIndex);
+      } else if (modal.kind === "create-dir") {
+        const name = modalInput.trim();
+        if (!name) return;
+        const path = modal.dir ? `${modal.dir}/${name}` : name;
+        await invoke("vault_create_dir", { relativePath: path });
+        await refreshAfterMutation(modal.colIndex);
+      } else if (modal.kind === "rename") {
+        const name = modalInput.trim();
+        if (!name || name === modal.name) return;
+        const newPath = await invoke<string>("vault_rename", { relativePath: modal.path, newName: name });
+        await refreshAfterMutation(modal.colIndex);
+        // Update openFile if the renamed file was open
+        if (openFile && openFile.path === modal.path) {
+          setOpenFile({ path: newPath, entry: { ...openFile.entry, name } });
+        }
+      } else if (modal.kind === "delete") {
+        await invoke("vault_delete", { relativePath: modal.path });
+        await refreshAfterMutation(modal.colIndex);
+        // Clear editor if deleted file was open
+        if (openFile && openFile.path === modal.path) {
+          setOpenFile(null);
+          setImageUrl(null);
+        }
+      }
+      setModal(null);
+    } catch (err) {
+      setModalError(err instanceof Error ? err.message : String(err));
+    }
+  }, [modal, modalInput, openFile, refreshAfterMutation]);
+
   // Determine visible columns (max 3, shift left if deeper)
   const visibleColumns = columns.length <= 3 ? columns : columns.slice(columns.length - 3);
   const columnOffset = columns.length <= 3 ? 0 : columns.length - 3;
@@ -495,33 +962,71 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
               </span>
             </span>
           ))}
+          <div className="vault-breadcrumb-actions">
+            <button
+              ref={createBtnRef}
+              className="vault-create-btn"
+              onClick={(e) => { e.stopPropagation(); setShowCreateMenu((v) => !v); }}
+              title="New file or folder"
+            >+</button>
+          </div>
         </div>
 
-        <div className="vault-columns">
-          {visibleColumns.map((col, vi) => {
-            const realIndex = vi + columnOffset;
-            return (
-              <div key={`${col.path}-${realIndex}`} className="vault-column">
-                {col.entries.map((entry) => (
-                  <div
-                    key={entry.name}
-                    className={`vault-entry ${col.selected === entry.name ? "vault-entry-selected" : ""} ${entry.is_dir ? "vault-entry-dir" : ""}`}
-                    onClick={() => handleEntryClick(realIndex, entry)}
-                  >
-                    <span className={`vault-entry-icon ${iconClass(entry)}`}>
-                      {fileIcon(entry)}
-                    </span>
-                    <span className="vault-entry-name">{entry.name}</span>
-                    {entry.is_dir && <span className="vault-entry-chevron">&#x276F;</span>}
-                  </div>
-                ))}
-                {col.entries.length === 0 && (
-                  <div className="vault-empty">Empty folder</div>
-                )}
+        <DndContext sensors={dndSensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+          <div className="vault-columns">
+            {visibleColumns.map((col, vi) => {
+              const realIndex = vi + columnOffset;
+              return (
+                <DroppableColumn key={`${col.path}-${realIndex}`} id={`drop:${col.path || "."}`} className="vault-column">
+                  {col.entries.map((entry) => {
+                    const entryPath = col.path ? `${col.path}/${entry.name}` : entry.name;
+                    const entryContent = (
+                      <div
+                        className={`vault-entry ${col.selected === entry.name ? "vault-entry-selected" : ""} ${entry.is_dir ? "vault-entry-dir" : ""}`}
+                        onClick={() => handleEntryClick(realIndex, entry)}
+                        onContextMenu={(e) => handleContextMenu(e, entryPath, entry, realIndex)}
+                      >
+                        <span className={`vault-entry-icon ${iconClass(entry)}`}>
+                          {fileIcon(entry)}
+                        </span>
+                        <span className="vault-entry-name">{entry.name}</span>
+                        {entry.is_dir && <span className="vault-entry-chevron">&#x276F;</span>}
+                      </div>
+                    );
+
+                    if (entry.is_dir) {
+                      return (
+                        <DraggableEntry key={entry.name} id={`drag:${entryPath}`}>
+                          <DroppableDir id={`drop:${entryPath}`}>
+                            {entryContent}
+                          </DroppableDir>
+                        </DraggableEntry>
+                      );
+                    }
+                    return (
+                      <DraggableEntry key={entry.name} id={`drag:${entryPath}`}>
+                        {entryContent}
+                      </DraggableEntry>
+                    );
+                  })}
+                  {col.entries.length === 0 && (
+                    <div className="vault-empty">Empty folder</div>
+                  )}
+                </DroppableColumn>
+              );
+            })}
+          </div>
+          <DragOverlay>
+            {draggedEntry && (
+              <div className="vault-drag-overlay">
+                <span className={`vault-entry-icon ${iconClass(draggedEntry.entry)}`}>
+                  {fileIcon(draggedEntry.entry)}
+                </span>
+                <span>{draggedEntry.entry.name}</span>
               </div>
-            );
-          })}
-        </div>
+            )}
+          </DragOverlay>
+        </DndContext>
       </div>
 
       {/* Editor pane */}
@@ -542,6 +1047,15 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
               title="Forward"
             >&#x2192;</button>
             <span className="vault-nav-path">{openFile.path}</span>
+            {openFile.entry.extension === "md" && backlinks.length > 0 && (
+              <button
+                className={`vault-backlinks-toggle ${showBacklinks ? "vault-backlinks-toggle-active" : ""}`}
+                onClick={() => setShowBacklinks((v) => !v)}
+                title={`${backlinks.length} backlink${backlinks.length !== 1 ? "s" : ""}`}
+              >
+                {backlinks.length} {"\u2190"}
+              </button>
+            )}
             {saveStatus === "saved" && <span className="vault-editor-saved">saved</span>}
             {saveStatus === "error" && <span className="vault-editor-error">save failed</span>}
           </div>
@@ -563,9 +1077,75 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
 
         {openFile && !imageUrl && openFile.entry.extension === "md" && editor && (
           <div className="vault-editor-md">
+            {findOpen && (
+              <div className="vault-find-bar">
+                <div className="vault-find-row">
+                  <input
+                    ref={findInputRef}
+                    className="vault-find-input"
+                    placeholder="Find..."
+                    value={findQuery}
+                    onChange={(e) => setFindQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.shiftKey ? findPrev() : findNext(); }
+                      if (e.key === "Escape") setFindOpen(false);
+                    }}
+                  />
+                  <span className="vault-find-count">
+                    {findMatches.length > 0 ? `${findActiveIdx + 1}/${findMatches.length}` : "0 results"}
+                  </span>
+                  <button className="vault-find-btn" onClick={findPrev} title="Previous">{"\u2191"}</button>
+                  <button className="vault-find-btn" onClick={findNext} title="Next">{"\u2193"}</button>
+                  <button className="vault-find-btn" onClick={() => setShowReplace((v) => !v)} title="Toggle replace">
+                    {showReplace ? "\u2212" : "\u2026"}
+                  </button>
+                  <button className="vault-find-btn" onClick={() => setFindOpen(false)} title="Close">{"\u2715"}</button>
+                </div>
+                {showReplace && (
+                  <div className="vault-find-row">
+                    <input
+                      className="vault-find-input"
+                      placeholder="Replace..."
+                      value={replaceQuery}
+                      onChange={(e) => setReplaceQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleReplace();
+                        if (e.key === "Escape") setFindOpen(false);
+                      }}
+                    />
+                    <button className="vault-find-btn" onClick={handleReplace} title="Replace">Replace</button>
+                    <button className="vault-find-btn" onClick={handleReplaceAll} title="Replace all">All</button>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="vault-editor-content">
               <EditorContent editor={editor} />
             </div>
+            {showBacklinks && backlinks.length > 0 && (
+              <div className="vault-backlinks-panel">
+                <div className="vault-backlinks-header">
+                  <span>Backlinks ({backlinks.length})</span>
+                </div>
+                {backlinks.map((bl, i) => (
+                  <div
+                    key={`${bl.path}-${bl.line_number}-${i}`}
+                    className="vault-backlink-item"
+                    onClick={() => {
+                      const entry: VaultEntry = {
+                        name: bl.name + ".md",
+                        is_dir: false,
+                        extension: "md",
+                      };
+                      openFileInEditor(bl.path, entry, true);
+                    }}
+                  >
+                    <span className="vault-backlink-name">{bl.name}</span>
+                    <span className="vault-backlink-context">{bl.line_content}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -587,6 +1167,212 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
           </div>
         )}
       </div>
+
+      {/* ── Create dropdown (fixed, escapes overflow) ── */}
+      {showCreateMenu && createBtnRef.current && (() => {
+        const rect = createBtnRef.current!.getBoundingClientRect();
+        return (
+          <div
+            className="vault-create-menu"
+            style={{ top: rect.bottom + 4, right: window.innerWidth - rect.right }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              className="vault-create-menu-item"
+              onClick={() => {
+                setShowCreateMenu(false);
+                openModal({ kind: "create-file", dir: currentDir, colIndex: currentColIndex });
+              }}
+            >New file</div>
+            <div
+              className="vault-create-menu-item"
+              onClick={() => {
+                setShowCreateMenu(false);
+                openModal({ kind: "create-dir", dir: currentDir, colIndex: currentColIndex });
+              }}
+            >New folder</div>
+          </div>
+        );
+      })()}
+
+      {/* ── Search overlay ── */}
+      {searchMode && (
+        <div className="vault-search-overlay" onClick={() => setSearchMode(null)}>
+          <div className="vault-search-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="vault-search-header">
+              <span className="vault-search-mode-label">{searchMode === "files" ? "Files" : "Content"}</span>
+              <input
+                ref={searchInputRef}
+                className="vault-search-input"
+                placeholder={searchMode === "files" ? "Search files..." : "Search in files..."}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
+              />
+            </div>
+            <div className="vault-search-results">
+              {searchResults.map((result, i) => (
+                <div
+                  key={`${result.path}-${result.line_number ?? 0}-${i}`}
+                  className={`vault-search-result ${i === searchActiveIdx ? "vault-search-result-active" : ""}`}
+                  onClick={() => openSearchResult(result)}
+                >
+                  {searchMode === "content" && result.line_content ? (
+                    <>
+                      <span className="vault-search-result-content">
+                        {highlightMatch(result.line_content, searchQuery)}
+                      </span>
+                      <span className="vault-search-result-meta">
+                        <span className="vault-search-result-file">{result.name}</span>
+                        <span className="vault-search-result-sep">&middot;</span>
+                        <span className="vault-search-result-linenum">L{result.line_number}</span>
+                        <span className="vault-search-result-sep">&middot;</span>
+                        <span className="vault-search-result-path-dim">{result.path}</span>
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="vault-search-result-name">
+                        {highlightMatch(result.name, searchQuery)}
+                      </span>
+                      <span className="vault-search-result-path">{result.path}</span>
+                    </>
+                  )}
+                </div>
+              ))}
+              {searchQuery && searchResults.length === 0 && (
+                <div className="vault-search-empty">No results</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Context menu ── */}
+      {ctxMenu && (
+        <div className="vault-context-menu" style={{ left: ctxMenu.x, top: ctxMenu.y }} onClick={(e) => e.stopPropagation()}>
+          <div className="vault-context-item" onClick={() => {
+            const dir = ctxMenu.entry.is_dir ? ctxMenu.path : (ctxMenu.path.includes("/") ? ctxMenu.path.substring(0, ctxMenu.path.lastIndexOf("/")) : "");
+            const colIdx = ctxMenu.entry.is_dir ? ctxMenu.colIndex + 1 : ctxMenu.colIndex;
+            openModal({ kind: "create-file", dir, colIndex: Math.min(colIdx, columns.length - 1) });
+            setCtxMenu(null);
+          }}>New file here</div>
+          <div className="vault-context-item" onClick={() => {
+            const dir = ctxMenu.entry.is_dir ? ctxMenu.path : (ctxMenu.path.includes("/") ? ctxMenu.path.substring(0, ctxMenu.path.lastIndexOf("/")) : "");
+            const colIdx = ctxMenu.entry.is_dir ? ctxMenu.colIndex + 1 : ctxMenu.colIndex;
+            openModal({ kind: "create-dir", dir, colIndex: Math.min(colIdx, columns.length - 1) });
+            setCtxMenu(null);
+          }}>New folder here</div>
+          <div className="vault-context-separator" />
+          <div className="vault-context-item" onClick={() => {
+            openModal({ kind: "rename", path: ctxMenu.path, name: ctxMenu.entry.name, is_dir: ctxMenu.entry.is_dir, colIndex: ctxMenu.colIndex });
+            setCtxMenu(null);
+          }}>Rename</div>
+          <div className="vault-context-item" onClick={() => {
+            handleCopy(ctxMenu.path, ctxMenu.colIndex);
+            setCtxMenu(null);
+          }}>Duplicate</div>
+          <div className="vault-context-item" onClick={() => {
+            openMoveModal(ctxMenu.path, ctxMenu.entry.name);
+            setCtxMenu(null);
+          }}>Move to...</div>
+          <div className="vault-context-separator" />
+          <div className="vault-context-item vault-context-item-danger" onClick={() => {
+            openModal({ kind: "delete", path: ctxMenu.path, name: ctxMenu.entry.name, is_dir: ctxMenu.entry.is_dir, colIndex: ctxMenu.colIndex });
+            setCtxMenu(null);
+          }}>Delete</div>
+        </div>
+      )}
+
+      {/* ── Move modal ── */}
+      {moveSource && (
+        <div className="vault-modal-overlay" onClick={() => setMoveSource(null)}>
+          <div className="vault-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 className="vault-modal-title">Move "{moveSource.name}"</h3>
+            <div className="vault-move-browser">
+              <div className="vault-move-path">
+                {moveBrowsePath || "vault (root)"}
+              </div>
+              <div className="vault-move-list">
+                {moveBrowsePath && (
+                  <div
+                    className="vault-move-item vault-move-item-up"
+                    onClick={() => {
+                      const parent = moveBrowsePath.includes("/")
+                        ? moveBrowsePath.substring(0, moveBrowsePath.lastIndexOf("/"))
+                        : "";
+                      moveBrowseNavigate(parent);
+                    }}
+                  >..</div>
+                )}
+                {moveBrowseEntries.map((entry) => (
+                  <div
+                    key={entry.name}
+                    className="vault-move-item"
+                    onClick={() => moveBrowseNavigate(moveBrowsePath ? `${moveBrowsePath}/${entry.name}` : entry.name)}
+                  >
+                    <span className="vault-icon-dir">{"\u25B8"}</span> {entry.name}
+                  </div>
+                ))}
+                {moveBrowseEntries.length === 0 && !moveBrowsePath && (
+                  <div className="vault-move-empty">No folders</div>
+                )}
+              </div>
+            </div>
+            {moveError && <p className="vault-modal-error">{moveError}</p>}
+            <div className="vault-modal-actions">
+              <button className="vault-modal-btn vault-modal-btn-secondary" onClick={() => setMoveSource(null)}>Cancel</button>
+              <button className="vault-modal-btn vault-modal-btn-primary" onClick={handleMoveSubmit}>Move here</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal overlay ── */}
+      {modal && (
+        <div className="vault-modal-overlay" onClick={() => setModal(null)}>
+          <div className="vault-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 className="vault-modal-title">
+              {modal.kind === "create-file" && "New file"}
+              {modal.kind === "create-dir" && "New folder"}
+              {modal.kind === "rename" && `Rename ${modal.is_dir ? "folder" : "file"}`}
+              {modal.kind === "delete" && `Delete ${modal.is_dir ? "folder" : "file"}`}
+            </h3>
+
+            {modal.kind !== "delete" ? (
+              <input
+                className="vault-modal-input"
+                autoFocus
+                value={modalInput}
+                onChange={(e) => setModalInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleModalSubmit(); if (e.key === "Escape") setModal(null); }}
+                placeholder={modal.kind === "create-dir" ? "Folder name" : "File name (.md default)"}
+              />
+            ) : (
+              <p className="vault-modal-text">
+                Permanently delete <strong>{modal.name}</strong>{modal.is_dir ? " and all its contents" : ""}?
+              </p>
+            )}
+
+            {modalError && <p className="vault-modal-error">{modalError}</p>}
+
+            <div className="vault-modal-actions">
+              <button className="vault-modal-btn vault-modal-btn-secondary" onClick={() => setModal(null)}>
+                Cancel
+              </button>
+              <button
+                className={`vault-modal-btn ${modal.kind === "delete" ? "vault-modal-btn-danger" : "vault-modal-btn-primary"}`}
+                onClick={handleModalSubmit}
+              >
+                {modal.kind === "create-file" && "Create"}
+                {modal.kind === "create-dir" && "Create"}
+                {modal.kind === "rename" && "Rename"}
+                {modal.kind === "delete" && "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

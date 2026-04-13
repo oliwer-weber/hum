@@ -1,6 +1,39 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { TaggedText } from "./TaggedText";
+
+/* ── Scroll-fade hook ──────────────────────────────── */
+
+type FadeEdge = "none" | "top" | "bottom" | "both";
+
+function useScrollFade(deps: unknown[] = []) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [edge, setEdge] = useState<FadeEdge>("none");
+
+  const update = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const { scrollTop, scrollHeight, clientHeight } = el;
+    const atTop = scrollTop <= 2;
+    const atBottom = scrollTop + clientHeight >= scrollHeight - 2;
+    if (atTop && atBottom) setEdge("none");
+    else if (atTop) setEdge("bottom");
+    else if (atBottom) setEdge("top");
+    else setEdge("both");
+  }, []);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => { el.removeEventListener("scroll", update); ro.disconnect(); };
+  }, [update, ...deps]);
+
+  return { ref, edge };
+}
 
 /* ── Interfaces ─────────────────────────────────────── */
 
@@ -54,10 +87,6 @@ const PROJECT_COLORS = [
   "var(--blue)", "var(--purple)", "var(--orange)",
 ];
 
-const DAY_START = 8;
-const DAY_END = 17;
-const TOTAL_MINUTES = (DAY_END - DAY_START) * 60;
-
 /* ── Helpers ────────────────────────────────────────── */
 
 function getTodayStr(): string {
@@ -92,19 +121,6 @@ function getWeekNumber(date: Date): number {
   d.setUTCDate(d.getUTCDate() + 4 - dayNum);
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-}
-
-function timeToMinutes(time: string): number {
-  const [h, m] = time.split(":").map(Number);
-  return h * 60 + m;
-}
-
-function minutesToPercent(minutes: number): number {
-  return ((minutes - DAY_START * 60) / TOTAL_MINUTES) * 100;
-}
-
-function durationPercent(startMin: number, endMin: number): number {
-  return ((endMin - startMin) / TOTAL_MINUTES) * 100;
 }
 
 function formatAge(days: number): string {
@@ -215,18 +231,10 @@ function MonthCalendar({
 
 /* ── Schedule (read-only) ──────────────────────────── */
 
-function ScheduleMeetingBlock({ event }: { event: CalendarEvent }) {
-  const startMin = timeToMinutes(event.start);
-  const endMin = event.end ? timeToMinutes(event.end) : startMin + 60;
-  const top = minutesToPercent(Math.max(startMin, DAY_START * 60));
-  const height = durationPercent(
-    Math.max(startMin, DAY_START * 60),
-    Math.min(endMin, DAY_END * 60),
-  );
-
+function ScheduleCard({ event }: { event: CalendarEvent }) {
   return (
-    <div className="dash-meeting-block" style={{ top: `${top}%`, height: `${Math.max(height, 3)}%` }}>
-      <span className="dash-meeting-time">{event.start}{event.end ? `–${event.end}` : ""}</span>
+    <div className="dash-meeting-block">
+      <span className="dash-meeting-time">{event.start}{event.end ? `\u2013${event.end}` : ""}</span>
       <span className="dash-meeting-title">{event.title}</span>
       {event.location && <span className="dash-meeting-location">{event.location}</span>}
     </div>
@@ -312,20 +320,26 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
   );
 
   // ── Assign unique color+shape to visible projects ──
+  // Deterministic: derived from project name hash so assignments never shift
   // 4 shape tiers × 6 colors = 24 unique combos before repeating
   const PIP_SHAPES = ["filled-circle", "filled-square", "outline-circle", "outline-square"] as const;
 
+  // Persistent pip assignments — survives re-renders, gravity reorders, projects dropping to 0
+  const pipAssignmentsRef = useRef(new Map<string, { color: string; shape: string }>());
+  const pipCounterRef = useRef(0);
+
   const projectPipMap = useMemo(() => {
-    const map = new Map<string, { color: string; shape: string }>();
+    const assigned = pipAssignmentsRef.current;
     for (const p of projectsWithOpenTodos) {
-      if (!map.has(p.name)) {
-        const idx = map.size;
+      if (!assigned.has(p.name)) {
+        const idx = pipCounterRef.current++;
+        // Order: first 6 filled-circle, next 6 filled-square, next 6 outline-circle, next 6 outline-square, then wrap
         const colorIdx = idx % PROJECT_COLORS.length;
-        const shapeIdx = Math.floor(idx / PROJECT_COLORS.length) % PIP_SHAPES.length;
-        map.set(p.name, { color: PROJECT_COLORS[colorIdx], shape: PIP_SHAPES[shapeIdx] });
+        const shapeIdx = Math.floor((idx % 24) / PROJECT_COLORS.length);
+        assigned.set(p.name, { color: PROJECT_COLORS[colorIdx], shape: PIP_SHAPES[shapeIdx] });
       }
     }
-    return map;
+    return new Map(assigned);
   }, [projectsWithOpenTodos]);
 
   const pipFor = useCallback(
@@ -374,6 +388,8 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
       .catch((err) => console.error("Failed to resolve link:", err));
   }, [onNavigateToFile]);
 
+  const { ref: mainRef, edge: mainEdge } = useScrollFade([projects]);
+
   // ── Render ───────────────────────────────────────
 
   if (error) {
@@ -384,7 +400,7 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
     <div className="dash">
       <div className="dash-layout">
         {/* Left: Gravity tiers */}
-        <div className="dash-main">
+        <div className={`dash-main dash-fade-${mainEdge}`} ref={mainRef}>
 
           {/* Tier 1: Needs attention */}
           <div className="dash-tier">
@@ -442,26 +458,30 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
             <div className="dash-projects-list">
               {projectsWithOpenTodos.map((project) => (
                 <div key={project.name} className="dash-project-row">
-                  <div className="dash-project-header">
+                  <div
+                    className="dash-project-header"
+                    onClick={() => setExpandedProject(
+                      expandedProject === project.name ? null : project.name
+                    )}
+                  >
                     <span
                       className={`project-pip project-pip-${pipFor(project.name).shape}`}
                       style={{ "--pip-color": pipFor(project.name).color } as React.CSSProperties}
                     />
-                    <span
-                      className="dash-project-name"
-                      onClick={() => setExpandedProject(
-                        expandedProject === project.name ? null : project.name
-                      )}
-                    >
+                    <span className="dash-project-name">
                       {project.name}
                     </span>
                     <span className="dash-project-count">{project.open_todos}</span>
-                    <span
-                      className={`dash-project-chevron ${expandedProject === project.name ? "dash-project-chevron-open" : ""}`}
-                      onClick={() => handleNavigateToProject(project.name)}
+                    <button
+                      className="dash-project-hub-btn"
+                      onClick={(e) => { e.stopPropagation(); handleNavigateToProject(project.name); }}
+                      title={`Open ${project.name} hub`}
+                      aria-label={`Open ${project.name} hub`}
                     >
-                      &#x25B8;
-                    </span>
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M2 4.5V13a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V6.5a1 1 0 0 0-1-1H8.5L7 4H3a1 1 0 0 0-1 .5Z" />
+                      </svg>
+                    </button>
                   </div>
                   {expandedProject === project.name && (
                     <div className="dash-project-todos">
@@ -511,15 +531,9 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
             </div>
 
             <div className="dash-schedule">
-              {selectedDateEvents
-                .filter((e) => {
-                  const startMin = timeToMinutes(e.start);
-                  const endMin = e.end ? timeToMinutes(e.end) : startMin + 60;
-                  return endMin > DAY_START * 60 && startMin < DAY_END * 60;
-                })
-                .map((event, i) => (
-                  <ScheduleMeetingBlock key={i} event={event} />
-                ))}
+              {selectedDateEvents.map((event, i) => (
+                <ScheduleCard key={i} event={event} />
+              ))}
 
               {selectedDateEvents.length === 0 && (
                 <div className="dash-schedule-empty">No events</div>
