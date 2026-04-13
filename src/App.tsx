@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import Chat from "./components/Chat";
 import Dashboard from "./components/Dashboard";

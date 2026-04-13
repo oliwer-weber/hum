@@ -255,7 +255,7 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
             event.preventDefault();
             const tr = editorRef.current.state.tr;
             tr.setSelection(
-              editorRef.current.state.selection.constructor.near(
+              (editorRef.current.state.selection.constructor as unknown as { near: (pos: unknown) => unknown }).near(
                 tr.doc.resolve(from + 1)
               ) as typeof editorRef.current.state.selection
             );
@@ -273,7 +273,7 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
           if (from === to) {
             tr.insertText(event.key + closing, from);
             tr.setSelection(
-              editorRef.current.state.selection.constructor.near(
+              (editorRef.current.state.selection.constructor as unknown as { near: (pos: unknown) => unknown }).near(
                 tr.doc.resolve(from + 1)
               ) as typeof editorRef.current.state.selection
             );

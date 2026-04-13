@@ -336,7 +336,7 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
             const tr = editorRef.current.state.tr;
             // Just move cursor forward
             tr.setSelection(
-              editorRef.current.state.selection.constructor.near(
+              (editorRef.current.state.selection.constructor as unknown as { near: (pos: unknown) => unknown }).near(
                 tr.doc.resolve(from + 1)
               ) as typeof editorRef.current.state.selection
             );
@@ -355,7 +355,7 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
             // No selection: insert pair, cursor between
             tr.insertText(event.key + closing, from);
             tr.setSelection(
-              editorRef.current.state.selection.constructor.near(
+              (editorRef.current.state.selection.constructor as unknown as { near: (pos: unknown) => unknown }).near(
                 tr.doc.resolve(from + 1)
               ) as typeof editorRef.current.state.selection
             );

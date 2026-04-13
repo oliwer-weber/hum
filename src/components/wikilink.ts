@@ -117,7 +117,7 @@ function createSuggestionRenderer() {
         selectedIndex = i;
         render();
       });
-      popup.appendChild(row);
+      popup!.appendChild(row);
     });
 
     const sel = popup.querySelector(".wl-suggest-selected") as HTMLElement;
@@ -141,7 +141,7 @@ function createSuggestionRenderer() {
       commandFn = (item) => props.command(item);
       selectedIndex = 0;
       render();
-      position(props.clientRect);
+      position(props.clientRect ?? null);
     },
     onUpdate(props: SuggestionProps<VaultFileInfo>) {
       items = props.items as VaultFileInfo[];
@@ -149,7 +149,7 @@ function createSuggestionRenderer() {
       if (selectedIndex >= items.length)
         selectedIndex = Math.max(0, items.length - 1);
       render();
-      position(props.clientRect);
+      position(props.clientRect ?? null);
     },
     onKeyDown(props: { event: KeyboardEvent }) {
       if (props.event.key === "ArrowDown") {
