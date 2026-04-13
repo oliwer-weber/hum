@@ -1114,8 +1114,6 @@
   min-height: 0;
 }
 
-/* (old section/project-group styles removed — replaced by gravity tiers above)
-
 /* ── Monthly Calendar ──────────────────────────── */
 
 .month-cal {
@@ -2984,8 +2982,6 @@
   border-radius: var(--radius-s);
 }
 
-/* (old drop zone styles removed)
-
 /* ── Meeting blocks ── */
 
 .dash-meeting-block {
@@ -3026,8 +3022,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-/* (old focus block styles removed)
 
 /* ── Schedule empty state ── */
 
