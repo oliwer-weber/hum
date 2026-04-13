@@ -79,7 +79,7 @@ export default function App() {
           <Inbox refreshKey={refreshKey} onVaultChanged={triggerVaultRefresh} />
         </div>
         <div className={`tab-panel ${activeTab === "dashboard" ? "tab-panel-active" : ""}`}>
-          <Dashboard refreshKey={refreshKey} onNavigateToFile={navigateToVaultFile} />
+          <Dashboard refreshKey={refreshKey} onNavigateToFile={navigateToVaultFile} isActive={activeTab === "dashboard"} />
         </div>
         <div className={`tab-panel ${activeTab === "vault" ? "tab-panel-active" : ""}`}>
           <Vault refreshKey={refreshKey} openPath={vaultOpenPath} onOpenPathHandled={() => setVaultOpenPath(null)} />

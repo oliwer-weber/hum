@@ -246,9 +246,10 @@ function ScheduleCard({ event }: { event: CalendarEvent }) {
 interface DashProps {
   refreshKey: number;
   onNavigateToFile?: (path: string) => void;
+  isActive?: boolean;
 }
 
-export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
+export default function Dashboard({ refreshKey, onNavigateToFile, isActive }: DashProps) {
   const [projects, setProjects] = useState<ProjectGravity[]>([]);
   const [calendar, setCalendar] = useState<CalendarData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -275,11 +276,14 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
   }
 
   useEffect(() => {
+    if (isActive === false) return;
     loadGravity();
     loadCalendar();
-  }, [refreshKey]);
+  }, [refreshKey, isActive]);
 
   // ── Tier 1: Top 5 gravity-ranked todos across all projects ──
+  const gravityMap = useMemo(() => new Map(projects.map(p => [p.name, p.gravity])), [projects]);
+
   const topTodos = useMemo(() => {
     const all: GravityTodo[] = [];
     for (const p of projects) {
@@ -289,16 +293,13 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
         }
       }
     }
-    // Sort by individual neglect score (age_days / 14, capped) * project gravity
     all.sort((a, b) => {
-      const aProject = projects.find(p => p.name === a.project_name);
-      const bProject = projects.find(p => p.name === b.project_name);
-      const aScore = Math.min(a.age_days / 14, 5.0) + (aProject?.gravity ?? 0) / 10;
-      const bScore = Math.min(b.age_days / 14, 5.0) + (bProject?.gravity ?? 0) / 10;
+      const aScore = Math.min(a.age_days / 14, 5.0) + (gravityMap.get(a.project_name) ?? 0) / 10;
+      const bScore = Math.min(b.age_days / 14, 5.0) + (gravityMap.get(b.project_name) ?? 0) / 10;
       return bScore - aScore;
     });
     return all.slice(0, 5);
-  }, [projects]);
+  }, [projects, gravityMap]);
 
   // ── Tier 2: Blocked & waiting todos ──
   const stuckTodos = useMemo(() => {

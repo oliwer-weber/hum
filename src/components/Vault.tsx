@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, memo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
@@ -115,32 +115,32 @@ function highlightMatch(text: string, query: string): React.ReactNode {
 
 /* ── Draggable/Droppable entry wrappers ──────────── */
 
-function DraggableEntry({ id, children }: { id: string; children: React.ReactNode }) {
+const DraggableEntry = memo(function DraggableEntry({ id, children }: { id: string; children: React.ReactNode }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id });
   return (
     <div ref={setNodeRef} {...listeners} {...attributes} style={{ opacity: isDragging ? 0.4 : 1 }}>
       {children}
     </div>
   );
-}
+});
 
-function DroppableDir({ id, children }: { id: string; children: React.ReactNode }) {
+const DroppableDir = memo(function DroppableDir({ id, children }: { id: string; children: React.ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
     <div ref={setNodeRef} className={isOver ? "vault-entry-drop-target" : ""}>
       {children}
     </div>
   );
-}
+});
 
-function DroppableColumn({ id, children, className }: { id: string; children: React.ReactNode; className?: string }) {
+const DroppableColumn = memo(function DroppableColumn({ id, children, className }: { id: string; children: React.ReactNode; className?: string }) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
     <div ref={setNodeRef} className={`${className || ""} ${isOver ? "vault-column-drop-target" : ""}`}>
       {children}
     </div>
   );
-}
+});
 
 /* ── Modal types ──────────────────────────────────── */
 

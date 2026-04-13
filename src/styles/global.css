@@ -177,14 +177,15 @@ body {
 }
 
 .tab-panel {
-  display: none;
+  display: flex;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+  content-visibility: hidden;
 }
 
 .tab-panel-active {
-  display: flex;
+  content-visibility: visible;
 }
 
 /* ── Shared input styles ─────────────────────────── */

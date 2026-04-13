@@ -2,6 +2,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::collections::{HashMap, HashSet};
+use std::sync::Mutex;
+use std::time::Instant;
 
 mod hum;
 mod inbox;
@@ -9,7 +12,30 @@ mod todo_index;
 mod todo_parser;
 
 use chrono::{Datelike, Local};
-use std::collections::HashMap;
+use once_cell::sync::Lazy;
+
+// ── Static sets for file walking ──
+static SKIP_DIRS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
+    [".git", ".obsidian", ".trash", ".claude", "node_modules"].iter().copied().collect()
+});
+static BINARY_EXTS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
+    ["png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "pdf", "mp3", "mp4",
+     "zip", "tar", "gz", "exe", "dll", "woff", "woff2", "ttf", "otf"].iter().copied().collect()
+});
+
+// ── Cached vault file index (5-second TTL) ──
+struct VaultFileCache {
+    files: Vec<VaultFileInfo>,
+    updated_at: Instant,
+}
+
+static VAULT_FILE_CACHE: Lazy<Mutex<Option<VaultFileCache>>> = Lazy::new(|| Mutex::new(None));
+
+fn invalidate_vault_cache() {
+    if let Ok(mut cache) = VAULT_FILE_CACHE.lock() {
+        *cache = None;
+    }
+}
 
 /// Number of project pip colors (excludes red which signals errors).
 const NUM_PROJECT_COLORS: usize = 6;
@@ -225,18 +251,15 @@ fn toggle_dashboard_todo(project: String, todo_text: String, checked: bool) -> R
 }
 
 /// File info returned by vault_all_files — used for wikilink suggestions and existence checks.
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Clone)]
 struct VaultFileInfo {
     stem: String,   // lowercase, no extension — for filtering/matching
     name: String,   // original-case filename without extension — for display
     path: String,   // relative path from vault root (forward slashes) — stored in wikiLink target
 }
 
-/// Recursively collect all files in the vault.
-#[tauri::command]
-fn vault_all_files() -> Result<Vec<VaultFileInfo>, String> {
-    use std::path::Path;
-
+/// Recursively collect all files in the vault (cached, 5s TTL).
+fn vault_all_files_uncached() -> Result<Vec<VaultFileInfo>, String> {
     fn collect(dir: &Path, base: &Path, files: &mut Vec<VaultFileInfo>) {
         let Ok(entries) = fs::read_dir(dir) else { return };
         for entry in entries.flatten() {
@@ -266,6 +289,19 @@ fn vault_all_files() -> Result<Vec<VaultFileInfo>, String> {
     let mut files = Vec::new();
     collect(&base, &base, &mut files);
     files.sort_by(|a, b| a.stem.cmp(&b.stem));
+    Ok(files)
+}
+
+#[tauri::command]
+fn vault_all_files() -> Result<Vec<VaultFileInfo>, String> {
+    let mut cache = VAULT_FILE_CACHE.lock().map_err(|e| format!("Cache lock error: {}", e))?;
+    if let Some(ref cached) = *cache {
+        if cached.updated_at.elapsed().as_secs() < 5 {
+            return Ok(cached.files.clone());
+        }
+    }
+    let files = vault_all_files_uncached()?;
+    *cache = Some(VaultFileCache { files: files.clone(), updated_at: Instant::now() });
     Ok(files)
 }
 
@@ -433,7 +469,9 @@ fn vault_create_file(relative_path: String, content: String) -> Result<(), Strin
     if let Some(parent) = resolved.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("Failed to create directories: {}", e))?;
     }
-    fs::write(&resolved, content).map_err(|e| format!("Failed to create file: {}", e))
+    fs::write(&resolved, content).map_err(|e| format!("Failed to create file: {}", e))?;
+    invalidate_vault_cache();
+    Ok(())
 }
 
 #[tauri::command]
@@ -452,7 +490,9 @@ fn vault_create_dir(relative_path: String) -> Result<(), String> {
     if resolved.exists() {
         return Err("Directory already exists".to_string());
     }
-    fs::create_dir_all(&resolved).map_err(|e| format!("Failed to create directory: {}", e))
+    fs::create_dir_all(&resolved).map_err(|e| format!("Failed to create directory: {}", e))?;
+    invalidate_vault_cache();
+    Ok(())
 }
 
 #[tauri::command]
@@ -483,6 +523,7 @@ fn vault_rename(relative_path: String, new_name: String) -> Result<String, Strin
         .map_err(|_| "Failed to compute relative path".to_string())?
         .to_string_lossy()
         .replace('\\', "/");
+    invalidate_vault_cache();
     Ok(new_relative)
 }
 
@@ -500,10 +541,12 @@ fn vault_delete(relative_path: String) -> Result<(), String> {
         return Err("Cannot delete vault root".to_string());
     }
     if resolved.is_dir() {
-        fs::remove_dir_all(&resolved).map_err(|e| format!("Failed to delete directory: {}", e))
+        fs::remove_dir_all(&resolved).map_err(|e| format!("Failed to delete directory: {}", e))?;
     } else {
-        fs::remove_file(&resolved).map_err(|e| format!("Failed to delete file: {}", e))
+        fs::remove_file(&resolved).map_err(|e| format!("Failed to delete file: {}", e))?;
     }
+    invalidate_vault_cache();
+    Ok(())
 }
 
 #[tauri::command]
@@ -539,6 +582,7 @@ fn vault_move(source: String, dest_dir: String) -> Result<String, String> {
         .map_err(|_| "Failed to compute relative path".to_string())?
         .to_string_lossy()
         .replace('\\', "/");
+    invalidate_vault_cache();
     Ok(new_relative)
 }
 
@@ -611,6 +655,7 @@ fn vault_copy(source: String, dest_dir: String) -> Result<String, String> {
         .map_err(|_| "Failed to compute relative path".to_string())?
         .to_string_lossy()
         .replace('\\', "/");
+    invalidate_vault_cache();
     Ok(new_relative)
 }
 
@@ -655,22 +700,19 @@ struct ContentSearchResult {
 }
 
 fn walk_text_files(dir: &Path, base: &Path, results: &mut Vec<PathBuf>) {
-    let skip_dirs: std::collections::HashSet<&str> = [".git", ".obsidian", ".trash", ".claude", "node_modules"].iter().copied().collect();
-    let binary_exts: std::collections::HashSet<&str> = ["png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "pdf", "mp3", "mp4", "zip", "tar", "gz", "exe", "dll", "woff", "woff2", "ttf", "otf"].iter().copied().collect();
-
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
                 let name = entry.file_name().to_string_lossy().to_string();
-                if !skip_dirs.contains(name.as_str()) {
+                if !SKIP_DIRS.contains(name.as_str()) {
                     walk_text_files(&path, base, results);
                 }
             } else {
                 let ext = path.extension()
                     .map(|e| e.to_string_lossy().to_lowercase())
                     .unwrap_or_default();
-                if !binary_exts.contains(ext.as_str()) {
+                if !BINARY_EXTS.contains(ext.as_str()) {
                     results.push(path);
                 }
             }
