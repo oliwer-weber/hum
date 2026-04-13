@@ -419,45 +419,43 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
     loadDirectory("", 0);
   }, [refreshKey]);
 
-  // Navigate to an externally requested file path — build miller columns to match
-  useEffect(() => {
-    if (!openPath) return;
-    const segments = openPath.split("/");
+  // Navigate to a file path — builds miller columns to match, then opens the file
+  const navigateToPath = useCallback(async (filePath: string) => {
+    const segments = filePath.split("/");
     const fileName = segments.pop() || "";
 
-    (async () => {
-      // Build columns for each directory level
-      const newColumns: ColumnState[] = [];
-      let currentPath = "";
+    const newColumns: ColumnState[] = [];
+    let currentPath = "";
 
-      // Root column
+    try {
+      const rootEntries = await invoke<VaultEntry[]>("vault_list", { relativePath: "" });
+      newColumns.push({ path: "", entries: rootEntries, selected: segments[0] || null });
+    } catch { return; }
+
+    for (let i = 0; i < segments.length; i++) {
+      currentPath = currentPath ? `${currentPath}/${segments[i]}` : segments[i];
       try {
-        const rootEntries = await invoke<VaultEntry[]>("vault_list", { relativePath: "" });
-        newColumns.push({ path: "", entries: rootEntries, selected: segments[0] || null });
-      } catch { return; }
+        const entries = await invoke<VaultEntry[]>("vault_list", { relativePath: currentPath });
+        const nextSelected = i < segments.length - 1 ? segments[i + 1] : fileName;
+        newColumns.push({ path: currentPath, entries, selected: nextSelected });
+      } catch { break; }
+    }
 
-      // Intermediate directory columns
-      for (let i = 0; i < segments.length; i++) {
-        currentPath = currentPath ? `${currentPath}/${segments[i]}` : segments[i];
-        try {
-          const entries = await invoke<VaultEntry[]>("vault_list", { relativePath: currentPath });
-          const nextSelected = i < segments.length - 1 ? segments[i + 1] : fileName;
-          newColumns.push({ path: currentPath, entries, selected: nextSelected });
-        } catch { break; }
-      }
+    setColumns(newColumns);
 
-      setColumns(newColumns);
+    const entry: VaultEntry = {
+      name: fileName,
+      is_dir: false,
+      extension: fileName.includes(".") ? fileName.split(".").pop()! : null,
+    };
+    await openFileInEditor(filePath, entry, true);
+  }, [openFileInEditor]);
 
-      // Open the file
-      const entry: VaultEntry = {
-        name: fileName,
-        is_dir: false,
-        extension: fileName.includes(".") ? fileName.split(".").pop()! : null,
-      };
-      openFileInEditor(openPath, entry, true);
-      onOpenPathHandled?.();
-    })();
-  }, [openPath]);
+  // Navigate to an externally requested file path
+  useEffect(() => {
+    if (!openPath) return;
+    navigateToPath(openPath).then(() => onOpenPathHandled?.());
+  }, [openPath, navigateToPath, onOpenPathHandled]);
 
   // Fetch backlinks when a markdown file is opened
   useEffect(() => {
@@ -728,14 +726,9 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
 
   // Open a search result
   const openSearchResult = useCallback(async (result: { path: string; name: string }) => {
-    const entry: VaultEntry = {
-      name: result.name,
-      is_dir: false,
-      extension: result.name.includes(".") ? result.name.split(".").pop()! : null,
-    };
-    await openFileInEditor(result.path, entry, true);
+    await navigateToPath(result.path);
     setSearchMode(null);
-  }, [openFileInEditor]);
+  }, [navigateToPath]);
 
   // Search keyboard navigation
   const handleSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -1131,14 +1124,7 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
                   <div
                     key={`${bl.path}-${bl.line_number}-${i}`}
                     className="vault-backlink-item"
-                    onClick={() => {
-                      const entry: VaultEntry = {
-                        name: bl.name + ".md",
-                        is_dir: false,
-                        extension: "md",
-                      };
-                      openFileInEditor(bl.path, entry, true);
-                    }}
+                    onClick={() => navigateToPath(bl.path)}
                   >
                     <span className="vault-backlink-name">{bl.name}</span>
                     <span className="vault-backlink-context">{bl.line_content}</span>
