@@ -2,13 +2,7 @@ import { useState, useEffect, useCallback, useRef, memo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
-import StarterKit from "@tiptap/starter-kit";
-import TaskList from "@tiptap/extension-task-list";
-import TaskItem from "@tiptap/extension-task-item";
-import Link from "@tiptap/extension-link";
-import Image from "@tiptap/extension-image";
-import Placeholder from "@tiptap/extension-placeholder";
-import { Markdown } from "tiptap-markdown";
+import { createSharedExtensions } from "./editor-config";
 import { WikiLink, WikiEmbed, convertTextToWikiLinks } from "./wikilink";
 import type { VaultFileInfo } from "./wikilink";
 import { HashTag } from "./hashtag";
@@ -89,18 +83,6 @@ function extractFrontmatter(content: string): string {
   }
   return "";
 }
-
-/* ── Auto-pair brackets ──────────────────────────── */
-
-const PAIRS: Record<string, string> = {
-  "(": ")",
-  "{": "}",
-  '"': '"',
-  "'": "'",
-  "`": "`",
-};
-
-const CLOSE_CHARS = new Set(Object.values(PAIRS));
 
 /* ── Search highlight helper ──────────────────────── */
 
@@ -299,96 +281,19 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
 
   // TipTap editor
   const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        heading: { levels: [1, 2, 3, 4, 5, 6] },
-      }),
-      TaskList,
-      TaskItem.configure({ nested: true }),
-      Link.configure({ openOnClick: false }),
-      Image,
-      Placeholder.configure({ placeholder: "Start writing..." }),
-      Markdown.configure({
-        html: false,
-        transformPastedText: true,
-        transformCopiedText: true,
-      }),
-      WikiLink.configure({
-        onNavigate: (target) => navigateToWikiLink(target),
-        checkExists: (stem: string) => vaultStemsRef.current.has(stem),
-        getVaultFiles: () => vaultFilesRef.current,
-      }),
-      WikiEmbed,
-      HashTag,
-    ],
+    extensions: createSharedExtensions({
+      extraExtensions: [
+        WikiLink.configure({
+          onNavigate: (target) => navigateToWikiLink(target),
+          checkExists: (stem: string) => vaultStemsRef.current.has(stem),
+          getVaultFiles: () => vaultFilesRef.current,
+        }),
+        WikiEmbed,
+        HashTag,
+      ],
+    }),
     editorProps: {
       attributes: { class: "vault-editor-tiptap" },
-      handleKeyDown: (_view, event) => {
-        // Auto-pair: skip over closing char if it's already next
-        if (CLOSE_CHARS.has(event.key) && editorRef.current) {
-          const { from } = editorRef.current.state.selection;
-          const after = editorRef.current.state.doc.textBetween(
-            from,
-            Math.min(editorRef.current.state.doc.content.size, from + 1)
-          );
-          if (after === event.key) {
-            event.preventDefault();
-            const tr = editorRef.current.state.tr;
-            // Just move cursor forward
-            tr.setSelection(
-              (editorRef.current.state.selection.constructor as unknown as { near: (pos: unknown) => unknown }).near(
-                tr.doc.resolve(from + 1)
-              ) as typeof editorRef.current.state.selection
-            );
-            editorRef.current.view.dispatch(tr);
-            return true;
-          }
-        }
-
-        // Auto-pair: insert pair
-        const closing = PAIRS[event.key];
-        if (closing && editorRef.current) {
-          event.preventDefault();
-          const { from, to } = editorRef.current.state.selection;
-          const tr = editorRef.current.state.tr;
-          if (from === to) {
-            // No selection: insert pair, cursor between
-            tr.insertText(event.key + closing, from);
-            tr.setSelection(
-              (editorRef.current.state.selection.constructor as unknown as { near: (pos: unknown) => unknown }).near(
-                tr.doc.resolve(from + 1)
-              ) as typeof editorRef.current.state.selection
-            );
-          } else {
-            // Wrap selection
-            tr.insertText(closing, to);
-            tr.insertText(event.key, from);
-          }
-          editorRef.current.view.dispatch(tr);
-          return true;
-        }
-
-        // Backspace: delete empty pair
-        if (event.key === "Backspace" && editorRef.current) {
-          const { from } = editorRef.current.state.selection;
-          if (from < 2) return false;
-          const before = editorRef.current.state.doc.textBetween(from - 1, from);
-          const after = editorRef.current.state.doc.textBetween(
-            from,
-            Math.min(editorRef.current.state.doc.content.size, from + 1)
-          );
-          const pair = PAIRS[before];
-          if (pair && after === pair) {
-            event.preventDefault();
-            const tr = editorRef.current.state.tr;
-            tr.delete(from - 1, from + 1);
-            editorRef.current.view.dispatch(tr);
-            return true;
-          }
-        }
-
-        return false;
-      },
     },
     onUpdate: ({ editor: ed }) => {
       if (skipAutoSaveRef.current) return;

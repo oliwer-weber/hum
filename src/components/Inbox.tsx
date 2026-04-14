@@ -2,13 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import { useEditor, EditorContent } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import TaskList from "@tiptap/extension-task-list";
-import TaskItem from "@tiptap/extension-task-item";
-import Link from "@tiptap/extension-link";
-import Image from "@tiptap/extension-image";
-import Placeholder from "@tiptap/extension-placeholder";
-import { Markdown } from "tiptap-markdown";
+import { createSharedExtensions, PAIRS, CLOSE_CHARS } from "./editor-config";
 import { WikiLink, WikiEmbed, convertTextToWikiLinks } from "./wikilink";
 import { HashTag } from "./hashtag";
 import { attachProjectAutocomplete, ProjectMentionKeymap } from "./project-mention";
@@ -16,18 +10,6 @@ import type { ProjectItem } from "./project-mention";
 import type { VaultFileInfo } from "./wikilink";
 
 const FRONTMATTER = "---\ncssclasses:\n  - home-title\n---";
-
-/* ── Auto-pair brackets ──────────────────────────── */
-
-const PAIRS: Record<string, string> = {
-  "(": ")",
-  "{": "}",
-  '"': '"',
-  "'": "'",
-  "`": "`",
-};
-
-const CLOSE_CHARS = new Set(Object.values(PAIRS));
 
 interface InboxProps {
   refreshKey: number;
@@ -156,137 +138,19 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
   }, []);
 
   const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        heading: { levels: [1, 2, 3, 4, 5, 6] },
-      }),
-      TaskList,
-      TaskItem.configure({ nested: true }),
-      Link.configure({ openOnClick: false }),
-      Image,
-      Placeholder.configure({ placeholder: "Start writing..." }),
-      Markdown.configure({
-        html: false,
-        transformPastedText: true,
-        transformCopiedText: true,
-      }),
-      WikiLink.configure({
-        getVaultFiles: () => vaultFilesRef.current,
-        checkExists: (stem: string) => vaultStemsRef.current.has(stem),
-      }),
-      WikiEmbed,
-      HashTag,
-      ProjectMentionKeymap,
-    ],
+    extensions: createSharedExtensions({
+      extraExtensions: [
+        WikiLink.configure({
+          getVaultFiles: () => vaultFilesRef.current,
+          checkExists: (stem: string) => vaultStemsRef.current.has(stem),
+        }),
+        WikiEmbed,
+        HashTag,
+        ProjectMentionKeymap,
+      ],
+    }),
     editorProps: {
       attributes: { class: "inbox-tiptap" },
-      handleKeyDown: (_view, event) => {
-        // Tab / Shift+Tab: indent or nest
-        if (event.key === "Tab" && editorRef.current) {
-          event.preventDefault();
-          const ed = editorRef.current;
-          if (ed.isActive("taskList")) {
-            // Inside a task list: sink/lift the list item to nest/unnest
-            if (event.shiftKey) {
-              ed.chain().focus().liftListItem("taskItem").run();
-            } else {
-              ed.chain().focus().sinkListItem("taskItem").run();
-            }
-          } else {
-            // Plain text: insert/remove indentation
-            if (event.shiftKey) {
-              // Dedent: remove up to 2 leading spaces from current line
-              const { from } = ed.state.selection;
-              const $pos = ed.state.doc.resolve(from);
-              const lineStart = $pos.start($pos.depth);
-              const lineText = ed.state.doc.textBetween(lineStart, $pos.end($pos.depth));
-              const spaces = lineText.match(/^ {1,2}/);
-              if (spaces) {
-                const tr = ed.state.tr.delete(lineStart, lineStart + spaces[0].length);
-                ed.view.dispatch(tr);
-              }
-            } else {
-              ed.chain().focus().insertContent("  ").run();
-            }
-          }
-          return true;
-        }
-
-        // Ctrl+L: toggle task list
-        if (event.ctrlKey && event.key === "l") {
-          event.preventDefault();
-          if (editorRef.current) {
-            if (editorRef.current.isActive("taskList")) {
-              editorRef.current.chain().focus().liftListItem("taskItem").run();
-            } else {
-              editorRef.current.chain().focus().toggleTaskList().run();
-            }
-          }
-          return true;
-        }
-
-        // Auto-pair: skip over closing char if it's already next
-        if (CLOSE_CHARS.has(event.key) && editorRef.current) {
-          const { from } = editorRef.current.state.selection;
-          const after = editorRef.current.state.doc.textBetween(
-            from,
-            Math.min(editorRef.current.state.doc.content.size, from + 1)
-          );
-          if (after === event.key) {
-            event.preventDefault();
-            const tr = editorRef.current.state.tr;
-            tr.setSelection(
-              (editorRef.current.state.selection.constructor as unknown as { near: (pos: unknown) => unknown }).near(
-                tr.doc.resolve(from + 1)
-              ) as typeof editorRef.current.state.selection
-            );
-            editorRef.current.view.dispatch(tr);
-            return true;
-          }
-        }
-
-        // Auto-pair: insert pair
-        const closing = PAIRS[event.key];
-        if (closing && editorRef.current) {
-          event.preventDefault();
-          const { from, to } = editorRef.current.state.selection;
-          const tr = editorRef.current.state.tr;
-          if (from === to) {
-            tr.insertText(event.key + closing, from);
-            tr.setSelection(
-              (editorRef.current.state.selection.constructor as unknown as { near: (pos: unknown) => unknown }).near(
-                tr.doc.resolve(from + 1)
-              ) as typeof editorRef.current.state.selection
-            );
-          } else {
-            tr.insertText(closing, to);
-            tr.insertText(event.key, from);
-          }
-          editorRef.current.view.dispatch(tr);
-          return true;
-        }
-
-        // Backspace: delete empty pair
-        if (event.key === "Backspace" && editorRef.current) {
-          const { from } = editorRef.current.state.selection;
-          if (from < 2) return false;
-          const before = editorRef.current.state.doc.textBetween(from - 1, from);
-          const after = editorRef.current.state.doc.textBetween(
-            from,
-            Math.min(editorRef.current.state.doc.content.size, from + 1)
-          );
-          const pair = PAIRS[before];
-          if (pair && after === pair) {
-            event.preventDefault();
-            const tr = editorRef.current.state.tr;
-            tr.delete(from - 1, from + 1);
-            editorRef.current.view.dispatch(tr);
-            return true;
-          }
-        }
-
-        return false;
-      },
     },
     onUpdate: ({ editor: ed }) => {
       if (skipNextSave.current) {

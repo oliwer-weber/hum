@@ -1406,6 +1406,8 @@
   line-height: 1.7;
   min-height: 100%;
   outline: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 
 .inbox-tiptap > * + * {
@@ -1547,6 +1549,38 @@
   border-radius: var(--radius-m);
   max-width: 100%;
   box-shadow: var(--shadow-card);
+}
+
+/* Highlight */
+.inbox-tiptap mark {
+  background-color: var(--yellow);
+  color: var(--bg-hard);
+  padding: 1px 3px;
+  border-radius: 2px;
+}
+
+/* Tables */
+.inbox-tiptap table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: var(--space-md) 0;
+}
+.inbox-tiptap th,
+.inbox-tiptap td {
+  border: 1px solid var(--bg3);
+  padding: var(--space-sm) var(--space-md);
+  text-align: left;
+}
+.inbox-tiptap th {
+  background-color: var(--bg1);
+  font-weight: 700;
+  color: var(--fg1);
+}
+.inbox-tiptap td {
+  color: var(--fg2);
+}
+.inbox-tiptap tr:hover td {
+  background-color: var(--bg1);
 }
 
 .inbox-status-bar {
@@ -2779,6 +2813,8 @@
   line-height: 1.7;
   min-height: 100%;
   outline: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 
 .vault-editor-tiptap > * + * { margin-top: var(--space-sm); }
@@ -2860,6 +2896,38 @@
   border-radius: var(--radius-m);
   max-width: 100%;
   box-shadow: var(--shadow-card);
+}
+
+/* Highlight */
+.vault-editor-tiptap mark {
+  background-color: var(--yellow);
+  color: var(--bg-hard);
+  padding: 1px 3px;
+  border-radius: 2px;
+}
+
+/* Tables */
+.vault-editor-tiptap table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: var(--space-md) 0;
+}
+.vault-editor-tiptap th,
+.vault-editor-tiptap td {
+  border: 1px solid var(--bg3);
+  padding: var(--space-sm) var(--space-md);
+  text-align: left;
+}
+.vault-editor-tiptap th {
+  background-color: var(--bg1);
+  font-weight: 700;
+  color: var(--fg1);
+}
+.vault-editor-tiptap td {
+  color: var(--fg2);
+}
+.vault-editor-tiptap tr:hover td {
+  background-color: var(--bg1);
 }
 
 .vault-editor-tiptap p.is-editor-empty:first-child::before {
