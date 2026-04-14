@@ -270,7 +270,7 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
             value={rawMarkdown}
             onChange={handleTextareaChange}
             onKeyDown={handleTextareaKeyDown}
-            placeholder="Start writing..."
+            placeholder="capture anything"
             autoFocus
           />
         </div>

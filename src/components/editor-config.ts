@@ -301,7 +301,7 @@ export function createSharedExtensions(opts: SharedExtensionsOptions = {}) {
     TableCell,
     TableHeader,
     Placeholder.configure({
-      placeholder: opts.placeholder ?? "Start writing...",
+      placeholder: opts.placeholder ?? "capture anything",
     }),
     Markdown.configure({
       html: false,
