@@ -1373,6 +1373,11 @@
 .inbox-editor-wrap {
   flex: 1;
   overflow-y: auto;
+  cursor: text;
+}
+
+.inbox-editor-wrap > .tiptap {
+  min-height: 100%;
 }
 
 /* ── Textarea fallback — matches TipTap exactly ── */
@@ -1412,6 +1417,35 @@
 
 .inbox-tiptap > * + * {
   margin-top: var(--space-sm);
+}
+
+/* ── Inbox sweep-out animation ───────────────── */
+@keyframes inbox-sweep-out {
+  0% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  60% {
+    opacity: 0.3;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(calc(100% + 60vw));
+  }
+}
+
+.inbox-editor-wrap.sweeping {
+  overflow: hidden;
+}
+
+.inbox-editor-wrap.sweeping .inbox-tiptap > * {
+  animation: inbox-sweep-out 1000ms cubic-bezier(0.12, 0, 0.1, 1) forwards;
+  animation-delay: var(--sweep-delay, 0ms);
+  pointer-events: none;
+}
+
+.inbox-editor-wrap.swept .inbox-tiptap {
+  opacity: 0;
 }
 
 /* Placeholder — phantom block cursor + text */
@@ -1627,10 +1661,53 @@
 
 .inbox-status-left {
   font-size: var(--font-size-xs);
+  overflow: hidden;
+  position: relative;
+  flex: 1;
+  min-width: 0;
 }
 
 .inbox-hint {
   color: var(--fg4);
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inbox-hint-result {
+  color: var(--green);
+}
+
+/* ── Status bar roll animation ───────────────── */
+@keyframes status-roll-in {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes status-roll-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+}
+
+.inbox-hint.roll-in {
+  animation: status-roll-in 350ms cubic-bezier(0.25, 0, 0.15, 1) forwards;
+}
+
+.inbox-hint.roll-out {
+  animation: status-roll-out 350ms cubic-bezier(0.25, 0, 0.15, 1) forwards;
 }
 
 .inbox-send-btn {
@@ -1656,7 +1733,7 @@
   background: var(--bg2);
   color: var(--fg2);
   border: 1px solid var(--bg3);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-m);
   cursor: pointer;
   transition: background 150ms var(--ease-smooth), color 150ms var(--ease-smooth);
   flex-shrink: 0;
@@ -1672,35 +1749,6 @@
   cursor: default;
 }
 
-.inbox-process-result {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-xs);
-  padding: var(--space-sm) var(--space-lg);
-  background: var(--bg0-hard);
-  border-top: 1px solid var(--bg2);
-}
-
-.inbox-route-tag {
-  font-size: var(--font-size-xs);
-  background: var(--bg1);
-  color: var(--green);
-  padding: 2px var(--space-sm);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--bg3);
-}
-
-.route-count {
-  color: var(--fg4);
-  margin-left: var(--space-xs);
-}
-
-.inbox-route-new {
-  font-size: var(--font-size-xs);
-  color: var(--aqua);
-  padding: 2px var(--space-sm);
-  font-style: italic;
-}
 
 /* ── Status bar right group ────────────────────── */
 

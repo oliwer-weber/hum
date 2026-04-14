@@ -81,8 +81,7 @@ body {
 
 .window-controls {
   display: flex;
-  align-items: stretch;
-  height: 100%;
+  align-items: center;
 }
 
 .window-btn {

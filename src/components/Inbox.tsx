@@ -30,6 +30,8 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
   const [saving, setSaving] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [lastResult, setLastResult] = useState<ProcessResult | null>(null);
+  const [statusRoll, setStatusRoll] = useState<"idle" | "rolling-out" | "result" | "rolling-back">("idle");
+  const rollTimerRef = useRef<number | null>(null);
   const saveTimeoutRef = useRef<number | null>(null);
   const skipNextSave = useRef(false);
   const editorRef = useRef<ReturnType<typeof useEditor>>(null);
@@ -209,6 +211,25 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
     reload();
   }, [refreshKey, editor]);
 
+  const triggerStatusRoll = useCallback(() => {
+    if (rollTimerRef.current) clearTimeout(rollTimerRef.current);
+    const ROLL_DURATION = 350;
+    // Phase 1: roll default text out (up)
+    setStatusRoll("rolling-out");
+    rollTimerRef.current = window.setTimeout(() => {
+      // Phase 2: show result text (rolls in from below)
+      setStatusRoll("result");
+      rollTimerRef.current = window.setTimeout(() => {
+        // Phase 3: roll result text out (up)
+        setStatusRoll("rolling-back");
+        rollTimerRef.current = window.setTimeout(() => {
+          // Phase 4: back to idle (default rolls in from below)
+          setStatusRoll("idle");
+        }, ROLL_DURATION);
+      }, 3000);
+    }, ROLL_DURATION);
+  }, []);
+
   const handleProcess = useCallback(async () => {
     const currentEditor = editorRef.current;
     // Flush any pending save first
@@ -223,9 +244,36 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
     }
     setProcessing(true);
     setLastResult(null);
+
+    // ── Sweep-out animation: stagger bottom→top ──
+    let wrapEl: HTMLElement | null = null;
+    if (editorReady && currentEditor) {
+      const tiptapEl = currentEditor.view.dom as HTMLElement;
+      wrapEl = tiptapEl.closest(".inbox-editor-wrap") as HTMLElement | null;
+      const children = Array.from(tiptapEl.children) as HTMLElement[];
+      if (children.length > 0 && wrapEl) {
+        const STAGGER = 85;
+        const DURATION = 1000;
+        const total = children.length;
+        children.forEach((child, i) => {
+          const reverseIndex = total - 1 - i;
+          child.style.setProperty("--sweep-delay", `${reverseIndex * STAGGER}ms`);
+        });
+        currentEditor.setEditable(false);
+        wrapEl.classList.add("sweeping");
+        await new Promise((resolve) =>
+          setTimeout(resolve, (total - 1) * STAGGER + DURATION)
+        );
+        // Transition to swept: keeps content invisible while we reload
+        wrapEl.classList.remove("sweeping");
+        wrapEl.classList.add("swept");
+      }
+    }
+
     try {
       const result = await invoke<ProcessResult>("process_inbox");
       setLastResult(result);
+      if (result.routed.length > 0) triggerStatusRoll();
       // Reload with whatever remains in inbox
       const raw = await invoke<string>("read_inbox");
       const stripped = raw.replace(/^---[\s\S]*?---\s*/, "").trim();
@@ -234,6 +282,9 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
         skipNextSave.current = true;
         currentEditor.commands.setContent(stripped || "");
         convertTextToWikiLinks(currentEditor);
+        // Clean up sweep state — new content is ready
+        currentEditor.setEditable(true);
+        wrapEl?.classList.remove("swept");
       }
 
       // Signal that vault files changed (triggers Dashboard reload etc.)
@@ -245,6 +296,9 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
       });
     } catch (err) {
       console.error("Inbox processing failed:", err);
+      // Clean up sweep state on failure
+      if (currentEditor) currentEditor.setEditable(true);
+      wrapEl?.classList.remove("swept");
     }
     setProcessing(false);
   }, [editorReady, rawMarkdown, saveToFile]);
@@ -279,31 +333,27 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
       <div
         className="inbox-editor-wrap"
         style={editorReady ? undefined : { position: "absolute", left: "-9999px", top: 0, width: "100%", height: "100%" }}
+        onClick={() => editor?.commands.focus("end")}
       >
         <EditorContent editor={editor} />
       </div>
-      {lastResult && lastResult.routed.length > 0 && (
-        <div className="inbox-process-result">
-          {lastResult.routed.map((r) => (
-            <span key={r.path} className="inbox-route-tag">
-              {r.project}
-              {r.todos_added > 0 && <span className="route-count"> {r.todos_added} todo{r.todos_added > 1 ? "s" : ""}</span>}
-              {r.notes_added > 0 && <span className="route-count"> {r.notes_added} note{r.notes_added > 1 ? "s" : ""}</span>}
-            </span>
-          ))}
-          {lastResult.unknown_tags.length > 0 && (
-            <span className="inbox-route-new">
-              New: {lastResult.unknown_tags.join(", ")}
-            </span>
-          )}
-        </div>
-      )}
       <div className="inbox-status-bar">
         <span className="inbox-status-left">
-          {saving ? (
-            <span className="inbox-hint">Saving...</span>
-          ) : (
-            <span className="inbox-hint">@project to route — edits auto-save — Ctrl+B bold, Ctrl+I italic, Ctrl+L checkbox</span>
+          {(statusRoll === "idle" || statusRoll === "rolling-out") && (
+            <span className={`inbox-hint ${statusRoll === "rolling-out" ? "roll-out" : "roll-in"}`}>
+              {saving ? "Saving..." : "@project to route — edits auto-save — Ctrl+B bold, Ctrl+I italic, Ctrl+L checkbox"}
+            </span>
+          )}
+          {(statusRoll === "result" || statusRoll === "rolling-back") && lastResult && (
+            <span className={`inbox-hint inbox-hint-result ${statusRoll === "rolling-back" ? "roll-out" : "roll-in"}`}>
+              {lastResult.routed.map((r) => {
+                const parts = [r.project];
+                if (r.todos_added > 0) parts.push(`${r.todos_added} todo${r.todos_added > 1 ? "s" : ""}`);
+                if (r.notes_added > 0) parts.push(`${r.notes_added} note${r.notes_added > 1 ? "s" : ""}`);
+                return parts.join(" · ");
+              }).join("  —  ")}
+              {lastResult.unknown_tags.length > 0 && `  ·  new: ${lastResult.unknown_tags.join(", ")}`}
+            </span>
           )}
         </span>
         <div className="inbox-status-right">
