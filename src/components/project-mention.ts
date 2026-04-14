@@ -213,7 +213,7 @@ function buildItems(query: string, projects: ProjectItem[]): RenderItem[] {
     }));
   }
 
-  const matched = projects
+  const matched: { project: ProjectItem | null; isCreate: boolean; createName: string }[] = projects
     .filter((p) => fuzzyMatch(q, p.name))
     .slice(0, 10)
     .map((p) => ({
