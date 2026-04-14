@@ -999,6 +999,31 @@ fn regenerate_dashboard() -> Result<(), String> {
         .map_err(|e| format!("Failed to write dashboard: {}", e))
 }
 
+#[derive(serde::Serialize)]
+struct ProjectInfo {
+    name: String,      // display name (last path segment)
+    path: String,      // relative vault path
+}
+
+#[tauri::command]
+fn list_projects() -> Result<Vec<ProjectInfo>, String> {
+    let vault = vault_path();
+    let config_path = vault.join("claude-config.md");
+    let content = fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read claude-config.md: {}", e))?;
+
+    let mut projects = Vec::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("- 01 projects/") {
+            let rel = trimmed.trim_start_matches("- ").to_string();
+            let name = rel.rsplit('/').next().unwrap_or(&rel).to_string();
+            projects.push(ProjectInfo { name, path: rel });
+        }
+    }
+    Ok(projects)
+}
+
 #[tauri::command]
 fn process_inbox() -> Result<inbox::ProcessResult, String> {
     let result = inbox::process(None)?;
@@ -1345,7 +1370,7 @@ pub fn run() {
             vault_search_content,
             vault_get_backlinks,
             hum::hum_send,
-            hum::hum_review,
+            list_projects,
             process_inbox,
             get_project_gravity,
             get_weekly_summary,

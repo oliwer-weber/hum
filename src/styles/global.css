@@ -43,6 +43,12 @@ body {
   background: var(--bg3);
 }
 
+::-webkit-scrollbar-button {
+  display: none;
+  height: 0;
+  width: 0;
+}
+
 /* ── App Layout ─────────────────────────────────────── */
 
 .app {

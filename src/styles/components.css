@@ -1629,10 +1629,11 @@
   margin-left: var(--space-xs);
 }
 
-.inbox-route-unknown {
+.inbox-route-new {
   font-size: var(--font-size-xs);
-  color: var(--yellow);
+  color: var(--aqua);
   padding: 2px var(--space-sm);
+  font-style: italic;
 }
 
 /* ── Status bar right group ────────────────────── */
@@ -1641,123 +1642,6 @@
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-}
-
-/* ── Review badge ──────────────────────────────── */
-
-.inbox-review-badge {
-  font-size: var(--font-size-xs);
-  padding: 2px var(--space-sm);
-  border-radius: var(--radius-sm);
-  border: none;
-  cursor: default;
-}
-
-.inbox-review-badge-active {
-  color: var(--fg4);
-  background: none;
-}
-
-.inbox-review-badge-issues {
-  color: var(--yellow);
-  background: rgba(250, 189, 47, 0.1);
-  border: 1px solid rgba(250, 189, 47, 0.25);
-  cursor: pointer;
-  transition: transform 150ms var(--ease-smooth),
-              opacity 150ms var(--ease-smooth);
-}
-
-.inbox-review-badge-issues:hover {
-  transform: translateY(-1px);
-}
-
-.inbox-review-badge-issues:focus-visible {
-  outline: 2px solid var(--yellow);
-  outline-offset: 2px;
-}
-
-.inbox-review-badge-issues:active {
-  transform: translateY(0);
-}
-
-/* ── Review popup panel ─────────────────────────── */
-
-.inbox-review-panel {
-  background: var(--bg);
-  border-top: 1px solid var(--bg2);
-  border-left: 3px solid var(--yellow);
-  padding: var(--space-md) var(--space-lg);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-  flex-shrink: 0;
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.inbox-review-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.inbox-review-title {
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  color: var(--yellow);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.inbox-review-dismiss {
-  background: none;
-  border: none;
-  color: var(--fg4);
-  cursor: pointer;
-  font-size: var(--font-size-xs);
-  padding: 0 var(--space-xs);
-  transition: color 150ms var(--ease-smooth);
-}
-
-.inbox-review-dismiss:hover {
-  color: var(--fg);
-}
-
-.inbox-review-dismiss:focus-visible {
-  outline: 2px solid var(--yellow);
-  outline-offset: 2px;
-}
-
-.inbox-review-items {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-}
-
-.inbox-review-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: var(--space-xs) var(--space-sm);
-  background: var(--bg1);
-  border-radius: var(--radius-s);
-}
-
-.inbox-review-type {
-  font-size: 10px;
-  color: var(--fg4);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.inbox-review-detail {
-  font-size: var(--font-size-xs);
-  color: var(--fg2);
-  line-height: 1.5;
-}
-
-.inbox-review-detail strong {
-  color: var(--fg);
 }
 
 /* ── Wikilinks [[page]] ──────────────────────────── */
@@ -1841,6 +1725,90 @@
 
 .wl-suggest-empty {
   padding: var(--space-sm);
+  color: var(--fg4);
+  font-size: var(--font-size-sm);
+  font-style: italic;
+}
+
+/* ── @project mention autocomplete ────────────────── */
+
+.pm-suggest {
+  position: fixed;
+  z-index: 9999;
+  min-width: 220px;
+  max-width: 360px;
+  max-height: 280px;
+  overflow: hidden;
+  background: var(--bg-soft);
+  border: 1px solid var(--bg3);
+  border-radius: var(--radius-l);
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.12),
+    0 8px 16px rgba(0, 0, 0, 0.18),
+    0 20px 40px rgba(0, 0, 0, 0.22);
+  padding: var(--space-xs) 0;
+}
+
+.pm-suggest-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  margin: 2px var(--space-sm) 2px var(--space-xs);
+  cursor: pointer;
+  border-radius: var(--radius-m);
+  transition: transform 80ms var(--ease-smooth),
+              opacity 80ms var(--ease-smooth);
+}
+
+.pm-suggest-item:hover {
+  background: var(--bg1);
+}
+
+.pm-suggest-selected {
+  background: var(--bg2);
+}
+
+.pm-suggest-item:active {
+  transform: scale(0.98);
+}
+
+.pm-suggest-name {
+  color: var(--fg);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+.pm-suggest-selected .pm-suggest-name {
+  color: var(--fg);
+}
+
+.pm-suggest-path {
+  color: var(--fg4);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.7;
+}
+
+.pm-suggest-selected .pm-suggest-path {
+  opacity: 1;
+}
+
+.pm-suggest-create {
+  border-top: 1px solid var(--bg2);
+  margin-top: var(--space-xs);
+  padding-top: var(--space-sm);
+}
+
+.pm-suggest-create .pm-suggest-name {
+  color: var(--aqua);
+  font-style: italic;
+}
+
+.pm-suggest-empty {
+  padding: var(--space-md) var(--space-lg);
   color: var(--fg4);
   font-size: var(--font-size-sm);
   font-style: italic;

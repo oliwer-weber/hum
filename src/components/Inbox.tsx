@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import TaskList from "@tiptap/extension-task-list";
@@ -11,6 +11,8 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { Markdown } from "tiptap-markdown";
 import { WikiLink, WikiEmbed, convertTextToWikiLinks } from "./wikilink";
 import { HashTag } from "./hashtag";
+import { attachProjectAutocomplete, ProjectMentionKeymap } from "./project-mention";
+import type { ProjectItem } from "./project-mention";
 import type { VaultFileInfo } from "./wikilink";
 
 const FRONTMATTER = "---\ncssclasses:\n  - home-title\n---";
@@ -40,47 +42,16 @@ interface ProcessResult {
   timestamp: string;
 }
 
-interface ReviewItem {
-  type: string;
-  [key: string]: unknown;
-}
-
-interface ReviewResult {
-  status: string;
-  items?: ReviewItem[];
-}
-
 export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
   const [rawMarkdown, setRawMarkdown] = useState<string | null>(null);
   const [editorReady, setEditorReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [lastResult, setLastResult] = useState<ProcessResult | null>(null);
-  const [reviewing, setReviewing] = useState(false);
-  const [reviewResult, setReviewResult] = useState<ReviewResult | null>(null);
-  const [reviewOpen, setReviewOpen] = useState(false);
   const saveTimeoutRef = useRef<number | null>(null);
   const skipNextSave = useRef(false);
   const editorRef = useRef<ReturnType<typeof useEditor>>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Listen for background review events
-  useEffect(() => {
-    const unlistenStart = listen("review:start", () => setReviewing(true));
-    const unlistenDone = listen<ReviewResult>("review:done", (event) => {
-      setReviewing(false);
-      const result = event.payload;
-      if (result.status === "issues" && result.items && result.items.length > 0) {
-        setReviewResult(result);
-      }
-    });
-    const unlistenError = listen("review:error", () => setReviewing(false));
-    return () => {
-      unlistenStart.then((f) => f());
-      unlistenDone.then((f) => f());
-      unlistenError.then((f) => f());
-    };
-  }, []);
 
   // Vault file index for suggestions
   const vaultFilesRef = useRef<VaultFileInfo[]>([]);
@@ -90,6 +61,15 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
     invoke<VaultFileInfo[]>("vault_all_files").then((files) => {
       vaultFilesRef.current = files;
       vaultStemsRef.current = new Set(files.map((f) => f.stem));
+    });
+  }, []);
+
+  // Project list for @project autocomplete
+  const projectsRef = useRef<ProjectItem[]>([]);
+
+  useEffect(() => {
+    invoke<ProjectItem[]>("list_projects").then((projects) => {
+      projectsRef.current = projects;
     });
   }, []);
 
@@ -196,6 +176,7 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
       }),
       WikiEmbed,
       HashTag,
+      ProjectMentionKeymap,
     ],
     editorProps: {
       attributes: { class: "inbox-tiptap" },
@@ -325,6 +306,13 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
     (editorRef as React.MutableRefObject<typeof editor>).current = editor;
   }, [editor]);
 
+  // ── Attach @project autocomplete once editor is ready ──
+  useEffect(() => {
+    if (!editor || !editorReady) return;
+    const cleanup = attachProjectAutocomplete(editor, () => projectsRef.current);
+    return cleanup;
+  }, [editor, editorReady]);
+
   // ── Switchover: when editor is ready, transfer content ──
   useEffect(() => {
     if (!editor || editorReady) return;
@@ -371,7 +359,6 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
     }
     setProcessing(true);
     setLastResult(null);
-    setReviewResult(null);
     try {
       const result = await invoke<ProcessResult>("process_inbox");
       setLastResult(result);
@@ -388,17 +375,10 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
       // Signal that vault files changed (triggers Dashboard reload etc.)
       onVaultChanged?.();
 
-      // AI review only needed for unknown tags or untagged content
-      // (periodic consolidation is no longer needed — the index handles it deterministically)
-      const hasUnknowns = result.unknown_tags.length > 0;
-      const hasUntagged = result.untagged_remaining.length > 0;
-
-      if (hasUnknowns || hasUntagged) {
-        invoke("hum_review", {
-          processResult: JSON.stringify(result),
-          reviewType: "process",
-        }).catch((err: unknown) => console.error("Background review failed:", err));
-      }
+      // Refresh project list in case new projects were created
+      invoke<ProjectItem[]>("list_projects").then((projects) => {
+        projectsRef.current = projects;
+      });
     } catch (err) {
       console.error("Inbox processing failed:", err);
     }
@@ -448,48 +428,10 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
             </span>
           ))}
           {lastResult.unknown_tags.length > 0 && (
-            <span className="inbox-route-unknown">
-              Unknown: {lastResult.unknown_tags.join(", ")}
+            <span className="inbox-route-new">
+              New: {lastResult.unknown_tags.join(", ")}
             </span>
           )}
-        </div>
-      )}
-      {/* Review popup panel */}
-      {reviewResult && reviewOpen && (
-        <div className="inbox-review-panel">
-          <div className="inbox-review-header">
-            <span className="inbox-review-title">Review findings</span>
-            <button
-              className="inbox-review-dismiss"
-              onClick={() => { setReviewOpen(false); setReviewResult(null); }}
-            >
-              &#x2715;
-            </button>
-          </div>
-          <div className="inbox-review-items">
-            {reviewResult.items?.map((item, i) => (
-              <div key={i} className="inbox-review-item">
-                <span className="inbox-review-type">{item.type.replace(/_/g, " ")}</span>
-                <span className="inbox-review-detail">
-                  {item.type === "unknown_tag" && (
-                    <>Unknown tag <strong>@{item.tag as string}</strong>{item.suggestion ? <> — did you mean <strong>{item.suggestion as string}</strong>?</> : null}</>
-                  )}
-                  {item.type === "duplicate_todo" && (
-                    <>Duplicate in <strong>{item.project as string}</strong>: {(item.todos as string[])?.join(" / ")}</>
-                  )}
-                  {item.type === "missed_content" && (
-                    <>{item.description as string}</>
-                  )}
-                  {item.type === "stale_todo" && (
-                    <>{item.description as string}</>
-                  )}
-                  {item.type === "suggestion" && (
-                    <>{item.description as string}</>
-                  )}
-                </span>
-              </div>
-            ))}
-          </div>
         </div>
       )}
       <div className="inbox-status-bar">
@@ -501,18 +443,6 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
           )}
         </span>
         <div className="inbox-status-right">
-          {/* Review badge */}
-          {reviewing && (
-            <span className="inbox-review-badge inbox-review-badge-active">reviewing...</span>
-          )}
-          {reviewResult && !reviewOpen && (
-            <button
-              className="inbox-review-badge inbox-review-badge-issues"
-              onClick={() => setReviewOpen(true)}
-            >
-              {reviewResult.items?.length} issue{reviewResult.items?.length !== 1 ? "s" : ""} found
-            </button>
-          )}
           <button
             className="inbox-process-btn"
             onClick={handleProcess}

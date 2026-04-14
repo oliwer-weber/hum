@@ -302,6 +302,65 @@ fn update_config_timestamp(vault: &Path, timestamp: &str) -> Result<(), String> 
         .map_err(|e| format!("Failed to update config: {}", e))
 }
 
+/// Scaffold a new project: create folder, hub file, todos.md, notes/, and
+/// register it in claude-config.md. Returns the KnownProject for routing.
+fn scaffold_new_project(vault: &Path, tag: &str) -> Result<KnownProject, String> {
+    // Default to "01 work" category for new projects
+    let rel_path = format!("01 projects/01 work/{}", tag);
+    let project_dir = vault.join(&rel_path);
+
+    // Create directory structure
+    fs::create_dir_all(project_dir.join("notes"))
+        .map_err(|e| format!("Failed to create project dirs: {}", e))?;
+
+    // Create hub file
+    let hub_content = format!(
+        "## Todos\n\n![[todos]]\n\n## Notes\n"
+    );
+    let hub_path = project_dir.join(format!("{}.md", tag));
+    if !hub_path.exists() {
+        fs::write(&hub_path, &hub_content)
+            .map_err(|e| format!("Failed to create hub file: {}", e))?;
+    }
+
+    // Create empty todos.md
+    let todos_path = project_dir.join("todos.md");
+    if !todos_path.exists() {
+        fs::write(&todos_path, "")
+            .map_err(|e| format!("Failed to create todos.md: {}", e))?;
+    }
+
+    // Register in claude-config.md
+    let config_path = vault.join("claude-config.md");
+    let config = fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read config: {}", e))?;
+
+    let entry = format!("- {}", rel_path);
+    if !config.contains(&entry) {
+        // Insert after the last "- 01 projects/" line
+        let mut lines: Vec<&str> = config.lines().collect();
+        let mut insert_idx = lines.len();
+        for (i, line) in lines.iter().enumerate().rev() {
+            if line.trim().starts_with("- 01 projects/") {
+                insert_idx = i + 1;
+                break;
+            }
+        }
+        lines.insert(insert_idx, &entry);
+        let updated = lines.join("\n");
+        // Ensure trailing newline
+        let updated = if updated.ends_with('\n') { updated } else { format!("{}\n", updated) };
+        fs::write(&config_path, updated)
+            .map_err(|e| format!("Failed to update config: {}", e))?;
+    }
+
+    Ok(KnownProject {
+        name: tag.to_lowercase(),
+        display: tag.to_string(),
+        rel_path,
+    })
+}
+
 fn write_inbox_remainder(vault: &Path, untagged_lines: &[String]) -> Result<(), String> {
     let path = vault.join("00 Home").join("inbox.md");
     let frontmatter = "---\ncssclasses:\n  - home-title\n---\n";
@@ -356,10 +415,59 @@ pub fn process(vault_override: Option<PathBuf>) -> Result<ProcessResult, String>
                 // Try to resolve the tag
                 match resolve_project(&tag, &projects) {
                     None => {
-                        // Unknown project — keep content in inbox under the tag
+                        // Unknown project — scaffold it and route content there
+                        let new_project = scaffold_new_project(&vault, &tag)?;
                         unknown_tags.push(tag.clone());
-                        all_untagged.push(format!("@{}", tag));
-                        all_untagged.extend(section.lines);
+
+                        // Route content to the new project (same logic as known projects)
+                        let section_text = section.lines.join("\n");
+                        let blocks = todo_parser::parse_todo_blocks(&section_text);
+
+                        let mut todo_line_ranges: Vec<(usize, usize)> = Vec::new();
+                        let mut todo_raw_blocks: Vec<String> = Vec::new();
+                        for block in &blocks {
+                            let start = block.line_number - 1;
+                            let end = start + block.line_count;
+                            todo_line_ranges.push((start, end));
+                            todo_raw_blocks.push(todo_parser::block_to_markdown(block));
+                        }
+
+                        let mut notes: Vec<String> = Vec::new();
+                        for (i, line) in section.lines.iter().enumerate() {
+                            let in_todo = todo_line_ranges.iter().any(|(s, e)| i >= *s && i < *e);
+                            if !in_todo && !line.trim().is_empty() {
+                                notes.push(line.clone());
+                            }
+                        }
+
+                        let todo_count = blocks.len();
+                        let note_count = notes.len();
+
+                        if !todo_raw_blocks.is_empty() {
+                            append_todos(&vault, &new_project.rel_path, &todo_raw_blocks, &today)?;
+                        }
+
+                        if !notes.is_empty() {
+                            let is_new = append_notes(
+                                &vault,
+                                &new_project.rel_path,
+                                &new_project.display,
+                                &notes,
+                                &today,
+                            )?;
+                            if is_new {
+                                hub_files_updated.push(new_project.display.clone());
+                            }
+                        }
+
+                        if todo_count > 0 || note_count > 0 {
+                            routed.push(RoutedProject {
+                                project: new_project.display.clone(),
+                                path: new_project.rel_path.clone(),
+                                todos_added: todo_count,
+                                notes_added: note_count,
+                            });
+                        }
                     }
                     Some(project) => {
                         // Block-aware split: parse todo blocks (checkbox + continuations),
