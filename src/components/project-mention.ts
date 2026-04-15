@@ -1,5 +1,6 @@
-import { Extension } from "@tiptap/core";
+import { Extension, Mark, mergeAttributes } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { Editor } from "@tiptap/core";
 
 /**
@@ -153,9 +154,14 @@ function showPopup(rect: DOMRect, renderItems: RenderItem[], selectFn: (item: Re
   if (selectedIndex >= items.length) selectedIndex = Math.max(0, items.length - 1);
   onSelect = selectFn;
   popup.style.left = `${rect.left}px`;
-  popup.style.top = `${rect.bottom + 6}px`;
   popup.style.display = "";
   renderPopup();
+  const popupHeight = popup.offsetHeight || 280;
+  if (rect.bottom + 6 + popupHeight > window.innerHeight) {
+    popup.style.top = `${rect.top - popupHeight - 6}px`;
+  } else {
+    popup.style.top = `${rect.bottom + 6}px`;
+  }
 }
 
 function hidePopup() {
@@ -260,12 +266,14 @@ export function attachProjectAutocomplete(
     if (!currentMatch) return;
     const name = item.isCreate ? item.createName : item.project!.name;
 
-    // Replace @query with @ProjectName
+    // Replace @query with @ProjectName, then split into a new paragraph
+    // so the tag stays on its own line and the cursor lands below it.
     editor
       .chain()
       .focus()
       .deleteRange({ from: currentMatch.from, to: currentMatch.to })
       .insertContent(`@${name}`)
+      .splitBlock()
       .run();
 
     hidePopup();
@@ -352,6 +360,55 @@ export const ProjectMentionKeymap = Extension.create({
             }
 
             return false;
+          },
+        },
+      }),
+    ];
+  },
+});
+
+/* ── Decoration plugin: style confirmed @project tags ── */
+
+/**
+ * ProjectTagStyle — Mark extension that decorates @project tags
+ * as styled pills. Matches paragraphs whose entire text is an
+ * @mention (the tag always occupies its own line). Display-only:
+ * stored markdown is never modified (same pattern as HashTag).
+ */
+export const ProjectTagStyle = Mark.create({
+  name: "projectTagStyle",
+
+  parseHTML() {
+    return [{ tag: "span.project-mention" }];
+  },
+
+  renderHTML({ HTMLAttributes }) {
+    return ["span", mergeAttributes({ class: "project-mention" }, HTMLAttributes), 0];
+  },
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        props: {
+          decorations(state) {
+            const decorations: Decoration[] = [];
+            state.doc.descendants((node, pos) => {
+              if (!node.isTextblock) return;
+              const text = node.textContent;
+              // Match paragraphs that are entirely an @tag (with optional trailing whitespace)
+              if (!text.startsWith("@") || text.length < 2) return;
+              const trimmed = text.trimEnd();
+              // Only style if the whole paragraph is the tag (no prose content after)
+              if (trimmed.includes("\n")) return;
+              const from = pos + 1; // +1 for block open token
+              const to = from + trimmed.length;
+              decorations.push(
+                Decoration.inline(from, to, {
+                  class: "project-mention",
+                })
+              );
+            });
+            return DecorationSet.create(state.doc, decorations);
           },
         },
       }),

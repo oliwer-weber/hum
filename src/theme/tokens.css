@@ -101,6 +101,16 @@
   --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
   --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
 
+  /* Mention pills (@project tags) */
+  --mention-fg:      var(--aqua);
+  --mention-bg:      rgba(142, 192, 124, 0.12);
+  --mention-border:  rgba(142, 192, 124, 0.30);
+  --mention-radius:  10px;
+  --mention-px:      7px;
+  --mention-py:      1px;
+  --mention-font:    var(--font-size-sm);
+  --mention-weight:  600;
+
   /* Scrollbar */
   --scrollbar-width: 6px;
 }

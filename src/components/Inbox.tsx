@@ -5,7 +5,7 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import { createSharedExtensions, PAIRS, CLOSE_CHARS } from "./editor-config";
 import { WikiLink, WikiEmbed, convertTextToWikiLinks } from "./wikilink";
 import { HashTag } from "./hashtag";
-import { attachProjectAutocomplete, ProjectMentionKeymap } from "./project-mention";
+import { attachProjectAutocomplete, ProjectMentionKeymap, ProjectTagStyle } from "./project-mention";
 import type { ProjectItem } from "./project-mention";
 import type { VaultFileInfo } from "./wikilink";
 
@@ -149,6 +149,7 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
         WikiEmbed,
         HashTag,
         ProjectMentionKeymap,
+        ProjectTagStyle,
       ],
     }),
     editorProps: {
@@ -333,7 +334,10 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
       <div
         className="inbox-editor-wrap"
         style={editorReady ? undefined : { position: "absolute", left: "-9999px", top: 0, width: "100%", height: "100%" }}
-        onClick={() => editor?.commands.focus("end")}
+        onClick={(e) => {
+          // Only focus-end when clicking the wrapper's empty space, not the editor content itself
+          if (e.target === e.currentTarget) editor?.commands.focus("end");
+        }}
       >
         <EditorContent editor={editor} />
       </div>

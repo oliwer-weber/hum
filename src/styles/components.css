@@ -1928,6 +1928,18 @@
   font-style: italic;
 }
 
+/* ── @project mention pills ──────────────────────── */
+
+.project-mention {
+  color: var(--mention-fg);
+  background: var(--mention-bg);
+  border: 1px solid var(--mention-border);
+  border-radius: var(--mention-radius);
+  padding: var(--mention-py) var(--mention-px);
+  font-size: var(--mention-font);
+  font-weight: var(--mention-weight);
+}
+
 /* ── Wiki embeds ![[target]] ─────────────────────── */
 
 .wiki-embed {
