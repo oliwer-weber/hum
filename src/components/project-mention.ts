@@ -265,16 +265,17 @@ export function attachProjectAutocomplete(
   function confirmSelection(item: RenderItem) {
     if (!currentMatch) return;
     const name = item.isCreate ? item.createName : item.project!.name;
+    const { from, to } = currentMatch;
 
-    // Replace @query with @ProjectName, then split into a new paragraph
-    // so the tag stays on its own line and the cursor lands below it.
-    editor
-      .chain()
-      .focus()
-      .deleteRange({ from: currentMatch.from, to: currentMatch.to })
-      .insertContent(`@${name}`)
-      .splitBlock()
-      .run();
+    // Single transaction: delete @query, insert @ProjectName, split block.
+    // Using one transaction avoids position-mapping issues between chained commands.
+    editor.chain().focus().command(({ tr, dispatch }) => {
+      if (!dispatch) return false;
+      const tagText = `@${name}`;
+      tr.replaceWith(from, to, editor.state.schema.text(tagText));
+      tr.split(from + tagText.length);
+      return true;
+    }).run();
 
     hidePopup();
     active = false;
