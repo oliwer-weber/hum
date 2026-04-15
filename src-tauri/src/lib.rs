@@ -307,8 +307,9 @@ fn vault_all_files() -> Result<Vec<VaultFileInfo>, String> {
 
 /// Resolve a wikilink target to a relative vault path.
 /// Searches recursively by filename (Obsidian-style shortest-match).
+/// When `context_path` is provided, prefer matches in the same directory subtree.
 #[tauri::command]
-fn vault_resolve_link(target: String) -> Result<String, String> {
+fn vault_resolve_link(target: String, context_path: Option<String>) -> Result<String, String> {
     use std::path::Path;
 
     let base = vault_path();
@@ -351,6 +352,31 @@ fn vault_resolve_link(target: String) -> Result<String, String> {
 
     if matches.is_empty() {
         return Err(format!("Not found: {}", target));
+    }
+
+    if matches.len() == 1 {
+        let relative = matches[0].strip_prefix(&base).unwrap_or(&matches[0]);
+        return Ok(relative.to_string_lossy().replace('\\', "/"));
+    }
+
+    // Context-aware: prefer matches sharing longest common path prefix
+    if let Some(ref ctx) = context_path {
+        let ctx_lower = ctx.to_lowercase().replace('\\', "/");
+        let ctx_parts: Vec<&str> = ctx_lower.split('/').collect();
+        let mut best_idx = 0;
+        let mut best_shared = 0usize;
+        for (i, m) in matches.iter().enumerate() {
+            let rel = m.strip_prefix(&base).unwrap_or(m);
+            let rel_str = rel.to_string_lossy().to_lowercase().replace('\\', "/");
+            let m_parts: Vec<&str> = rel_str.split('/').collect();
+            let shared = ctx_parts.iter().zip(m_parts.iter())
+                .take_while(|(a, b)| a == b).count();
+            if shared > best_shared { best_shared = shared; best_idx = i; }
+        }
+        if best_shared > 0 {
+            let relative = matches[best_idx].strip_prefix(&base).unwrap_or(&matches[best_idx]);
+            return Ok(relative.to_string_lossy().replace('\\', "/"));
+        }
     }
 
     // Prefer hub file: parent directory name matches the file stem (e.g. Project/Project.md)

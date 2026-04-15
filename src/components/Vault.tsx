@@ -84,6 +84,19 @@ function extractFrontmatter(content: string): string {
   return "";
 }
 
+/* ── Hub file detection ──────────────────────────── */
+
+function isHubFilePath(path: string): boolean {
+  if (!path.startsWith("01 projects/")) return false;
+  const parts = path.split("/");
+  if (parts.length < 2) return false;
+  const fileName = parts[parts.length - 1];
+  const parentDir = parts[parts.length - 2];
+  if (!fileName.endsWith(".md")) return false;
+  const stem = fileName.slice(0, -3);
+  return stem.toLowerCase() === parentDir.toLowerCase();
+}
+
 /* ── Search highlight helper ──────────────────────── */
 
 function highlightMatch(text: string, query: string): React.ReactNode {
@@ -187,6 +200,9 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
   const [backlinks, setBacklinks] = useState<Array<{ path: string; name: string; line_number: number; line_content: string }>>([]);
   const [showBacklinks, setShowBacklinks] = useState(true);
 
+  // Hub search state
+  const [hubSearchQuery, setHubSearchQuery] = useState("");
+
   // Vault file index
   const vaultFilesRef = useRef<VaultFileInfo[]>([]);
   const vaultStemsRef = useRef<Set<string>>(new Set());
@@ -222,6 +238,12 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
         setFrontmatter(fm);
         setFileContent(body);
         setSaveStatus("");
+        setHubSearchQuery("");
+        const isHub = isHubFilePath(path);
+        if (editorRef.current) {
+          (editorRef.current.storage as any).hubMode = isHub;
+          (editorRef.current.storage as any).currentFilePath = path;
+        }
         if (editorRef.current && entry.extension === "md") {
           loadIntoEditor(editorRef.current, body);
         }
@@ -264,7 +286,8 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
   const navigateToWikiLink = useCallback(
     async (target: string) => {
       try {
-        const resolvedPath = await invoke<string>("vault_resolve_link", { target });
+        const contextPath = openFile?.path;
+        const resolvedPath = await invoke<string>("vault_resolve_link", { target, contextPath });
         const fileName = resolvedPath.split("/").pop()!;
         const entry: VaultEntry = {
           name: fileName,
@@ -762,6 +785,46 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
     }
   }, [columns, loadDirectory]);
 
+  // Hub search — filter note rows in the DOM
+  const handleHubSearch = useCallback((query: string) => {
+    setHubSearchQuery(query);
+    requestAnimationFrame(() => {
+      const hubContainer = document.querySelector(".hub-view");
+      if (!hubContainer) return;
+      const rows = hubContainer.querySelectorAll(".hub-note-row");
+      const q = query.toLowerCase();
+      let lastVisibleMonth = "";
+      rows.forEach((row) => {
+        const gist = row.querySelector(".hub-note-gist");
+        const monthLabel = row.querySelector(".hub-month-label") as HTMLElement | null;
+        if (!gist) return;
+        const original = gist.getAttribute("data-original") || gist.textContent || "";
+        const labelEl = row.querySelector(".hub-note-date, .hub-note-name");
+        const labelText = labelEl?.textContent || "";
+        const searchable = `${labelText} ${original}`.toLowerCase();
+        if (!q) {
+          gist.textContent = original;
+          (row as HTMLElement).style.removeProperty("display");
+          const month = row.getAttribute("data-month") || "";
+          if (month !== lastVisibleMonth) { monthLabel?.style.removeProperty("display"); lastVisibleMonth = month; }
+          else if (monthLabel) monthLabel.style.display = "none";
+          return;
+        }
+        if (searchable.includes(q)) {
+          (row as HTMLElement).style.removeProperty("display");
+          const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          gist.innerHTML = original.replace(new RegExp(`(${escaped})`, "gi"), '<mark class="hub-search-match">$1</mark>');
+          const month = row.getAttribute("data-month") || "";
+          if (month !== lastVisibleMonth) { monthLabel?.style.removeProperty("display"); lastVisibleMonth = month; }
+          else if (monthLabel) monthLabel.style.display = "none";
+        } else {
+          (row as HTMLElement).style.display = "none";
+          if (monthLabel) monthLabel.style.display = "none";
+        }
+      });
+    });
+  }, []);
+
   // Refresh a column + vault file index after mutations
   const refreshAfterMutation = useCallback(async (colIndex: number) => {
     const col = columns[colIndex];
@@ -1017,7 +1080,18 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
                 )}
               </div>
             )}
-            <div className="vault-editor-content">
+            <div className={`vault-editor-content${openFile && isHubFilePath(openFile.path) ? " hub-view" : ""}`}>
+              {openFile && isHubFilePath(openFile.path) && (
+                <div className="hub-search-bar">
+                  <input
+                    className="hub-search-input"
+                    placeholder="search notes..."
+                    value={hubSearchQuery}
+                    onChange={(e) => handleHubSearch(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Escape") { handleHubSearch(""); (e.target as HTMLInputElement).blur(); } }}
+                  />
+                </div>
+              )}
               <EditorContent editor={editor} />
             </div>
             {showBacklinks && backlinks.length > 0 && (

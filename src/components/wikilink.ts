@@ -182,6 +182,33 @@ function createSuggestionRenderer() {
   };
 }
 
+/* ── Hub helpers ─────────────────────────────────── */
+
+function getFirstMeaningfulLine(md: string): string {
+  const text = md.replace(/^---[\s\S]*?---\s*/, "").trim();
+  const lines = text.split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith("#")) continue;
+    if (trimmed === "---") continue;
+    let clean = trimmed
+      .replace(/\*\*(.+?)\*\*/g, "$1")
+      .replace(/\*(.+?)\*/g, "$1")
+      .replace(/`(.+?)`/g, "$1")
+      .replace(/^[-*+]\s+/, "")
+      .replace(/^\d+\.\s+/, "")
+      .replace(/^>\s+/, "");
+    if (clean.length > 90) clean = clean.slice(0, 87) + "\u2026";
+    return clean;
+  }
+  return "Empty note";
+}
+
+function stripTodoMetadata(md: string): string {
+  return md.replace(/\s*<!--\s*(?:id|created):[^>]*-->/g, "");
+}
+
 /* ── Simple markdown → HTML for embedded notes ────── */
 
 function miniMarkdownToHtml(md: string): string {
@@ -404,27 +431,137 @@ export const WikiEmbed = Node.create({
   },
 
   addNodeView() {
-    return ({ node }) => {
+    return ({ node, editor }) => {
       const container = document.createElement("div");
-      container.className = "wiki-embed";
       container.setAttribute("data-type", "wiki-embed");
 
       const target = node.attrs.target as string;
       const ext = target.split(".").pop()?.toLowerCase() ?? "";
       const isImage = IMAGE_EXTS.has(ext);
 
-      if (isImage) {
-        // ── Image embed ──
-        const img = document.createElement("img");
-        img.className = "wiki-embed-img";
-        img.alt = target.split("/").pop() ?? target;
+      const isHub = (editor.storage as any).hubMode === true;
+      const contextPath: string | undefined = (editor.storage as any).currentFilePath;
+      const leaf = target.split("/").pop()?.replace(/\.md$/i, "") ?? target;
+      const isTodos = leaf.toLowerCase() === "todos";
+      const dateMatch = leaf.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+      /* ── Hub: compact note row ── */
+      if (isHub && !isImage && !isTodos) {
+        container.className = "hub-note-row";
+        const isDate = !!dateMatch;
+        const month = isDate ? leaf.slice(0, 7) : null;
+        if (month) container.setAttribute("data-month", month);
+
+        let monthLabel: HTMLElement | null = null;
+        if (isDate && month) {
+          monthLabel = document.createElement("div");
+          monthLabel.className = "hub-month-label";
+          const [y, m] = month.split("-");
+          monthLabel.textContent = new Date(parseInt(y), parseInt(m) - 1)
+            .toLocaleString("en", { month: "long", year: "numeric" });
+          container.appendChild(monthLabel);
+        }
+
+        const row = document.createElement("div");
+        row.className = "hub-note-line";
+        const labelEl = document.createElement("span");
+        labelEl.className = isDate ? "hub-note-date" : "hub-note-name";
+        labelEl.textContent = isDate ? leaf.slice(5) : leaf;
+        row.appendChild(labelEl);
+        const gistEl = document.createElement("span");
+        gistEl.className = "hub-note-gist";
+        row.appendChild(gistEl);
+        container.appendChild(row);
+
+        const bodyEl = document.createElement("div");
+        bodyEl.className = "hub-note-body";
+        container.appendChild(bodyEl);
 
         (async () => {
           try {
-            const vaultPath = await invoke<string>("get_vault_path");
-            const resolved = await invoke<string>("vault_resolve_link", {
-              target,
+            const resolved = await invoke<string>("vault_resolve_link", { target, contextPath });
+            const md = await invoke<string>("vault_read_file", { relativePath: resolved });
+            const firstLine = getFirstMeaningfulLine(md);
+            gistEl.textContent = firstLine;
+            gistEl.setAttribute("data-original", firstLine);
+            bodyEl.innerHTML = miniMarkdownToHtml(md);
+          } catch {
+            gistEl.textContent = "Could not load";
+            gistEl.setAttribute("data-original", "Could not load");
+          }
+          if (monthLabel && month) {
+            requestAnimationFrame(() => {
+              const prev = container.previousElementSibling;
+              if (prev?.getAttribute("data-month") === month) {
+                monthLabel!.style.display = "none";
+              }
             });
+          }
+        })();
+
+        row.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const wasActive = container.classList.contains("hub-note-active");
+          container.closest(".hub-view")
+            ?.querySelectorAll(".hub-note-active")
+            .forEach((el) => el.classList.remove("hub-note-active"));
+          if (!wasActive) container.classList.add("hub-note-active");
+        });
+        return { dom: container };
+      }
+
+      /* ── Hub: todos drawer ── */
+      if (isHub && !isImage && isTodos) {
+        container.className = "hub-todos-drawer";
+        const summary = document.createElement("div");
+        summary.className = "hub-todos-summary";
+        const icon = document.createElement("span");
+        icon.className = "hub-todos-icon";
+        icon.textContent = "\u25CB";
+        summary.appendChild(icon);
+        const text = document.createElement("span");
+        text.className = "hub-todos-text";
+        summary.appendChild(text);
+        const chevron = document.createElement("span");
+        chevron.className = "hub-todos-chevron";
+        chevron.textContent = "\u25B8";
+        summary.appendChild(chevron);
+        container.appendChild(summary);
+        const content = document.createElement("div");
+        content.className = "hub-todos-content";
+        container.appendChild(content);
+
+        (async () => {
+          try {
+            const resolved = await invoke<string>("vault_resolve_link", { target, contextPath });
+            const md = await invoke<string>("vault_read_file", { relativePath: resolved });
+            const openCount = (md.match(/^- \[ \]/gm) || []).length;
+            const doneCount = (md.match(/^- \[x\]/gim) || []).length;
+            text.textContent = `${openCount} open todo${openCount !== 1 ? "s" : ""}${doneCount > 0 ? ` \u00B7 ${doneCount} done` : ""}`;
+            content.innerHTML = miniMarkdownToHtml(stripTodoMetadata(md));
+          } catch {
+            text.textContent = "Could not load todos";
+          }
+        })();
+
+        summary.addEventListener("click", (e) => {
+          e.stopPropagation();
+          container.classList.toggle("hub-todos-open");
+        });
+        return { dom: container };
+      }
+
+      /* ── Normal rendering ── */
+      container.className = "wiki-embed";
+
+      if (isImage) {
+        const img = document.createElement("img");
+        img.className = "wiki-embed-img";
+        img.alt = target.split("/").pop() ?? target;
+        (async () => {
+          try {
+            const vaultPath = await invoke<string>("get_vault_path");
+            const resolved = await invoke<string>("vault_resolve_link", { target, contextPath });
             const fullPath = `${vaultPath}/${resolved}`.replace(/\\/g, "/");
             img.src = `https://asset.localhost/${fullPath}`;
           } catch {
@@ -432,31 +569,23 @@ export const WikiEmbed = Node.create({
             container.classList.add("wiki-embed-error");
           }
         })();
-
         container.appendChild(img);
       } else {
-        // ── Note embed ──
         const header = document.createElement("div");
         header.className = "wiki-embed-header";
         const displayName =
           target.split("/").pop()?.replace(/\.md$/i, "") ?? target;
         header.textContent = displayName;
         container.appendChild(header);
-
         const content = document.createElement("div");
         content.className = "wiki-embed-content";
         content.innerHTML =
           '<span class="wiki-embed-loading">Loading...</span>';
         container.appendChild(content);
-
         (async () => {
           try {
-            const resolved = await invoke<string>("vault_resolve_link", {
-              target,
-            });
-            const md = await invoke<string>("vault_read_file", {
-              relativePath: resolved,
-            });
+            const resolved = await invoke<string>("vault_resolve_link", { target, contextPath });
+            const md = await invoke<string>("vault_read_file", { relativePath: resolved });
             content.innerHTML = miniMarkdownToHtml(md);
           } catch {
             content.innerHTML = `<span class="wiki-embed-error-text">Could not load: ${target}</span>`;
