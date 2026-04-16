@@ -2320,7 +2320,6 @@
 
 .vault-column-receding {
   flex: 0 0 36px !important;
-  transition: flex 200ms var(--ease-smooth);
   cursor: pointer;
 }
 
@@ -2367,6 +2366,24 @@
   color: var(--fg1);
 }
 
+/* Locked: suppress hover-expand until cursor moves */
+.vault-column-receding-locked.vault-column-receding:hover {
+  flex: 0 0 36px !important;
+  transition: none;
+}
+
+.vault-column-receding-locked.vault-column-receding:hover .vault-entry {
+  justify-content: center;
+  padding: var(--space-sm) var(--space-sm);
+  gap: 0;
+  color: var(--fg4);
+}
+
+.vault-column-receding-locked.vault-column-receding:hover .vault-entry-name,
+.vault-column-receding-locked.vault-column-receding:hover .vault-entry-chevron {
+  display: none;
+}
+
 /* ── File entries ────────────────────────────────── */
 
 .vault-entry {
@@ -2374,6 +2391,8 @@
   align-items: center;
   gap: var(--space-md);
   padding: var(--space-sm) var(--space-lg);
+  min-height: 37px;
+  box-sizing: border-box;
   cursor: pointer;
   font-size: var(--font-size);
   color: var(--fg1);

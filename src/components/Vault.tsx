@@ -204,6 +204,10 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
   // Browser compression on edit focus
   const [editFocused, setEditFocused] = useState(false);
 
+  // Lock receding column hover after navigating from it
+  const [recedingLocked, setRecedingLocked] = useState(false);
+  const vaultRef = useRef<HTMLDivElement>(null);
+
   // Backlinks state
   const [backlinks, setBacklinks] = useState<Array<{ path: string; name: string; line_number: number; line_content: string }>>([]);
   const [showBacklinks, setShowBacklinks] = useState(true);
@@ -850,6 +854,23 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
     }
   }, [modal, modalInput, openFile, refreshAfterMutation]);
 
+  // Unlock receding column hover on mouse movement after lock (with brief delay)
+  const unlockTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!recedingLocked) return;
+    const el = vaultRef.current;
+    if (!el) return;
+    const onMove = () => {
+      // Small delay after cursor moves so hover doesn't snap immediately
+      unlockTimerRef.current = window.setTimeout(() => setRecedingLocked(false), 250);
+    };
+    el.addEventListener("mousemove", onMove, { once: true });
+    return () => {
+      el.removeEventListener("mousemove", onMove);
+      if (unlockTimerRef.current) clearTimeout(unlockTimerRef.current);
+    };
+  }, [recedingLocked]);
+
   // Determine visible columns (max 3, shift left if deeper)
   const visibleColumns = columns.length <= 3 ? columns : columns.slice(columns.length - 3);
   const columnOffset = columns.length <= 3 ? 0 : columns.length - 3;
@@ -886,7 +907,7 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
   });
 
   return (
-    <div className="vault-container">
+    <div className="vault-container" ref={vaultRef}>
       {/* Unified nav bar — spans full width */}
       <div className="vault-breadcrumb" ref={breadcrumbRef}>
         <div className="vault-breadcrumb-pill" style={pillStyle} />
@@ -939,8 +960,9 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
           <div className="vault-columns">
             {visibleColumns.map((col, vi) => {
               const realIndex = vi + columnOffset;
+              const isReceding = vi === 0 && visibleColumns.length === 3;
               return (
-                <DroppableColumn key={`${col.path}-${realIndex}`} id={`drop:${col.path || "."}`} className={`vault-column${vi === 0 && visibleColumns.length === 3 ? " vault-column-receding" : ""}`} style={{ flex: columnFlex(vi, visibleColumns.length) }}>
+                <DroppableColumn key={`${col.path}-${realIndex}`} id={`drop:${col.path || "."}`} className={`vault-column${isReceding ? " vault-column-receding" : ""}${isReceding && recedingLocked ? " vault-column-receding-locked" : ""}`} style={{ flex: columnFlex(vi, visibleColumns.length) }}>
                   {col.entries.map((entry, ei) => {
                     const entryPath = col.path ? `${col.path}/${entry.name}` : entry.name;
                     // Show separator between last dir and first file
@@ -953,7 +975,7 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
                     const entryContent = (
                       <div
                         className={`vault-entry ${col.selected === entry.name ? "vault-entry-selected" : ""} ${entry.is_dir ? "vault-entry-dir" : ""}`}
-                        onClick={() => handleEntryClick(realIndex, entry)}
+                        onClick={() => { if (isReceding) setRecedingLocked(true); handleEntryClick(realIndex, entry); }}
                         onContextMenu={(e) => handleContextMenu(e, entryPath, entry, realIndex)}
                       >
                         <span className={`vault-entry-icon ${iconClass(entry)}`}>
