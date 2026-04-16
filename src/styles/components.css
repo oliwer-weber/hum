@@ -2316,7 +2316,6 @@
   overflow-y: auto;
   padding: var(--space-sm) 0;
   background-color: var(--bg);
-  transition: flex 180ms var(--ease-smooth);
 }
 
 .vault-column-receding {
