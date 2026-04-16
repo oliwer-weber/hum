@@ -435,19 +435,19 @@ pub fn process(vault_override: Option<PathBuf>) -> Result<ProcessResult, String>
                         let mut notes: Vec<String> = Vec::new();
                         for (i, line) in section.lines.iter().enumerate() {
                             let in_todo = todo_line_ranges.iter().any(|(s, e)| i >= *s && i < *e);
-                            if !in_todo && !line.trim().is_empty() {
+                            if !in_todo {
                                 notes.push(line.clone());
                             }
                         }
 
                         let todo_count = blocks.len();
-                        let note_count = notes.len();
+                        let note_count = notes.iter().filter(|l| !l.trim().is_empty()).count();
 
                         if !todo_raw_blocks.is_empty() {
                             append_todos(&vault, &new_project.rel_path, &todo_raw_blocks, &today)?;
                         }
 
-                        if !notes.is_empty() {
+                        if notes.iter().any(|l| !l.trim().is_empty()) {
                             let is_new = append_notes(
                                 &vault,
                                 &new_project.rel_path,
@@ -489,19 +489,19 @@ pub fn process(vault_override: Option<PathBuf>) -> Result<ProcessResult, String>
                         let mut notes: Vec<String> = Vec::new();
                         for (i, line) in section.lines.iter().enumerate() {
                             let in_todo = todo_line_ranges.iter().any(|(s, e)| i >= *s && i < *e);
-                            if !in_todo && !line.trim().is_empty() {
+                            if !in_todo {
                                 notes.push(line.clone());
                             }
                         }
 
                         let todo_count = blocks.len();
-                        let note_count = notes.len();
+                        let note_count = notes.iter().filter(|l| !l.trim().is_empty()).count();
 
                         if !todo_raw_blocks.is_empty() {
                             append_todos(&vault, &project.rel_path, &todo_raw_blocks, &today)?;
                         }
 
-                        if !notes.is_empty() {
+                        if notes.iter().any(|l| !l.trim().is_empty()) {
                             let is_new = append_notes(
                                 &vault,
                                 &project.rel_path,

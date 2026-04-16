@@ -2199,41 +2199,92 @@
 
 .vault-container {
   display: flex;
+  flex-direction: column;
   height: 100%;
+  overflow: hidden;
+}
+
+.vault-content {
+  display: flex;
+  flex: 1;
   overflow: hidden;
 }
 
 /* ── Browser pane (40%) ──────────────────────────── */
 
 .vault-browser {
-  width: 40%;
-  min-width: 300px;
+  width: 30%;
+  min-width: 260px;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--bg2);
-  background-color: var(--bg-hard);
+  background-color: var(--bg);
+  transition: width 200ms var(--ease-smooth);
+}
+
+.vault-browser-compact {
+  width: 22%;
+  min-width: 200px;
+}
+
+/* In compact mode, collapse the receding column entirely */
+.vault-browser-compact .vault-column-receding {
+  flex: 0 0 0px !important;
+  overflow: hidden;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  min-width: 0;
+}
+
+/* Prevent the gap from showing for the hidden column */
+.vault-browser-compact .vault-column-receding + .vault-column {
+  border-left: none;
 }
 
 .vault-breadcrumb {
+  position: relative;
   display: flex;
   align-items: center;
-  padding: var(--space-sm) var(--space-lg);
+  padding: var(--space-xs) var(--space-md);
   background-color: var(--bg);
-  border-bottom: 1px solid var(--bg2);
-  font-size: var(--font-size-xs);
+  border-bottom: 1px solid var(--bg1);
+  font-size: var(--font-size-sm);
   overflow-x: auto;
+  scrollbar-width: none;
   white-space: nowrap;
   flex-shrink: 0;
+  gap: 2px;
+}
+
+.vault-breadcrumb-pill {
+  position: absolute;
+  background-color: var(--accent-subtle);
+  border: 1px solid var(--accent-muted);
+  border-radius: var(--radius-s);
+  transition: left 250ms var(--ease-bounce),
+              top 250ms var(--ease-bounce),
+              width 250ms var(--ease-bounce),
+              height 250ms var(--ease-bounce),
+              opacity 150ms var(--ease-smooth);
+  pointer-events: none;
+  z-index: 0;
 }
 
 .vault-breadcrumb-sep {
   color: var(--fg4);
-  margin: 0 var(--space-xs);
+  margin: 0 1px;
+  position: relative;
+  z-index: 1;
 }
 
 .vault-breadcrumb-part {
   color: var(--fg3);
   cursor: pointer;
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-s);
+  position: relative;
+  z-index: 1;
   transition: color 150ms var(--ease-smooth);
 }
 
@@ -2241,8 +2292,12 @@
   color: var(--fg);
 }
 
+.vault-breadcrumb-part:active {
+  opacity: 0.8;
+}
+
 .vault-breadcrumb-active {
-  color: var(--fg);
+  color: var(--aqua);
   font-weight: 600;
 }
 
@@ -2252,18 +2307,64 @@
   display: flex;
   flex: 1;
   overflow: hidden;
+  gap: 1px;
+  background-color: var(--bg1);
 }
 
 .vault-column {
-  flex: 1;
   min-width: 0;
   overflow-y: auto;
-  border-right: 1px solid var(--bg1);
-  padding: var(--space-xs) 0;
+  padding: var(--space-sm) 0;
+  background-color: var(--bg);
 }
 
-.vault-column:last-child {
-  border-right: none;
+.vault-column-receding {
+  flex: 0 0 36px !important;
+  transition: flex 200ms var(--ease-smooth);
+  cursor: pointer;
+}
+
+.vault-column-receding .vault-entry {
+  justify-content: center;
+  padding: var(--space-sm) var(--space-sm);
+  gap: 0;
+  color: var(--fg4);
+}
+
+.vault-column-receding .vault-entry-name,
+.vault-column-receding .vault-entry-chevron,
+.vault-column-receding .vault-entry-separator {
+  display: none;
+}
+
+.vault-column-receding .vault-entry-icon {
+  width: auto;
+}
+
+.vault-column-receding .vault-entry-selected {
+  background-color: var(--accent-subtle);
+}
+
+/* Hover: expand to readable width with bounce */
+.vault-column-receding:hover {
+  flex: 0 0 200px !important;
+  transition: flex 300ms var(--ease-bounce) 150ms;
+}
+
+.vault-column-receding:hover .vault-entry {
+  justify-content: flex-start;
+  padding: var(--space-sm) var(--space-lg);
+  gap: var(--space-md);
+  color: var(--fg2);
+}
+
+.vault-column-receding:hover .vault-entry-name,
+.vault-column-receding:hover .vault-entry-chevron {
+  display: revert;
+}
+
+.vault-column-receding:hover .vault-entry-dir .vault-entry-name {
+  color: var(--fg1);
 }
 
 /* ── File entries ────────────────────────────────── */
@@ -2271,10 +2372,10 @@
 .vault-entry {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-xs) var(--space-md);
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-lg);
   cursor: pointer;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size);
   color: var(--fg1);
   transition: background-color 100ms var(--ease-smooth);
   user-select: none;
@@ -2295,8 +2396,8 @@
 
 .vault-entry-icon {
   flex-shrink: 0;
-  font-size: var(--font-size-xs);
-  width: 14px;
+  font-size: var(--font-size-sm);
+  width: 16px;
   text-align: center;
 }
 
@@ -2318,6 +2419,21 @@
   flex-shrink: 0;
 }
 
+.vault-entry-dir .vault-entry-name {
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.vault-entry-ext {
+  color: var(--fg4);
+}
+
+.vault-entry-separator {
+  height: 1px;
+  background: var(--bg1);
+  margin: var(--space-xs) var(--space-lg);
+}
+
 .vault-empty {
   padding: var(--space-lg) var(--space-md);
   color: var(--fg4);
@@ -2331,6 +2447,9 @@
   position: relative;
   margin-left: auto;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
 }
 
 .vault-create-btn {
@@ -2977,7 +3096,7 @@
   gap: var(--space-sm);
   padding: var(--space-xs) var(--space-sm);
   background-color: var(--bg);
-  border-bottom: 1px solid var(--bg2);
+  border-bottom: 1px solid var(--bg1);
   flex-shrink: 0;
 }
 
@@ -3052,7 +3171,7 @@
 
 /* Reuse inbox TipTap styles */
 .vault-editor-tiptap {
-  padding: var(--space-xl) var(--space-2xl);
+  padding: var(--space-2xl) var(--space-3xl);
   font-family: var(--font-mono);
   font-size: var(--font-size);
   color: var(--fg);
@@ -3063,7 +3182,7 @@
   word-wrap: break-word;
 }
 
-.vault-editor-tiptap > * + * { margin-top: var(--space-sm); }
+.vault-editor-tiptap > * + * { margin-top: var(--space-lg); }
 
 .vault-editor-tiptap h1 { color: var(--aqua); font-size: 1.6em; font-weight: 700; border-bottom: 1px solid var(--bg2); padding-bottom: 6px; margin-top: var(--space-xl); }
 .vault-editor-tiptap h2 { color: var(--green); font-size: 1.35em; font-weight: 700; margin-top: var(--space-xl); }
@@ -3193,7 +3312,7 @@
 
 .vault-editor-textarea {
   flex: 1;
-  padding: var(--space-xl) var(--space-2xl);
+  padding: var(--space-2xl) var(--space-3xl);
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
   color: var(--fg1);

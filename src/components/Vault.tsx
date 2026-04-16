@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, memo } from "react";
+import React, { useState, useEffect, useCallback, useRef, memo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
@@ -129,10 +129,10 @@ const DroppableDir = memo(function DroppableDir({ id, children }: { id: string; 
   );
 });
 
-const DroppableColumn = memo(function DroppableColumn({ id, children, className }: { id: string; children: React.ReactNode; className?: string }) {
+const DroppableColumn = memo(function DroppableColumn({ id, children, className, style, fadeClass }: { id: string; children: React.ReactNode; className?: string; style?: React.CSSProperties; fadeClass?: string }) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
-    <div ref={setNodeRef} className={`${className || ""} ${isOver ? "vault-column-drop-target" : ""}`}>
+    <div ref={setNodeRef} className={`${className || ""} ${isOver ? "vault-column-drop-target" : ""} ${fadeClass || ""}`} style={style}>
       {children}
     </div>
   );
@@ -196,6 +196,13 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
   // Drag and drop state
   const [draggedEntry, setDraggedEntry] = useState<{ path: string; entry: VaultEntry } | null>(null);
   const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+
+  // Breadcrumb sliding pill
+  const breadcrumbRef = useRef<HTMLDivElement>(null);
+  const [pillStyle, setPillStyle] = useState<React.CSSProperties>({ opacity: 0 });
+
+  // Browser compression on edit focus
+  const [editFocused, setEditFocused] = useState(false);
 
   // Backlinks state
   const [backlinks, setBacklinks] = useState<Array<{ path: string; name: string; line_number: number; line_content: string }>>([]);
@@ -847,6 +854,31 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
   const visibleColumns = columns.length <= 3 ? columns : columns.slice(columns.length - 3);
   const columnOffset = columns.length <= 3 ? 0 : columns.length - 3;
 
+  // Position the breadcrumb sliding pill over the active segment
+  useEffect(() => {
+    const container = breadcrumbRef.current;
+    if (!container) return;
+    const active = container.querySelector<HTMLElement>(".vault-breadcrumb-active");
+    if (!active) { setPillStyle({ opacity: 0 }); return; }
+    const containerRect = container.getBoundingClientRect();
+    const activeRect = active.getBoundingClientRect();
+    setPillStyle({
+      opacity: 1,
+      top: activeRect.top - containerRect.top,
+      left: activeRect.left - containerRect.left + container.scrollLeft,
+      width: activeRect.width,
+      height: activeRect.height,
+    });
+  }, [columns.length, columns[columns.length - 1]?.path]);
+
+  const columnFlex = (vi: number, total: number): number => {
+    if (total === 1) return 1;
+    if (total === 2) return vi === 0 ? 2 : 3;
+    if (vi === 0) return 1;
+    if (vi === 1) return 2;
+    return 3;
+  };
+
   const breadcrumb = columns.map((col, i) => {
     if (i === 0) return "vault";
     const parts = col.path.split("/");
@@ -855,47 +887,69 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
 
   return (
     <div className="vault-container">
-      {/* Browser pane */}
-      <div className="vault-browser">
-        <div className="vault-breadcrumb">
-          {breadcrumb.map((part, i) => (
-            <span key={i}>
-              {i > 0 && <span className="vault-breadcrumb-sep">/</span>}
-              <span
-                className={`vault-breadcrumb-part ${i === breadcrumb.length - 1 ? "vault-breadcrumb-active" : ""}`}
-                onClick={() => {
-                  if (i === 0) {
-                    loadDirectory("", 0);
-                    setOpenFile(null);
-                  } else {
-                    const targetPath = columns[i].path;
-                    loadDirectory(targetPath, i);
-                    setOpenFile(null);
-                  }
-                }}
-              >
-                {part}
-              </span>
+      {/* Unified nav bar — spans full width */}
+      <div className="vault-breadcrumb" ref={breadcrumbRef}>
+        <div className="vault-breadcrumb-pill" style={pillStyle} />
+        {breadcrumb.map((part, i) => (
+          <span key={i}>
+            {i > 0 && <span className="vault-breadcrumb-sep">/</span>}
+            <span
+              className={`vault-breadcrumb-part ${i === breadcrumb.length - 1 ? "vault-breadcrumb-active" : ""}`}
+              onClick={() => {
+                if (i === 0) {
+                  loadDirectory("", 0);
+                  setOpenFile(null);
+                } else {
+                  const targetPath = columns[i].path;
+                  loadDirectory(targetPath, i);
+                  setOpenFile(null);
+                }
+              }}
+            >
+              {part}
             </span>
-          ))}
-          <div className="vault-breadcrumb-actions">
+          </span>
+        ))}
+        <div className="vault-breadcrumb-actions">
+          {saveStatus === "saved" && <span className="vault-editor-saved">saved</span>}
+          {saveStatus === "error" && <span className="vault-editor-error">save failed</span>}
+          {openFile && openFile.entry.extension === "md" && backlinks.length > 0 && (
             <button
-              ref={createBtnRef}
-              className="vault-create-btn"
-              onClick={(e) => { e.stopPropagation(); setShowCreateMenu((v) => !v); }}
-              title="New file or folder"
-            >+</button>
-          </div>
+              className={`vault-backlinks-toggle ${showBacklinks ? "vault-backlinks-toggle-active" : ""}`}
+              onClick={(e) => { e.stopPropagation(); setShowBacklinks((v) => !v); }}
+              title={`${backlinks.length} backlink${backlinks.length !== 1 ? "s" : ""}`}
+            >
+              {backlinks.length} {"\u2190"}
+            </button>
+          )}
+          <button
+            ref={createBtnRef}
+            className="vault-create-btn"
+            onClick={(e) => { e.stopPropagation(); setShowCreateMenu((v) => !v); }}
+            title="New file or folder"
+          >+</button>
         </div>
+      </div>
 
+      {/* Content area — browser + editor side by side */}
+      <div className="vault-content">
+      {/* Browser pane */}
+      <div className={`vault-browser${editFocused ? " vault-browser-compact" : ""}`} onClick={() => setEditFocused(false)}>
         <DndContext sensors={dndSensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           <div className="vault-columns">
             {visibleColumns.map((col, vi) => {
               const realIndex = vi + columnOffset;
               return (
-                <DroppableColumn key={`${col.path}-${realIndex}`} id={`drop:${col.path || "."}`} className="vault-column">
-                  {col.entries.map((entry) => {
+                <DroppableColumn key={`${col.path}-${realIndex}`} id={`drop:${col.path || "."}`} className={`vault-column${vi === 0 && visibleColumns.length === 3 ? " vault-column-receding" : ""}`} style={{ flex: columnFlex(vi, visibleColumns.length) }}>
+                  {col.entries.map((entry, ei) => {
                     const entryPath = col.path ? `${col.path}/${entry.name}` : entry.name;
+                    // Show separator between last dir and first file
+                    const prevEntry = ei > 0 ? col.entries[ei - 1] : null;
+                    const showSeparator = !entry.is_dir && prevEntry?.is_dir;
+                    // Split filename for dimmed extension
+                    const lastDot = entry.name.lastIndexOf(".");
+                    const baseName = !entry.is_dir && lastDot > 0 ? entry.name.slice(0, lastDot) : entry.name;
+                    const ext = !entry.is_dir && lastDot > 0 ? entry.name.slice(lastDot) : "";
                     const entryContent = (
                       <div
                         className={`vault-entry ${col.selected === entry.name ? "vault-entry-selected" : ""} ${entry.is_dir ? "vault-entry-dir" : ""}`}
@@ -905,25 +959,31 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
                         <span className={`vault-entry-icon ${iconClass(entry)}`}>
                           {fileIcon(entry)}
                         </span>
-                        <span className="vault-entry-name">{entry.name}</span>
+                        <span className="vault-entry-name">
+                          {baseName}{ext && <span className="vault-entry-ext">{ext}</span>}
+                        </span>
                         {entry.is_dir && <span className="vault-entry-chevron">&#x276F;</span>}
                       </div>
                     );
 
-                    if (entry.is_dir) {
-                      return (
-                        <DraggableEntry key={entry.name} id={`drag:${entryPath}`}>
-                          <DroppableDir id={`drop:${entryPath}`}>
-                            {entryContent}
-                          </DroppableDir>
-                        </DraggableEntry>
-                      );
-                    }
-                    return (
+                    const wrapped = entry.is_dir ? (
+                      <DraggableEntry key={entry.name} id={`drag:${entryPath}`}>
+                        <DroppableDir id={`drop:${entryPath}`}>
+                          {entryContent}
+                        </DroppableDir>
+                      </DraggableEntry>
+                    ) : (
                       <DraggableEntry key={entry.name} id={`drag:${entryPath}`}>
                         {entryContent}
                       </DraggableEntry>
                     );
+
+                    return showSeparator ? (
+                      <React.Fragment key={entry.name}>
+                        <div className="vault-entry-separator" />
+                        {wrapped}
+                      </React.Fragment>
+                    ) : wrapped;
                   })}
                   {col.entries.length === 0 && (
                     <div className="vault-empty">Empty folder</div>
@@ -947,35 +1007,6 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
 
       {/* Editor pane */}
       <div className="vault-editor">
-        {/* Nav bar — always visible when a file is open */}
-        {openFile && (
-          <div className="vault-nav">
-            <button
-              className="vault-nav-btn"
-              disabled={!canGoBack}
-              onClick={goBack}
-              title="Back"
-            >&#x2190;</button>
-            <button
-              className="vault-nav-btn"
-              disabled={!canGoForward}
-              onClick={goForward}
-              title="Forward"
-            >&#x2192;</button>
-            <span className="vault-nav-path">{openFile.path}</span>
-            {openFile.entry.extension === "md" && backlinks.length > 0 && (
-              <button
-                className={`vault-backlinks-toggle ${showBacklinks ? "vault-backlinks-toggle-active" : ""}`}
-                onClick={() => setShowBacklinks((v) => !v)}
-                title={`${backlinks.length} backlink${backlinks.length !== 1 ? "s" : ""}`}
-              >
-                {backlinks.length} {"\u2190"}
-              </button>
-            )}
-            {saveStatus === "saved" && <span className="vault-editor-saved">saved</span>}
-            {saveStatus === "error" && <span className="vault-editor-error">save failed</span>}
-          </div>
-        )}
 
         {!openFile && (
           <div className="vault-editor-empty">
@@ -1035,7 +1066,15 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
                 )}
               </div>
             )}
-            <div className="vault-editor-content">
+            <div
+              className="vault-editor-content"
+              onFocus={() => setEditFocused(true)}
+              onBlur={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                  setEditFocused(false);
+                }
+              }}
+            >
               {openFile && isHubFilePath(openFile.path) ? (
                 <HubView
                   projectName={openFile.path.split("/").slice(-2, -1)[0] || openFile.path.split("/")[1]}
@@ -1088,6 +1127,7 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
           </div>
         )}
       </div>
+      </div>{/* close vault-content */}
 
       {/* ── Create dropdown (fixed, escapes overflow) ── */}
       {showCreateMenu && createBtnRef.current && (() => {
