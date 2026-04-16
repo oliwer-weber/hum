@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::sync::Mutex;
 use std::time::Instant;
 use once_cell::sync::Lazy;
+use rayon::prelude::*;
 
 // ── Cached vault file index (5s TTL) ──
 struct VaultFileCache {
@@ -795,6 +796,242 @@ fn vault_search_content(query: String, max_results: Option<u32>) -> Result<Vec<C
     Ok(results)
 }
 
+// ── Hub search: unified, proximity-biased, parallel ──
+
+#[derive(serde::Serialize, Clone)]
+struct HubSearchResult {
+    path: String,
+    name: String,
+    match_kind: String,
+    line_number: Option<u32>,
+    line_content: Option<String>,
+    score: u32,
+    proximity: String,
+}
+
+#[tauri::command]
+fn hub_search(query: String, project_prefix: String) -> Result<Vec<HubSearchResult>, String> {
+    let q = query.to_lowercase();
+    if q.len() < 2 {
+        return Ok(Vec::new());
+    }
+
+    let base = vault_path();
+    let all_files = vault_all_files()?;
+
+    // Collect text file paths for content search
+    let mut file_paths = Vec::new();
+    walk_text_files(&base, &base, &mut file_paths);
+
+    let prefix_lower = project_prefix.to_lowercase();
+
+    // Run file matching and content matching in parallel
+    let (file_results, content_results) = rayon::join(
+        || -> Vec<HubSearchResult> {
+            all_files
+                .iter()
+                .filter_map(|f| {
+                    let stem_lower = f.stem.to_lowercase();
+                    let name_lower = f.name.to_lowercase();
+                    let path_lower = f.path.to_lowercase();
+
+                    let relevance: u32 = if stem_lower.starts_with(&q) {
+                        0
+                    } else if name_lower.contains(&q) {
+                        10
+                    } else if path_lower.contains(&q) {
+                        20
+                    } else {
+                        return None;
+                    };
+
+                    let proximity_score: u32 = if path_lower.starts_with(&prefix_lower) { 0 } else { 100 };
+                    let prox_label = if path_lower.starts_with(&prefix_lower) { "project" } else { "vault" };
+
+                    Some(HubSearchResult {
+                        path: f.path.clone(),
+                        name: f.name.clone(),
+                        match_kind: "file".to_string(),
+                        line_number: None,
+                        line_content: None,
+                        score: relevance + proximity_score,
+                        proximity: prox_label.to_string(),
+                    })
+                })
+                .collect()
+        },
+        || -> Vec<HubSearchResult> {
+            let results: Vec<Vec<HubSearchResult>> = file_paths
+                .par_iter()
+                .filter_map(|file_path| {
+                    let content = fs::read_to_string(file_path).ok()?;
+                    let relative = file_path.strip_prefix(&base)
+                        .unwrap_or(file_path)
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    let name = file_path.file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    let rel_lower = relative.to_lowercase();
+                    let proximity_score: u32 = if rel_lower.starts_with(&prefix_lower) { 0 } else { 100 };
+                    let prox_label = if rel_lower.starts_with(&prefix_lower) { "project" } else { "vault" };
+
+                    let mut hits = Vec::new();
+                    for (i, line) in content.lines().enumerate() {
+                        if line.to_lowercase().contains(&q) {
+                            hits.push(HubSearchResult {
+                                path: relative.clone(),
+                                name: name.clone(),
+                                match_kind: "content".to_string(),
+                                line_number: Some((i + 1) as u32),
+                                line_content: Some(line.trim().to_string()),
+                                score: 40 + proximity_score,
+                                proximity: prox_label.to_string(),
+                            });
+                            if hits.len() >= 3 { break; } // max 3 hits per file
+                        }
+                    }
+                    if hits.is_empty() { None } else { Some(hits) }
+                })
+                .collect();
+            results.into_iter().flatten().collect()
+        },
+    );
+
+    // Merge, deduplicate (prefer file match over content match for same path), sort
+    let mut merged = file_results;
+    let file_paths_set: HashSet<String> = merged.iter().map(|r| r.path.clone()).collect();
+    for cr in content_results {
+        if !file_paths_set.contains(&cr.path) {
+            merged.push(cr);
+        }
+    }
+
+    merged.sort_by(|a, b| {
+        a.score.cmp(&b.score)
+            .then_with(|| a.path.len().cmp(&b.path.len()))
+    });
+    merged.truncate(30);
+
+    Ok(merged)
+}
+
+// ── Hub ambient: recent notes + stats ──
+
+#[derive(serde::Serialize)]
+struct HubAmbient {
+    recent_notes: Vec<HubRecentNote>,
+    note_count: u32,
+    open_todos: u32,
+}
+
+#[derive(serde::Serialize)]
+struct HubRecentNote {
+    path: String,
+    date: String,
+    gist: String,
+}
+
+fn get_first_meaningful_line(content: &str) -> String {
+    let mut in_frontmatter = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed == "---" {
+            in_frontmatter = !in_frontmatter;
+            continue;
+        }
+        if in_frontmatter { continue; }
+        if trimmed.is_empty() { continue; }
+        if trimmed.starts_with('#') { continue; }
+        return trimmed.to_string();
+    }
+    String::new()
+}
+
+#[tauri::command]
+fn hub_ambient(project_prefix: String) -> Result<HubAmbient, String> {
+    let base = vault_path();
+    let project_dir = base.join(&project_prefix);
+    let notes_dir = project_dir.join("notes");
+
+    // Find date-named notes
+    let date_re = regex::Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap();
+    let mut date_notes: Vec<(String, PathBuf)> = Vec::new();
+    let mut note_count: u32 = 0;
+
+    if notes_dir.is_dir() {
+        if let Ok(entries) = fs::read_dir(&notes_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().map(|e| e == "md").unwrap_or(false) {
+                    note_count += 1;
+                    if let Some(stem) = path.file_stem() {
+                        let stem_str = stem.to_string_lossy().to_string();
+                        if date_re.is_match(&stem_str) {
+                            date_notes.push((stem_str, path));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Also count md files directly in project dir (excluding the hub file itself)
+    if project_dir.is_dir() {
+        if let Ok(entries) = fs::read_dir(&project_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() && path.extension().map(|e| e == "md").unwrap_or(false) {
+                    // Don't double-count notes/ files, and skip hub file
+                    let fname = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+                    let parent_name = project_dir.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+                    if fname.to_lowercase() != parent_name.to_lowercase() {
+                        note_count += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort by date descending, take 5
+    date_notes.sort_by(|a, b| b.0.cmp(&a.0));
+    date_notes.truncate(5);
+
+    let recent_notes: Vec<HubRecentNote> = date_notes
+        .into_iter()
+        .map(|(date, path)| {
+            let gist = fs::read_to_string(&path)
+                .map(|c| get_first_meaningful_line(&c))
+                .unwrap_or_default();
+            let relative = path.strip_prefix(&base)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            HubRecentNote { path: relative, date, gist }
+        })
+        .collect();
+
+    // Count todos
+    let todos_path = project_dir.join("todos.md");
+    let (open_todos, _done_todos) = if todos_path.is_file() {
+        let content = fs::read_to_string(&todos_path).unwrap_or_default();
+        let open = content.lines().filter(|l| l.trim_start().starts_with("- [ ]")).count() as u32;
+        let done = content.lines().filter(|l| {
+            let t = l.trim_start();
+            t.starts_with("- [x]") || t.starts_with("- [X]")
+        }).count() as u32;
+        (open, done)
+    } else {
+        (0, 0)
+    };
+
+    Ok(HubAmbient {
+        recent_notes,
+        note_count,
+        open_todos,
+    })
+}
+
 #[derive(serde::Serialize)]
 struct BacklinkResult {
     path: String,
@@ -1395,6 +1632,8 @@ pub fn run() {
             vault_search_files,
             vault_search_content,
             vault_get_backlinks,
+            hub_search,
+            hub_ambient,
             hum::hum_send,
             list_projects,
             process_inbox,
