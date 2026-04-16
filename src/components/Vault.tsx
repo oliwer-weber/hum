@@ -962,7 +962,7 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
               const realIndex = vi + columnOffset;
               const isReceding = vi === 0 && visibleColumns.length === 3;
               return (
-                <DroppableColumn key={`${col.path}-${realIndex}`} id={`drop:${col.path || "."}`} className={`vault-column${isReceding ? " vault-column-receding" : ""}${isReceding && recedingLocked ? " vault-column-receding-locked" : ""}`} style={{ flex: columnFlex(vi, visibleColumns.length) }}>
+                <DroppableColumn key={col.path || "."} id={`drop:${col.path || "."}`} className={`vault-column${isReceding ? " vault-column-receding" : ""}${isReceding && recedingLocked ? " vault-column-receding-locked" : ""}`} style={{ flex: columnFlex(vi, visibleColumns.length) }}>
                   {col.entries.map((entry, ei) => {
                     const entryPath = col.path ? `${col.path}/${entry.name}` : entry.name;
                     // Show separator between last dir and first file

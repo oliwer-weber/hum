@@ -2262,10 +2262,10 @@
   background-color: var(--accent-subtle);
   border: 1px solid var(--accent-muted);
   border-radius: var(--radius-s);
-  transition: left 250ms var(--ease-bounce),
-              top 250ms var(--ease-bounce),
-              width 250ms var(--ease-bounce),
-              height 250ms var(--ease-bounce),
+  transition: left 200ms var(--ease-bounce),
+              top 200ms var(--ease-bounce),
+              width 200ms var(--ease-bounce),
+              height 200ms var(--ease-bounce),
               opacity 150ms var(--ease-smooth);
   pointer-events: none;
   z-index: 0;
@@ -2316,6 +2316,7 @@
   overflow-y: auto;
   padding: var(--space-sm) 0;
   background-color: var(--bg);
+  transition: flex 180ms var(--ease-smooth);
 }
 
 .vault-column-receding {
