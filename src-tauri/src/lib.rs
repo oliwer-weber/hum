@@ -478,6 +478,24 @@ fn vault_write_file(relative_path: String, content: String) -> Result<(), String
 }
 
 #[tauri::command]
+fn vault_save_image(filename: String, data: Vec<u8>) -> Result<String, String> {
+    let base = vault_path();
+    let assets_dir = base.join("99 Metadata").join("Assets");
+    fs::create_dir_all(&assets_dir).map_err(|e| format!("Failed to create Assets dir: {}", e))?;
+    let resolved = assets_dir.join(&filename);
+    // Security: ensure we stay inside the vault
+    let assets_canon = assets_dir.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+    let base_canon = base.canonicalize().map_err(|e| format!("Vault error: {}", e))?;
+    if !assets_canon.starts_with(&base_canon) {
+        return Err("Path outside vault".to_string());
+    }
+    fs::write(&resolved, &data).map_err(|e| format!("Failed to save image: {}", e))?;
+    invalidate_vault_cache();
+    let relative = format!("99 Metadata/Assets/{}", filename);
+    Ok(relative)
+}
+
+#[tauri::command]
 fn vault_create_file(relative_path: String, content: String) -> Result<(), String> {
     let base = vault_path();
     let resolved = base.join(&relative_path);
@@ -1623,6 +1641,7 @@ pub fn run() {
             vault_list,
             vault_read_file,
             vault_write_file,
+            vault_save_image,
             vault_create_file,
             vault_create_dir,
             vault_rename,

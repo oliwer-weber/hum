@@ -1,7 +1,7 @@
 import { Node, mergeAttributes } from "@tiptap/react";
 import { InputRule } from "@tiptap/core";
 import Suggestion, { type SuggestionProps } from "@tiptap/suggestion";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import type { Editor } from "@tiptap/core";
 
 /**
@@ -426,7 +426,7 @@ export const WikiEmbed = Node.create({
             const vaultPath = await invoke<string>("get_vault_path");
             const resolved = await invoke<string>("vault_resolve_link", { target, contextPath });
             const fullPath = `${vaultPath}/${resolved}`.replace(/\\/g, "/");
-            img.src = `https://asset.localhost/${fullPath}`;
+            img.src = convertFileSrc(fullPath);
           } catch {
             img.alt = `Could not load: ${target}`;
             container.classList.add("wiki-embed-error");

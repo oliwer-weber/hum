@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, memo } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { createSharedExtensions } from "./editor-config";
@@ -442,7 +442,7 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
         try {
           const vaultPath = await invoke<string>("get_vault_path");
           const fullPath = `${vaultPath}/${entryPath}`.replace(/\\/g, "/");
-          setImageUrl(`https://asset.localhost/${fullPath}`);
+          setImageUrl(convertFileSrc(fullPath));
         } catch {
           setImageUrl(null);
         }

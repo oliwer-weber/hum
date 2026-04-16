@@ -18,6 +18,51 @@ import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
 import { Markdown } from "tiptap-markdown";
 import type { EditorView } from "@tiptap/pm/view";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+
+/* ── Image paste/drop helpers ───────────────────── */
+
+const IMAGE_MIMES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp"]);
+const MIME_TO_EXT: Record<string, string> = {
+  "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif",
+  "image/webp": "webp", "image/bmp": "bmp",
+};
+
+function timestampedFilename(ext: string): string {
+  const d = new Date();
+  const ts = [
+    d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"),
+    String(d.getDate()).padStart(2, "0"), String(d.getHours()).padStart(2, "0"),
+    String(d.getMinutes()).padStart(2, "0"), String(d.getSeconds()).padStart(2, "0"),
+  ].join("");
+  return `paste-${ts}.${ext}`;
+}
+
+async function saveImageBlob(blob: Blob): Promise<string | null> {
+  const ext = MIME_TO_EXT[blob.type];
+  if (!ext) return null;
+  const filename = timestampedFilename(ext);
+  const buf = await blob.arrayBuffer();
+  const data = Array.from(new Uint8Array(buf));
+  await invoke<string>("vault_save_image", { filename, data });
+  return filename;
+}
+
+function insertWikiEmbed(view: EditorView, filename: string, pos?: number) {
+  const insertPos = pos ?? view.state.selection.from;
+  const embedType = view.state.schema.nodes.wikiEmbed;
+  if (embedType) {
+    const node = embedType.create({ target: filename });
+    const tr = view.state.tr.insert(insertPos, node);
+    view.dispatch(tr);
+  } else {
+    // Fallback if WikiEmbed extension isn't loaded
+    const tr = view.state.tr.insertText(`![[${filename}]]\n`, insertPos);
+    view.dispatch(tr);
+  }
+}
+
+const imagePasteDropKey = new PluginKey("imagePasteDrop");
 
 /* ── Auto-pair brackets ──────────────────────────── */
 
@@ -275,7 +320,76 @@ export const SharedEditorKeymap = Extension.create({
           },
         },
       }),
+      new Plugin({
+        key: imagePasteDropKey,
+        props: {
+          handlePaste(view: EditorView, event: ClipboardEvent) {
+            const items = event.clipboardData?.items;
+            if (!items) return false;
+            for (const item of Array.from(items)) {
+              if (IMAGE_MIMES.has(item.type)) {
+                event.preventDefault();
+                const blob = item.getAsFile();
+                if (!blob) return true;
+                saveImageBlob(blob).then((name) => {
+                  if (name) insertWikiEmbed(view, name);
+                });
+                return true;
+              }
+            }
+            return false;
+          },
+          handleDrop(view: EditorView, event: DragEvent) {
+            const files = event.dataTransfer?.files;
+            if (!files || files.length === 0) return false;
+            const imageFiles = Array.from(files).filter((f) => IMAGE_MIMES.has(f.type));
+            if (imageFiles.length === 0) return false;
+            event.preventDefault();
+            const dropPos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
+            for (const file of imageFiles) {
+              saveImageBlob(file).then((name) => {
+                if (name) insertWikiEmbed(view, name, dropPos);
+              });
+            }
+            return true;
+          },
+        },
+      }),
     ];
+  },
+});
+
+/* ── Vault-aware Image extension ─────────────────── */
+
+const VaultImage = Image.extend({
+  addNodeView() {
+    return ({ node }) => {
+      const container = document.createElement("div");
+      container.className = "vault-image-wrapper";
+      const img = document.createElement("img");
+      img.alt = (node.attrs.alt as string) || "";
+      const src = node.attrs.src as string;
+      // Resolve relative vault paths to asset protocol URLs
+      if (src && !src.startsWith("http") && !src.startsWith("data:")) {
+        (async () => {
+          try {
+            const vaultPath = await invoke<string>("get_vault_path");
+            const resolved = await invoke<string>("vault_resolve_link", {
+              target: src,
+              contextPath: undefined,
+            });
+            const fullPath = `${vaultPath}/${resolved}`.replace(/\\/g, "/");
+            img.src = convertFileSrc(fullPath);
+          } catch {
+            img.alt = `Could not load: ${src}`;
+          }
+        })();
+      } else {
+        img.src = src;
+      }
+      container.appendChild(img);
+      return { dom: container };
+    };
   },
 });
 
@@ -294,7 +408,7 @@ export function createSharedExtensions(opts: SharedExtensionsOptions = {}) {
     TaskList,
     TaskItem.configure({ nested: true }),
     Link.configure({ openOnClick: false }),
-    Image,
+    VaultImage,
     Highlight.configure({ multicolor: false }),
     Table.configure({ resizable: false }),
     TableRow,
