@@ -216,11 +216,6 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
   const vaultFilesRef = useRef<VaultFileInfo[]>([]);
   const vaultStemsRef = useRef<Set<string>>(new Set());
 
-  // Navigation history (back/forward)
-  const [history, setHistory] = useState<{ path: string; entry: VaultEntry }[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  const skipHistoryPush = useRef(false);
-
   // Editor ref for wikilink navigation
   const editorRef = useRef<ReturnType<typeof useEditor>>(null);
 
@@ -235,9 +230,8 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
     []
   );
 
-  // Open a file in the editor, optionally pushing to history
   const openFileInEditor = useCallback(
-    async (path: string, entry: VaultEntry, pushHistory: boolean) => {
+    async (path: string, entry: VaultEntry) => {
       try {
         const content = await invoke<string>("vault_read_file", { relativePath: path });
         setOpenFile({ path, entry });
@@ -253,40 +247,12 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
         if (editorRef.current && entry.extension === "md") {
           loadIntoEditor(editorRef.current, body);
         }
-        if (pushHistory && !skipHistoryPush.current) {
-          setHistory((prev) => {
-            const trimmed = prev.slice(0, historyIndex + 1);
-            return [...trimmed, { path, entry }];
-          });
-          setHistoryIndex((prev) => prev + 1);
-        }
       } catch (err) {
         console.error("Failed to open file:", err);
       }
     },
-    [loadIntoEditor, historyIndex]
+    [loadIntoEditor]
   );
-
-  const canGoBack = historyIndex > 0;
-  const canGoForward = historyIndex < history.length - 1;
-
-  const goBack = useCallback(() => {
-    if (!canGoBack) return;
-    const prev = history[historyIndex - 1];
-    setHistoryIndex((i) => i - 1);
-    skipHistoryPush.current = true;
-    openFileInEditor(prev.path, prev.entry, false);
-    skipHistoryPush.current = false;
-  }, [canGoBack, history, historyIndex, openFileInEditor]);
-
-  const goForward = useCallback(() => {
-    if (!canGoForward) return;
-    const next = history[historyIndex + 1];
-    setHistoryIndex((i) => i + 1);
-    skipHistoryPush.current = true;
-    openFileInEditor(next.path, next.entry, false);
-    skipHistoryPush.current = false;
-  }, [canGoForward, history, historyIndex, openFileInEditor]);
 
   // Navigate to a wikilink target — resolve via backend recursive search
   const navigateToWikiLink = useCallback(
@@ -300,7 +266,7 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
           is_dir: false,
           extension: fileName.includes(".") ? fileName.split(".").pop()! : null,
         };
-        await openFileInEditor(resolvedPath, entry, true);
+        await openFileInEditor(resolvedPath, entry);
       } catch (err) {
         console.error("WikiLink navigation failed:", err);
       }
@@ -382,7 +348,7 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
       is_dir: false,
       extension: fileName.includes(".") ? fileName.split(".").pop()! : null,
     };
-    await openFileInEditor(filePath, entry, true);
+    await openFileInEditor(filePath, entry);
   }, [openFileInEditor]);
 
   // Navigate to an externally requested file path
@@ -447,7 +413,7 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
           setImageUrl(null);
         }
       } else if (isEditableFile(entry)) {
-        await openFileInEditor(entryPath, entry, true);
+        await openFileInEditor(entryPath, entry);
       }
     },
     [columns, loadDirectory, openFileInEditor]
@@ -1104,7 +1070,7 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
                   onOpenFile={(path) => {
                     const name = path.split("/").pop() || "";
                     const ext = name.includes(".") ? name.split(".").pop() || null : null;
-                    openFileInEditor(path, { name, is_dir: false, extension: ext }, true);
+                    openFileInEditor(path, { name, is_dir: false, extension: ext });
                   }}
                 />
               ) : (
