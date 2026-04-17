@@ -6,7 +6,7 @@ import { createSharedExtensions, PAIRS, CLOSE_CHARS } from "./editor-config";
 import { WikiLink, WikiEmbed, convertTextToWikiLinks } from "./wikilink";
 import { HashTag } from "./hashtag";
 import { attachProjectAutocomplete, ProjectMentionKeymap, ProjectTagStyle } from "./project-mention";
-import type { ProjectItem } from "./project-mention";
+import type { MentionableItem } from "./project-mention";
 import type { VaultFileInfo } from "./wikilink";
 
 const FRONTMATTER = "---\ncssclasses:\n  - home-title\n---";
@@ -18,9 +18,8 @@ interface InboxProps {
 
 interface ProcessResult {
   routed: { project: string; path: string; todos_added: number; notes_added: number }[];
+  notes_routed: { tag: string; path: string; entries_added: number; is_new: boolean }[];
   untagged_remaining: string[];
-  unknown_tags: string[];
-  hub_files_updated: string[];
   timestamp: string;
 }
 
@@ -48,14 +47,18 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
     });
   }, []);
 
-  // Project list for @project autocomplete
-  const projectsRef = useRef<ProjectItem[]>([]);
+  // Mentionable list for @ autocomplete (projects + notes + wiki files)
+  const mentionablesRef = useRef<MentionableItem[]>([]);
 
-  useEffect(() => {
-    invoke<ProjectItem[]>("list_projects").then((projects) => {
-      projectsRef.current = projects;
+  const reloadMentionables = useCallback(() => {
+    invoke<MentionableItem[]>("list_mentionables").then((items) => {
+      mentionablesRef.current = items;
     });
   }, []);
+
+  useEffect(() => {
+    reloadMentionables();
+  }, [reloadMentionables, refreshKey]);
 
   // ── Load raw markdown immediately on mount ────────
   useEffect(() => {
@@ -173,12 +176,19 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
     (editorRef as React.MutableRefObject<typeof editor>).current = editor;
   }, [editor]);
 
-  // ── Attach @project autocomplete once editor is ready ──
+  // ── Attach @ autocomplete once editor is ready ──
   useEffect(() => {
     if (!editor || !editorReady) return;
-    const cleanup = attachProjectAutocomplete(editor, () => projectsRef.current);
-    return cleanup;
-  }, [editor, editorReady]);
+    const cleanup = attachProjectAutocomplete(editor, () => mentionablesRef.current);
+    // Refresh the mentionables list whenever the editor gains focus — catches
+    // files created externally (Vault view, filesystem) since component mount.
+    const onFocus = () => reloadMentionables();
+    editor.on("focus", onFocus);
+    return () => {
+      cleanup();
+      editor.off("focus", onFocus);
+    };
+  }, [editor, editorReady, reloadMentionables]);
 
   // ── Switchover: when editor is ready, transfer content ──
   useEffect(() => {
@@ -274,7 +284,7 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
     try {
       const result = await invoke<ProcessResult>("process_inbox");
       setLastResult(result);
-      if (result.routed.length > 0) triggerStatusRoll();
+      if (result.routed.length > 0 || result.notes_routed.length > 0) triggerStatusRoll();
       // Reload with whatever remains in inbox
       const raw = await invoke<string>("read_inbox");
       const stripped = raw.replace(/^---[\s\S]*?---\s*/, "").trim();
@@ -291,10 +301,8 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
       // Signal that vault files changed (triggers Dashboard reload etc.)
       onVaultChanged?.();
 
-      // Refresh project list in case new projects were created
-      invoke<ProjectItem[]>("list_projects").then((projects) => {
-        projectsRef.current = projects;
-      });
+      // Refresh mentionables so new notes show up in autocomplete immediately
+      reloadMentionables();
     } catch (err) {
       console.error("Inbox processing failed:", err);
       // Clean up sweep state on failure
@@ -350,13 +358,18 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
           )}
           {(statusRoll === "result" || statusRoll === "rolling-back") && lastResult && (
             <span className={`inbox-hint inbox-hint-result ${statusRoll === "rolling-back" ? "roll-out" : "roll-in"}`}>
-              {lastResult.routed.map((r) => {
-                const parts = [r.project];
-                if (r.todos_added > 0) parts.push(`${r.todos_added} todo${r.todos_added > 1 ? "s" : ""}`);
-                if (r.notes_added > 0) parts.push(`${r.notes_added} note${r.notes_added > 1 ? "s" : ""}`);
-                return parts.join(" · ");
-              }).join("  —  ")}
-              {lastResult.unknown_tags.length > 0 && `  ·  new: ${lastResult.unknown_tags.join(", ")}`}
+              {[
+                ...lastResult.routed.map((r) => {
+                  const parts = [r.project];
+                  if (r.todos_added > 0) parts.push(`${r.todos_added} todo${r.todos_added > 1 ? "s" : ""}`);
+                  if (r.notes_added > 0) parts.push(`${r.notes_added} note${r.notes_added > 1 ? "s" : ""}`);
+                  return parts.join(" · ");
+                }),
+                ...lastResult.notes_routed.map((n) => {
+                  const label = n.is_new ? `new @${n.tag}` : `@${n.tag}`;
+                  return `${label} · ${n.entries_added} line${n.entries_added > 1 ? "s" : ""}`;
+                }),
+              ].join("  —  ")}
             </span>
           )}
         </span>

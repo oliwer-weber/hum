@@ -1864,15 +1864,31 @@
 }
 
 .pm-suggest-item {
+  position: relative;
   display: flex;
   align-items: baseline;
   gap: var(--space-md);
-  padding: var(--space-sm) var(--space-md);
+  padding: var(--space-sm) var(--space-md) var(--space-sm) calc(var(--space-md) + 6px);
   margin: 2px var(--space-sm) 2px var(--space-xs);
   cursor: pointer;
   border-radius: var(--radius-m);
   transition: transform 80ms var(--ease-smooth),
               opacity 80ms var(--ease-smooth);
+}
+
+/* Kind indicator — a short, rounded "pillar" on the left edge. Fixed height so
+   it sits inside the row rather than butting against neighbors. */
+.pm-suggest-item::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: transparent;
+  transition: opacity 80ms var(--ease-smooth);
 }
 
 .pm-suggest-item:hover {
@@ -1898,11 +1914,11 @@
 }
 
 .pm-suggest-path {
+  margin-left: auto;
   color: var(--fg4);
   font-size: var(--font-size-xs);
+  letter-spacing: 0.02em;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   opacity: 0.7;
 }
 
@@ -1917,9 +1933,25 @@
 }
 
 .pm-suggest-create .pm-suggest-name {
-  color: var(--aqua);
+  color: var(--color-type-pending);
   font-style: italic;
 }
+
+/* Per-kind accent: pillar color + matching label color */
+.pm-suggest-item[data-mention-kind="work"]::before     { background: var(--color-type-work); }
+.pm-suggest-item[data-mention-kind="work"]     .pm-suggest-path { color: var(--color-type-work); }
+
+.pm-suggest-item[data-mention-kind="personal"]::before { background: var(--color-type-personal); }
+.pm-suggest-item[data-mention-kind="personal"] .pm-suggest-path { color: var(--color-type-personal); }
+
+.pm-suggest-item[data-mention-kind="note"]::before     { background: var(--color-type-notes); }
+.pm-suggest-item[data-mention-kind="note"]     .pm-suggest-path { color: var(--color-type-notes); }
+
+.pm-suggest-item[data-mention-kind="wiki"]::before     { background: var(--color-type-wiki); }
+.pm-suggest-item[data-mention-kind="wiki"]     .pm-suggest-path { color: var(--color-type-wiki); }
+
+.pm-suggest-item[data-mention-kind="pending"]::before  { background: var(--color-type-pending); }
+.pm-suggest-item[data-mention-kind="pending"] .pm-suggest-path { color: var(--color-type-pending); }
 
 .pm-suggest-empty {
   padding: var(--space-md) var(--space-lg);
@@ -1928,7 +1960,7 @@
   font-style: italic;
 }
 
-/* ── @project mention pills ──────────────────────── */
+/* ── @ mention pills ─────────────────────────────── */
 
 .project-mention {
   color: var(--mention-fg);
@@ -1938,6 +1970,37 @@
   padding: var(--mention-py) var(--mention-px);
   font-size: var(--mention-font);
   font-weight: var(--mention-weight);
+}
+
+.project-mention[data-mention-kind="work"] {
+  color: var(--color-type-work);
+  background: var(--color-type-work-bg);
+  border-color: var(--color-type-work-border);
+}
+
+.project-mention[data-mention-kind="personal"] {
+  color: var(--color-type-personal);
+  background: var(--color-type-personal-bg);
+  border-color: var(--color-type-personal-border);
+}
+
+.project-mention[data-mention-kind="note"] {
+  color: var(--color-type-notes);
+  background: var(--color-type-notes-bg);
+  border-color: var(--color-type-notes-border);
+}
+
+.project-mention[data-mention-kind="wiki"] {
+  color: var(--color-type-wiki);
+  background: var(--color-type-wiki-bg);
+  border-color: var(--color-type-wiki-border);
+}
+
+/* Pending — tag is not yet classified. Dashed outline signals "will be routed on process". */
+.project-mention[data-mention-kind="pending"] {
+  color: var(--color-type-pending);
+  background: var(--color-type-pending-bg);
+  border: 1px dashed var(--color-type-pending-border);
 }
 
 /* ── Wiki embeds ![[target]] ─────────────────────── */

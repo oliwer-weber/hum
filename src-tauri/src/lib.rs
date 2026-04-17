@@ -22,7 +22,7 @@ fn invalidate_vault_cache() {
 }
 
 static SKIP_DIRS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
-    [".git", ".obsidian", ".trash", ".claude", "node_modules"].iter().copied().collect()
+    [".git", ".obsidian", ".trash", ".claude", ".app", "node_modules"].iter().copied().collect()
 });
 static BINARY_EXTS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     ["png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "pdf", "mp3", "mp4",
@@ -49,7 +49,7 @@ fn build_project_color_map(config: &str) -> HashMap<String, usize> {
     let mut idx = 0usize;
     for line in config.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("- 01 projects/") {
+        if trimmed.starts_with("- projects/") {
             let rel = trimmed.trim_start_matches("- ");
             let name = rel.rsplit('/').next().unwrap_or(rel).to_string();
             if !map.contains_key(&name) {
@@ -94,30 +94,30 @@ struct GravityTodo {
 
 fn vault_path() -> PathBuf {
     if cfg!(target_os = "windows") {
-        PathBuf::from(r"C:\Users\oliwer.weber\Documents\Oliwers Remote Vault")
+        PathBuf::from(r"C:\Users\oliwer.weber\Documents\Hum")
     } else {
         dirs::home_dir()
             .unwrap_or_default()
             .join("Documents")
-            .join("Oliwers Remote Vault")
+            .join("Hum")
     }
 }
 
 #[tauri::command]
 fn read_dashboard() -> Result<String, String> {
-    let path = vault_path().join("00 Home").join("dashboard.md");
+    let path = vault_path().join(".app").join("dashboard.md");
     fs::read_to_string(&path).map_err(|e| format!("Failed to read dashboard: {}", e))
 }
 
 #[tauri::command]
 fn read_inbox() -> Result<String, String> {
-    let path = vault_path().join("00 Home").join("inbox.md");
+    let path = vault_path().join("inbox").join("inbox.md");
     fs::read_to_string(&path).map_err(|e| format!("Failed to read inbox: {}", e))
 }
 
 #[tauri::command]
 fn write_inbox(content: String) -> Result<(), String> {
-    let path = vault_path().join("00 Home").join("inbox.md");
+    let path = vault_path().join("inbox").join("inbox.md");
     let existing = fs::read_to_string(&path).unwrap_or_default();
 
     let new_content = if existing.trim().is_empty() || existing.trim() == "---\ncssclasses:\n  - home-title\n---" {
@@ -131,7 +131,7 @@ fn write_inbox(content: String) -> Result<(), String> {
 
 #[tauri::command]
 fn write_inbox_raw(content: String) -> Result<(), String> {
-    let path = vault_path().join("00 Home").join("inbox.md");
+    let path = vault_path().join("inbox").join("inbox.md");
     fs::write(&path, content).map_err(|e| format!("Failed to write inbox: {}", e))
 }
 
@@ -145,14 +145,14 @@ fn toggle_dashboard_todo(project: String, todo_text: String, checked: bool) -> R
     let vault = vault_path();
 
     // Find the project's todos.md by scanning config for matching project name
-    let config_path = vault.join("claude-config.md");
+    let config_path = vault.join(".app").join("claude-config.md");
     let config = fs::read_to_string(&config_path)
         .map_err(|e| format!("Failed to read config: {}", e))?;
 
     let mut project_rel: Option<String> = None;
     for line in config.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("- 01 projects/") {
+        if trimmed.starts_with("- projects/") {
             let rel = trimmed.trim_start_matches("- ").to_string();
             let name = rel.rsplit('/').next().unwrap_or(&rel);
             if name.eq_ignore_ascii_case(&project) {
@@ -336,7 +336,10 @@ fn vault_resolve_link(target: String, context_path: Option<String>) -> Result<St
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                if entry.file_name().to_string_lossy().starts_with('.') {
+                let dir_name = entry.file_name();
+                let dir_name_str = dir_name.to_string_lossy();
+                // Skip dot-prefixed directories except `.app`, which holds resolvable assets.
+                if dir_name_str.starts_with('.') && dir_name_str != ".app" {
                     continue;
                 }
                 find_all(&path, name, results);
@@ -424,6 +427,7 @@ fn vault_list(relative_path: String) -> Result<Vec<VaultEntry>, String> {
 
     let mut items: Vec<VaultEntry> = entries
         .filter_map(|e| e.ok())
+        .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
         .map(|e| {
             let name = e.file_name().to_string_lossy().to_string();
             let is_dir = e.path().is_dir();
@@ -480,7 +484,7 @@ fn vault_write_file(relative_path: String, content: String) -> Result<(), String
 #[tauri::command]
 fn vault_save_image(filename: String, data: Vec<u8>) -> Result<String, String> {
     let base = vault_path();
-    let assets_dir = base.join("99 Metadata").join("Assets");
+    let assets_dir = base.join(".app").join("metadata").join("Assets");
     fs::create_dir_all(&assets_dir).map_err(|e| format!("Failed to create Assets dir: {}", e))?;
     let resolved = assets_dir.join(&filename);
     // Security: ensure we stay inside the vault
@@ -491,7 +495,7 @@ fn vault_save_image(filename: String, data: Vec<u8>) -> Result<String, String> {
     }
     fs::write(&resolved, &data).map_err(|e| format!("Failed to save image: {}", e))?;
     invalidate_vault_cache();
-    let relative = format!("99 Metadata/Assets/{}", filename);
+    let relative = format!(".app/metadata/Assets/{}", filename);
     Ok(relative)
 }
 
@@ -1113,7 +1117,7 @@ fn vault_get_backlinks(target_stem: String) -> Result<Vec<BacklinkResult>, Strin
 
 #[tauri::command]
 fn fetch_calendar() -> Result<String, String> {
-    let skill_dir = vault_path().join(".claude").join("skills").join("check-calendar");
+    let skill_dir = vault_path().join(".app").join("skills").join("check-calendar");
     let script = skill_dir.join("fetch_calendar.py");
 
     let py_win = skill_dir.join(".venv").join("Scripts").join("python.exe");
@@ -1156,11 +1160,11 @@ fn fetch_calendar() -> Result<String, String> {
 /// the Open Todos section of dashboard.md, preserving Blocked and Activity sections.
 fn regenerate_dashboard() -> Result<(), String> {
     let vault = vault_path();
-    let config_path = vault.join("claude-config.md");
+    let config_path = vault.join(".app").join("claude-config.md");
     let config = fs::read_to_string(&config_path)
         .map_err(|e| format!("Failed to read claude-config.md: {}", e))?;
 
-    let dashboard_path = vault.join("00 Home").join("dashboard.md");
+    let dashboard_path = vault.join(".app").join("dashboard.md");
     let existing = fs::read_to_string(&dashboard_path).unwrap_or_default();
 
     // Extract preserved sections from existing dashboard
@@ -1199,7 +1203,7 @@ fn regenerate_dashboard() -> Result<(), String> {
 
     for line in config.lines() {
         let trimmed = line.trim();
-        if !trimmed.starts_with("- 01 projects/") {
+        if !trimmed.starts_with("- projects/") {
             continue;
         }
         let rel_path = trimmed.trim_start_matches("- ").to_string();
@@ -1289,20 +1293,87 @@ struct ProjectInfo {
 #[tauri::command]
 fn list_projects() -> Result<Vec<ProjectInfo>, String> {
     let vault = vault_path();
-    let config_path = vault.join("claude-config.md");
+    let config_path = vault.join(".app").join("claude-config.md");
     let content = fs::read_to_string(&config_path)
         .map_err(|e| format!("Failed to read claude-config.md: {}", e))?;
 
     let mut projects = Vec::new();
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("- 01 projects/") {
+        if trimmed.starts_with("- projects/") {
             let rel = trimmed.trim_start_matches("- ").to_string();
             let name = rel.rsplit('/').next().unwrap_or(&rel).to_string();
             projects.push(ProjectInfo { name, path: rel });
         }
     }
     Ok(projects)
+}
+
+#[derive(serde::Serialize)]
+struct MentionableItem {
+    name: String,     // display name (project name or file stem)
+    path: String,     // relative vault path
+    kind: String,     // "project" | "note" | "wiki"
+}
+
+/// Return everything an `@` mention can target: active projects, notes/*.md,
+/// wiki/*.md. Used by the inbox autocomplete so users see existing notes/wiki
+/// files alongside projects.
+#[tauri::command]
+fn list_mentionables() -> Result<Vec<MentionableItem>, String> {
+    let vault = vault_path();
+    let mut items: Vec<MentionableItem> = Vec::new();
+
+    // Projects from config
+    let config_path = vault.join(".app").join("claude-config.md");
+    if let Ok(content) = fs::read_to_string(&config_path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("- projects/") {
+                let rel = trimmed.trim_start_matches("- ").to_string();
+                let name = rel.rsplit('/').next().unwrap_or(&rel).to_string();
+                items.push(MentionableItem {
+                    name,
+                    path: rel,
+                    kind: "project".into(),
+                });
+            }
+        }
+    }
+
+    fn collect_md(dir: &Path, base: &Path, kind: &str, items: &mut Vec<MentionableItem>) {
+        let Ok(entries) = fs::read_dir(dir) else { return };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let n = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                if n == "archive" || n.starts_with('.') { continue; }
+                collect_md(&path, base, kind, items);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
+                if let (Some(stem), Ok(rel)) = (
+                    path.file_stem().and_then(|s| s.to_str()),
+                    path.strip_prefix(base),
+                ) {
+                    items.push(MentionableItem {
+                        name: stem.to_string(),
+                        path: rel.to_string_lossy().replace('\\', "/"),
+                        kind: kind.to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    let notes_dir = vault.join("notes");
+    if notes_dir.exists() {
+        collect_md(&notes_dir, &vault, "note", &mut items);
+    }
+    let wiki_dir = vault.join("wiki");
+    if wiki_dir.exists() {
+        collect_md(&wiki_dir, &vault, "wiki", &mut items);
+    }
+
+    Ok(items)
 }
 
 #[tauri::command]
@@ -1318,7 +1389,7 @@ fn process_inbox() -> Result<inbox::ProcessResult, String> {
 #[tauri::command]
 fn get_project_gravity() -> Result<Vec<ProjectGravity>, String> {
     let vault = vault_path();
-    let config_path = vault.join("claude-config.md");
+    let config_path = vault.join(".app").join("claude-config.md");
     let config = fs::read_to_string(&config_path)
         .map_err(|e| format!("Failed to read claude-config.md: {}", e))?;
 
@@ -1328,7 +1399,7 @@ fn get_project_gravity() -> Result<Vec<ProjectGravity>, String> {
 
     for line in config.lines() {
         let trimmed = line.trim();
-        if !trimmed.starts_with("- 01 projects/") {
+        if !trimmed.starts_with("- projects/") {
             continue;
         }
         let rel = trimmed.trim_start_matches("- ").to_string();
@@ -1496,7 +1567,7 @@ struct WeeklySummary {
 #[tauri::command]
 fn get_weekly_summary(week_offset: i32) -> Result<WeeklySummary, String> {
     let vault = vault_path();
-    let config_path = vault.join("claude-config.md");
+    let config_path = vault.join(".app").join("claude-config.md");
     let config = fs::read_to_string(&config_path)
         .map_err(|e| format!("Failed to read config: {}", e))?;
 
@@ -1514,7 +1585,7 @@ fn get_weekly_summary(week_offset: i32) -> Result<WeeklySummary, String> {
     let mut project_entries: Vec<(String, String, usize)> = Vec::new(); // (name, rel_path, color_index)
     for line in config.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("- 01 projects/") {
+        if trimmed.starts_with("- projects/") {
             let rel = trimmed.trim_start_matches("- ").to_string();
             let name = rel.rsplit('/').next().unwrap_or(&rel).to_string();
             let color_index = color_map.get(&name).copied().unwrap_or(0);
@@ -1655,6 +1726,7 @@ pub fn run() {
             hub_ambient,
             hum::hum_send,
             list_projects,
+            list_mentionables,
             process_inbox,
             get_project_gravity,
             get_weekly_summary,

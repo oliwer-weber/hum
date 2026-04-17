@@ -22,27 +22,40 @@ export interface ProjectItem {
   path: string;
 }
 
+export type MentionKind = "project" | "note" | "wiki";
+
+export interface MentionableItem {
+  name: string;
+  path: string;
+  kind: MentionKind;
+}
+
 interface RenderItem {
-  project: ProjectItem | null;
+  item: MentionableItem | null;
   isCreate: boolean;
   createName: string;
 }
 
 /* ── Fuzzy filter ─────────────────────────────────── */
 
-function fuzzyMatch(query: string, name: string): boolean {
-  const q = query.toLowerCase().replace(/[-_]/g, " ");
-  const n = name.toLowerCase().replace(/[-_]/g, " ");
-  if (n.includes(q)) return true;
-  const words = q.split(/\s+/);
-  return words.every((w) => n.includes(w));
+// Normalize the same way the Rust resolver does: strip all non-alphanumeric
+// and lowercase. `song-tips`, `Song Tips`, `song_tips`, `songtips` all collapse
+// to `songtips`.
+function normalize(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-function hasExactMatch(query: string, projects: ProjectItem[]): boolean {
-  const q = query.toLowerCase().replace(/[-_]/g, " ").trim();
-  return projects.some(
-    (p) => p.name.toLowerCase().replace(/[-_]/g, " ") === q,
-  );
+function fuzzyMatch(query: string, name: string): boolean {
+  const q = normalize(query);
+  if (!q) return true;
+  const n = normalize(name);
+  return n.includes(q);
+}
+
+function hasExactMatch(query: string, items: MentionableItem[]): boolean {
+  const q = normalize(query);
+  if (!q) return false;
+  return items.some((it) => normalize(it.name) === q);
 }
 
 /* ── Popup DOM ────────────────────────────────────── */
@@ -53,6 +66,26 @@ let selectedIndex = 0;
 let onSelect: ((item: RenderItem) => void) | null = null;
 let editorRef: Editor | null = null;
 let usingKeyboard = false; // suppress mouseenter during keyboard nav
+
+// Shared mentionables accessor. Set by `attachProjectAutocomplete` so the
+// decoration plugin (`ProjectTagStyle`) can classify @tags at render time.
+let mentionablesGetter: (() => MentionableItem[]) | null = null;
+
+/** Resolve an @tag to its kind (work/personal/note/wiki), or "pending" if unknown. */
+function resolveTagKind(tag: string): "work" | "personal" | "note" | "wiki" | "pending" {
+  if (!mentionablesGetter) return "pending";
+  const norm = normalize(tag);
+  if (!norm) return "pending";
+  const match = mentionablesGetter().find((it) => normalize(it.name) === norm);
+  if (!match) return "pending";
+  if (match.kind === "project") {
+    // path is "projects/<scope>/<name>" — only work/personal appear in the
+    // mentionables list (archive is excluded), so treat anything else as work.
+    const scope = match.path.split("/")[1];
+    return scope === "personal" ? "personal" : "work";
+  }
+  return match.kind;
+}
 
 function renderPopup() {
   if (!popup) return;
@@ -72,20 +105,24 @@ function renderPopup() {
       "pm-suggest-item" +
       (i === selectedIndex ? " pm-suggest-selected" : "") +
       (item.isCreate ? " pm-suggest-create" : "");
+    if (!item.isCreate && item.item) {
+      row.setAttribute("data-mention-kind", displayKindOf(item.item));
+    } else if (item.isCreate) {
+      row.setAttribute("data-mention-kind", "pending");
+    }
 
     const name = document.createElement("span");
     name.className = "pm-suggest-name";
     name.textContent = item.isCreate
-      ? `Create "${item.createName}"`
-      : item.project!.name;
+      ? `new note: ${item.createName}`
+      : item.item!.name;
     row.appendChild(name);
 
-    if (!item.isCreate && item.project) {
-      const path = document.createElement("span");
-      path.className = "pm-suggest-path";
-      const parts = item.project.path.split("/");
-      path.textContent = parts.length > 2 ? parts[1] : "";
-      row.appendChild(path);
+    if (!item.isCreate && item.item) {
+      const label = document.createElement("span");
+      label.className = "pm-suggest-path";
+      label.textContent = mentionLabel(item.item);
+      row.appendChild(label);
     }
 
     row.addEventListener("mousedown", (e) => {
@@ -147,7 +184,7 @@ function showPopup(rect: DOMRect, renderItems: RenderItem[], selectFn: (item: Re
       const prev = items[i];
       if (r.isCreate !== prev?.isCreate) return true;
       if (r.isCreate) return r.createName !== prev.createName;
-      return r.project?.name !== prev?.project?.name;
+      return r.item?.path !== prev?.item?.path;
     });
   items = renderItems;
   if (changed) selectedIndex = 0;
@@ -208,29 +245,53 @@ function detectMention(editor: Editor): MentionMatch | null {
 
 /* ── Build filtered items list ────────────────────── */
 
-function buildItems(query: string, projects: ProjectItem[]): RenderItem[] {
+/** Resolve a mentionable to the same 4-kind space used by the styling tokens. */
+function displayKindOf(item: MentionableItem): "work" | "personal" | "note" | "wiki" {
+  if (item.kind === "project") {
+    const scope = item.path.split("/")[1];
+    return scope === "personal" ? "personal" : "work";
+  }
+  return item.kind;
+}
+
+/** Right-aligned label shown in each popup row. */
+function mentionLabel(item: MentionableItem): string {
+  return displayKindOf(item);
+}
+
+// Sort order within the popup: existing items (projects > notes > wiki) first,
+// alphabetical within each kind.
+const KIND_ORDER: Record<MentionKind, number> = { project: 0, note: 1, wiki: 2 };
+function compareItems(a: MentionableItem, b: MentionableItem): number {
+  const k = KIND_ORDER[a.kind] - KIND_ORDER[b.kind];
+  if (k !== 0) return k;
+  return a.name.localeCompare(b.name);
+}
+
+function buildItems(query: string, items: MentionableItem[]): RenderItem[] {
   const q = query.trim();
 
   if (!q) {
-    return projects.slice(0, 12).map((p) => ({
-      project: p,
+    return items.slice().sort(compareItems).slice(0, 12).map((it) => ({
+      item: it,
       isCreate: false,
       createName: "",
     }));
   }
 
-  const matched: { project: ProjectItem | null; isCreate: boolean; createName: string }[] = projects
-    .filter((p) => fuzzyMatch(q, p.name))
+  const matched: RenderItem[] = items
+    .filter((it) => fuzzyMatch(q, it.name))
+    .sort(compareItems)
     .slice(0, 10)
-    .map((p) => ({
-      project: p,
+    .map((it) => ({
+      item: it,
       isCreate: false,
       createName: "",
     }));
 
-  if (q.length > 0 && !hasExactMatch(q, projects)) {
+  if (q.length > 0 && !hasExactMatch(q, items)) {
     matched.push({
-      project: null,
+      item: null,
       isCreate: true,
       createName: q,
     });
@@ -256,15 +317,16 @@ function getCursorRect(editor: Editor): DOMRect | null {
 
 export function attachProjectAutocomplete(
   editor: Editor,
-  getProjects: () => ProjectItem[],
+  getMentionables: () => MentionableItem[],
 ): () => void {
   editorRef = editor;
+  mentionablesGetter = getMentionables;
   let active = false;
   let currentMatch: MentionMatch | null = null;
 
   function confirmSelection(item: RenderItem) {
     if (!currentMatch) return;
-    const name = item.isCreate ? item.createName : item.project!.name;
+    const name = item.isCreate ? item.createName : item.item!.name;
     const { from, to } = currentMatch;
 
     // Single transaction: delete @query, insert @ProjectName, split block.
@@ -295,8 +357,8 @@ export function attachProjectAutocomplete(
     }
 
     currentMatch = mention;
-    const projects = getProjects();
-    const renderItems = buildItems(mention.query, projects);
+    const mentionables = getMentionables();
+    const renderItems = buildItems(mention.query, mentionables);
     const rect = getCursorRect(editor);
 
     if (!rect) {
@@ -316,6 +378,7 @@ export function attachProjectAutocomplete(
   return () => {
     editor.off("transaction", update);
     editorRef = null;
+    mentionablesGetter = null;
     hidePopup();
   };
 }
@@ -396,16 +459,17 @@ export const ProjectTagStyle = Mark.create({
             state.doc.descendants((node, pos) => {
               if (!node.isTextblock) return;
               const text = node.textContent;
-              // Match paragraphs that are entirely an @tag (with optional trailing whitespace)
               if (!text.startsWith("@") || text.length < 2) return;
               const trimmed = text.trimEnd();
-              // Only style if the whole paragraph is the tag (no prose content after)
               if (trimmed.includes("\n")) return;
               const from = pos + 1; // +1 for block open token
               const to = from + trimmed.length;
+              const tag = trimmed.slice(1); // strip leading @
+              const kind = resolveTagKind(tag);
               decorations.push(
                 Decoration.inline(from, to, {
                   class: "project-mention",
+                  "data-mention-kind": kind,
                 })
               );
             });

@@ -101,7 +101,7 @@
   --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
   --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
 
-  /* Mention pills (@project tags) */
+  /* Mention pills (@project tags) — legacy default kept as fallback */
   --mention-fg:      var(--aqua);
   --mention-bg:      rgba(142, 192, 124, 0.12);
   --mention-border:  rgba(142, 192, 124, 0.30);
@@ -110,6 +110,28 @@
   --mention-py:      1px;
   --mention-font:    var(--font-size-sm);
   --mention-weight:  600;
+
+  /* Mention pills by kind — resolved when the @tag matches a known target. */
+  --color-type-work:        var(--blue);
+  --color-type-work-bg:     rgba(131, 165, 152, 0.12);
+  --color-type-work-border: rgba(131, 165, 152, 0.30);
+
+  --color-type-personal:        var(--green);
+  --color-type-personal-bg:     rgba(184, 187, 38, 0.12);
+  --color-type-personal-border: rgba(184, 187, 38, 0.30);
+
+  --color-type-notes:        var(--yellow);
+  --color-type-notes-bg:     rgba(250, 189, 47, 0.12);
+  --color-type-notes-border: rgba(250, 189, 47, 0.30);
+
+  --color-type-wiki:        var(--purple);
+  --color-type-wiki-bg:     rgba(211, 134, 155, 0.12);
+  --color-type-wiki-border: rgba(211, 134, 155, 0.30);
+
+  /* Pending — classification unknown (new tag). Muted grey + dashed outline. */
+  --color-type-pending:        var(--fg4);
+  --color-type-pending-bg:     rgba(146, 131, 116, 0.08);
+  --color-type-pending-border: rgba(146, 131, 116, 0.45);
 
   /* Scrollbar */
   --scrollbar-width: 6px;

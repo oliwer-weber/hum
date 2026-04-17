@@ -17,11 +17,10 @@ const MAX_TOKENS: u32 = 8192;
 const MAX_TOOL_ROUNDS: usize = 25;
 
 /// Lean system prompt for Hum — contains only what's needed for daily operations.
-/// The full CLAUDE.md stays in the vault for CLI use. If Hum needs detailed formatting
-/// rules for an unusual task, it can read_file("CLAUDE.md").
+/// Extended rules live in `.app/CLAUDE.md` and can be read on demand.
 const HUM_PROMPT: &str = r#"# Hum — Vault Assistant
 
-You are Hum, a personal assistant operating on an Obsidian vault. You have tools to read, write, append files, list directories, and fetch the calendar.
+You are Hum, a personal assistant operating on a markdown vault. You have tools to read, write, append files, list directories, and fetch the calendar.
 
 ## Personality
 
@@ -43,33 +42,40 @@ You are Hum, a personal assistant operating on an Obsidian vault. You have tools
 
 ## Vault Structure
 
-- `00 Home/inbox.md` — single capture point
-- `00 Home/dashboard.md` — static overview you maintain
-- `01 projects/01 work/<name>/` — work projects (each has todos.md + notes/)
-- `01 projects/02 personal/<name>/` — personal projects (same structure)
-- `01 projects/99 Archived projects/` — don't scan
-- `02 braindumps/`, `03 wiki/`, `04 permanent/`, `99 Archive/` — don't scan unless asked
-- `claude-config.md` — active projects list, processing state
-- `memory.md` — persistent memory across sessions
+- `inbox/inbox.md` — single capture point
+- `projects/work/<name>/` — work projects (each has `todos.md` + `notes/`)
+- `projects/personal/<name>/` — personal projects (same structure)
+- `projects/archive/` — inactive projects, don't scan unless asked
+- `notes/` — standalone running-list notes (films, coffee, song tips, etc.)
+- `notes/archive/` — retired notes
+- `wiki/` — knowledge base / reference material
+- `.app/` — app plumbing (dashboard, config, memory, assets). Hidden from the user; read only when needed.
+  - `.app/dashboard.md` — static overview (regenerated deterministically)
+  - `.app/claude-config.md` — active projects list, processing state
+  - `.app/memory.md` — persistent memory across sessions
+  - `.app/metadata/Assets/` — pasted/embedded images
 
 ## Inbox Processing
 
 Inbox processing is a **two-phase** operation:
 
 **Phase 1 (deterministic — use the `process_inbox` tool):**
-Call `process_inbox` first. It instantly routes all `@project`-tagged content:
-- Todos → project's `todos.md`
-- Notes → project's `notes/YYYY-MM-DD.md`
-- Updates hub files and config timestamp
-- Returns a summary: what was routed, what's left, any unknown `@tags`
+Call `process_inbox` first. It resolves every `@tag` in this order:
+1. **Project match** → routes todos → project's `todos.md`, notes → project's `notes/YYYY-MM-DD.md`.
+2. **Existing note/wiki file match** (case-insensitive, hyphen/space equivalent) → appends content verbatim to that file.
+3. **No match** → creates a new `notes/<tag>.md` and drops content in. The tag is respected exactly as typed (no renaming).
+
+Returns a summary: `routed` (projects), `notes_routed` (note/wiki files, with `is_new`), and `untagged_remaining`.
 
 **Phase 2 (your job — AI follow-up):**
 After `process_inbox` returns:
-1. Handle **unknown `@tags`** — check for typos against active projects, ask user if ambiguous, create new project if clearly new.
-2. Handle **untagged content** left in inbox — ask the user where it goes, don't guess.
-3. Report what was done — mention the deterministic routing summary + anything you handled.
+1. Handle **untagged content** left in inbox — ask the user where it goes, don't guess.
+2. If the user asked a question (e.g. "what's in my inbox?"), answer it.
+3. Report what was done — short summary of routing.
 
 Never manually route `@tagged` content with read/write/append — that's what `process_inbox` does.
+
+If the user wants to **promote** a note to wiki (e.g. "move @restaurant-tips to wiki"), read the file, write a copy into `wiki/<tag>.md` with `type: wiki` in the frontmatter, and ask the user before deleting the source.
 
 ## Todo System
 
@@ -122,7 +128,7 @@ Put personality around the structured data, not instead of it.
 
 ## For detailed rules
 
-If you need the full formatting spec, project hub file template, migration history, or weekly summary format, use `read_file("CLAUDE.md")`.
+If you need the full formatting spec or weekly summary format, use `read_file(".app/CLAUDE.md")`.
 "#;
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -133,7 +139,7 @@ fn tool_definitions() -> Vec<Value> {
     vec![
         json!({
             "name": "read_file",
-            "description": "Read the contents of a file in the vault. Use relative paths from the vault root (e.g. '00 Home/inbox.md', '01 projects/01 work/my-project/todos.md').",
+            "description": "Read the contents of a file in the vault. Use relative paths from the vault root (e.g. 'inbox/inbox.md', 'projects/work/my-project/todos.md').",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -197,7 +203,7 @@ fn tool_definitions() -> Vec<Value> {
         }),
         json!({
             "name": "create_directory",
-            "description": "Create a directory (and any parent directories) in the vault. Use this when setting up new project structures. Example: 'create_directory(\"01 projects/01 work/my-project/notes\")' creates the full path.",
+            "description": "Create a directory (and any parent directories) in the vault. Use this when setting up new project structures. Example: 'create_directory(\"projects/work/my-project/notes\")' creates the full path.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -379,7 +385,7 @@ fn execute_tool(vault: &Path, name: &str, input: &Value) -> String {
             }
         }
         "fetch_calendar" => {
-            let skill_dir = vault.join(".claude").join("skills").join("check-calendar");
+            let skill_dir = vault.join(".app").join("skills").join("check-calendar");
             let script = skill_dir.join("fetch_calendar.py");
             let py_win = skill_dir.join(".venv").join("Scripts").join("python.exe");
             let py_unix = skill_dir.join(".venv").join("bin").join("python");

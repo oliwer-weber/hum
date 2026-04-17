@@ -70,7 +70,7 @@ pub fn generate_id() -> String {
 /// Active projects come from claude-config.md; archived projects are scanned
 /// from the archive directory but marked as archived.
 pub fn build_index(vault: &Path) -> Result<TodoIndex, String> {
-    let config_path = vault.join("claude-config.md");
+    let config_path = vault.join(".app").join("claude-config.md");
     let config = fs::read_to_string(&config_path)
         .map_err(|e| format!("Failed to read config: {}", e))?;
 
@@ -79,7 +79,7 @@ pub fn build_index(vault: &Path) -> Result<TodoIndex, String> {
     // Active projects from config
     for line in config.lines() {
         let trimmed = line.trim();
-        if !trimmed.starts_with("- 01 projects/") {
+        if !trimmed.starts_with("- projects/") {
             continue;
         }
         let rel_path = trimmed.trim_start_matches("- ").to_string();
@@ -93,7 +93,7 @@ pub fn build_index(vault: &Path) -> Result<TodoIndex, String> {
     }
 
     // Archived projects
-    let archive_dir = vault.join("01 projects").join("99 Archived projects");
+    let archive_dir = vault.join("projects").join("archive");
     if archive_dir.exists() {
         scan_archived_projects(&archive_dir, vault, &mut index)?;
     }
@@ -223,7 +223,7 @@ pub fn stamp_uuids(vault: &Path, rel_path: &str) -> Result<usize, String> {
 
 /// Stamp UUIDs across all active projects. Returns total count stamped.
 pub fn stamp_all_active(vault: &Path) -> Result<usize, String> {
-    let config_path = vault.join("claude-config.md");
+    let config_path = vault.join(".app").join("claude-config.md");
     let config = fs::read_to_string(&config_path)
         .map_err(|e| format!("Failed to read config: {}", e))?;
 
@@ -231,7 +231,7 @@ pub fn stamp_all_active(vault: &Path) -> Result<usize, String> {
 
     for line in config.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("- 01 projects/") {
+        if trimmed.starts_with("- projects/") {
             let rel_path = trimmed.trim_start_matches("- ").to_string();
             total += stamp_uuids(vault, &rel_path)?;
         }
