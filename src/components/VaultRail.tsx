@@ -8,6 +8,26 @@ export interface RecentEntry {
   path: string;
   name: string;
   openedAt: number;
+  preview?: string;
+}
+
+/** Build a short content preview: first 3 non-empty lines after frontmatter. */
+export function buildPreview(content: string): string {
+  let body = content;
+  if (body.startsWith("---")) {
+    const end = body.indexOf("---", 3);
+    if (end !== -1) body = body.slice(end + 3);
+  }
+  const lines: string[] = [];
+  for (const raw of body.split("\n")) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    lines.push(trimmed);
+    if (lines.length >= 3) break;
+  }
+  let preview = lines.join("\n");
+  if (preview.length > 200) preview = preview.slice(0, 197) + "\u2026";
+  return preview;
 }
 
 export interface BacklinkEntry {
@@ -113,7 +133,9 @@ function TrailsMode({ recents, currentFolder, onOpenFile }: {
               onClick={() => onOpenFile(r.path)}
             >
               <span className="vault-rail-item-name">{stripExt(r.name)}</span>
-              <span className="vault-rail-item-path">{parentPath(r.path)}</span>
+              {r.preview
+                ? <span className="vault-rail-item-preview">{r.preview}</span>
+                : <span className="vault-rail-item-path">{parentPath(r.path)}</span>}
             </button>
           ))}
         </div>
@@ -179,6 +201,7 @@ function QueryMode({ currentFolder, onOpenFile }: {
   const [kind, setKind] = useState<"files" | "content">("files");
   const [scopeToFolder, setScopeToFolder] = useState(true);
   const [results, setResults] = useState<QueryResult[]>([]);
+  const [previews, setPreviews] = useState<Record<string, string>>({});
   const debounceRef = useRef<number | null>(null);
   const genRef = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -213,6 +236,35 @@ function QueryMode({ currentFolder, onOpenFile }: {
     }, 250);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [query, kind, scopeToFolder, currentFolder]);
+
+  // Fetch previews for file-kind results on demand; cache keyed by path.
+  useEffect(() => {
+    if (kind !== "files" || results.length === 0) return;
+    const toFetch = results.filter((r) => previews[r.path] === undefined);
+    if (toFetch.length === 0) return;
+    let cancelled = false;
+    Promise.all(
+      toFetch.map(async (r) => {
+        try {
+          const content = await invoke<string>("vault_read_file", { relativePath: r.path });
+          return [r.path, buildPreview(content)] as const;
+        } catch {
+          return [r.path, ""] as const;
+        }
+      })
+    ).then((pairs) => {
+      if (cancelled) return;
+      setPreviews((prev) => {
+        const next = { ...prev };
+        for (const [path, preview] of pairs) next[path] = preview;
+        return next;
+      });
+    });
+    return () => { cancelled = true; };
+    // Intentionally not depending on `previews` — we snapshot on entry and
+    // new entries are merged without retriggering the effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [results, kind]);
 
   return (
     <div className="vault-rail-panel">
@@ -250,18 +302,23 @@ function QueryMode({ currentFolder, onOpenFile }: {
         {query && results.length === 0 && (
           <div className="vault-rail-empty">No results</div>
         )}
-        {results.map((r, i) => (
-          <button
-            key={`${r.path}-${r.line_number ?? 0}-${i}`}
-            className="vault-rail-item"
-            onClick={() => onOpenFile(r.path)}
-          >
-            <span className="vault-rail-item-name">{stripExt(r.name)}</span>
-            {r.line_content
-              ? <span className="vault-rail-item-context">{r.line_content}</span>
-              : <span className="vault-rail-item-path">{parentPath(r.path)}</span>}
-          </button>
-        ))}
+        {results.map((r, i) => {
+          const preview = kind === "files" ? previews[r.path] : undefined;
+          return (
+            <button
+              key={`${r.path}-${r.line_number ?? 0}-${i}`}
+              className="vault-rail-item"
+              onClick={() => onOpenFile(r.path)}
+            >
+              <span className="vault-rail-item-name">{stripExt(r.name)}</span>
+              {preview
+                ? <span className="vault-rail-item-preview">{preview}</span>
+                : r.line_content
+                ? <span className="vault-rail-item-context">{r.line_content}</span>
+                : <span className="vault-rail-item-path">{parentPath(r.path)}</span>}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

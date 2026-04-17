@@ -2912,7 +2912,7 @@
   display: flex;
   flex-direction: column;
   background-color: var(--bg);
-  border-left: 1px solid var(--bg1);
+  border-right: 1px solid var(--bg1);
   overflow: hidden;
 }
 
@@ -3075,6 +3075,20 @@
 .vault-rail-item-context {
   color: var(--fg3);
   font-family: var(--font-mono);
+}
+
+.vault-rail-item-preview {
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
+  color: var(--fg3);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: 100%;
+  margin-top: 2px;
 }
 
 /* Scope bar (Trails) */

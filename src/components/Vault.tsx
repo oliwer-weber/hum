@@ -6,7 +6,7 @@ import { createSharedExtensions } from "./editor-config";
 import { WikiLink, WikiEmbed, convertTextToWikiLinks } from "./wikilink";
 import type { VaultFileInfo } from "./wikilink";
 import { HashTag } from "./hashtag";
-import { VaultRail, type RailMode, type RecentEntry } from "./VaultRail";
+import { VaultRail, type RailMode, type RecentEntry, buildPreview } from "./VaultRail";
 
 /* ── Types ────────────────────────────────────────── */
 
@@ -225,6 +225,16 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
     []
   );
 
+  // Push a file into the rail's Trails mode
+  const pushRecent = useCallback((entry: RecentEntry) => {
+    setRecents((prev) => {
+      const filtered = prev.filter((r) => r.path !== entry.path);
+      const next = [entry, ...filtered].slice(0, 30);
+      try { localStorage.setItem("vault-recents", JSON.stringify(next)); } catch { /* quota */ }
+      return next;
+    });
+  }, []);
+
   const openFileInEditor = useCallback(
     async (path: string, entry: VaultEntry) => {
       try {
@@ -242,11 +252,17 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
         if (editorRef.current && entry.extension === "md") {
           loadIntoEditor(editorRef.current, body);
         }
+        pushRecent({
+          path,
+          name: entry.name,
+          openedAt: Date.now(),
+          preview: buildPreview(body),
+        });
       } catch (err) {
         console.error("Failed to open file:", err);
       }
     },
-    [loadIntoEditor]
+    [loadIntoEditor, pushRecent]
   );
 
   // Navigate to a wikilink target — resolve via backend recursive search
@@ -364,22 +380,6 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
     ).then(setBacklinks).catch(() => setBacklinks([]));
   }, [openFile]);
 
-  // Record opened files into recents (for the rail's Trails mode)
-  useEffect(() => {
-    if (!openFile) return;
-    const entry: RecentEntry = {
-      path: openFile.path,
-      name: openFile.entry.name,
-      openedAt: Date.now(),
-    };
-    setRecents((prev) => {
-      const filtered = prev.filter((r) => r.path !== entry.path);
-      const next = [entry, ...filtered].slice(0, 30);
-      try { localStorage.setItem("vault-recents", JSON.stringify(next)); } catch { /* quota */ }
-      return next;
-    });
-  }, [openFile]);
-
   // Load a directory into a specific column index
   const loadDirectory = useCallback(async (path: string, colIndex: number) => {
     try {
@@ -423,13 +423,14 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
         } catch {
           setImageUrl(null);
         }
+        pushRecent({ path: entryPath, name: entry.name, openedAt: Date.now() });
         setExplorerOpen(false);
       } else if (isEditableFile(entry)) {
         await openFileInEditor(entryPath, entry);
         setExplorerOpen(false);
       }
     },
-    [columns, loadDirectory, openFileInEditor]
+    [columns, loadDirectory, openFileInEditor, pushRecent]
   );
 
   // Stamp completion dates on checked todos that don't have one yet
@@ -920,8 +921,19 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
         </div>
       </div>
 
-      {/* Content area — editor + rail */}
+      {/* Content area — rail + editor */}
       <div className="vault-content">
+
+      {/* Rail — Trails / Links / Query */}
+      <VaultRail
+        mode={railMode}
+        onModeChange={setRailMode}
+        currentPath={openFile?.path ?? null}
+        currentFolder={currentDir}
+        recents={recents}
+        backlinks={backlinks}
+        onOpenFile={(path) => navigateToPath(path)}
+      />
 
       {/* Editor pane */}
       <div className="vault-editor">
@@ -1044,16 +1056,6 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
         )}
       </div>
 
-      {/* Rail — Trails / Links / Query */}
-      <VaultRail
-        mode={railMode}
-        onModeChange={setRailMode}
-        currentPath={openFile?.path ?? null}
-        currentFolder={currentDir}
-        recents={recents}
-        backlinks={backlinks}
-        onOpenFile={(path) => navigateToPath(path)}
-      />
       </div>{/* close vault-content */}
 
       {/* ── Create dropdown (fixed, escapes overflow) ── */}
