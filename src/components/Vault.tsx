@@ -6,7 +6,7 @@ import { createSharedExtensions } from "./editor-config";
 import { WikiLink, WikiEmbed, convertTextToWikiLinks } from "./wikilink";
 import type { VaultFileInfo } from "./wikilink";
 import { HashTag } from "./hashtag";
-import { HubView } from "./HubView";
+import { VaultRail, type RailMode, type RecentEntry } from "./VaultRail";
 
 /* ── Types ────────────────────────────────────────── */
 
@@ -85,19 +85,6 @@ function extractFrontmatter(content: string): string {
   return "";
 }
 
-/* ── Hub file detection ──────────────────────────── */
-
-function isHubFilePath(path: string): boolean {
-  if (!path.startsWith("01 projects/")) return false;
-  const parts = path.split("/");
-  if (parts.length < 2) return false;
-  const fileName = parts[parts.length - 1];
-  const parentDir = parts[parts.length - 2];
-  if (!fileName.endsWith(".md")) return false;
-  const stem = fileName.slice(0, -3);
-  return stem.toLowerCase() === parentDir.toLowerCase();
-}
-
 /* ── Search highlight helper ──────────────────────── */
 
 function highlightMatch(text: string, query: string): React.ReactNode {
@@ -129,10 +116,10 @@ const DroppableDir = memo(function DroppableDir({ id, children }: { id: string; 
   );
 });
 
-const DroppableColumn = memo(function DroppableColumn({ id, children, className, style, fadeClass }: { id: string; children: React.ReactNode; className?: string; style?: React.CSSProperties; fadeClass?: string }) {
+const DroppableColumn = memo(function DroppableColumn({ id, children, className }: { id: string; children: React.ReactNode; className?: string }) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
-    <div ref={setNodeRef} className={`${className || ""} ${isOver ? "vault-column-drop-target" : ""} ${fadeClass || ""}`} style={style}>
+    <div ref={setNodeRef} className={`${className || ""} ${isOver ? "vault-column-drop-target" : ""}`}>
       {children}
     </div>
   );
@@ -201,16 +188,24 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
   const breadcrumbRef = useRef<HTMLDivElement>(null);
   const [pillStyle, setPillStyle] = useState<React.CSSProperties>({ opacity: 0 });
 
-  // Browser compression on edit focus
-  const [editFocused, setEditFocused] = useState(false);
-
-  // Lock receding column hover after navigating from it
-  const [recedingLocked, setRecedingLocked] = useState(false);
-  const vaultRef = useRef<HTMLDivElement>(null);
-
   // Backlinks state
   const [backlinks, setBacklinks] = useState<Array<{ path: string; name: string; line_number: number; line_content: string }>>([]);
-  const [showBacklinks, setShowBacklinks] = useState(true);
+
+  // Explorer overlay (summoned miller grid)
+  const [explorerOpen, setExplorerOpen] = useState(false);
+
+  // Rail state
+  const [railMode, setRailMode] = useState<RailMode>("trails");
+  const [recents, setRecents] = useState<RecentEntry[]>(() => {
+    try {
+      const raw = localStorage.getItem("vault-recents");
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as RecentEntry[];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Vault file index
   const vaultFilesRef = useRef<VaultFileInfo[]>([]);
@@ -369,6 +364,22 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
     ).then(setBacklinks).catch(() => setBacklinks([]));
   }, [openFile]);
 
+  // Record opened files into recents (for the rail's Trails mode)
+  useEffect(() => {
+    if (!openFile) return;
+    const entry: RecentEntry = {
+      path: openFile.path,
+      name: openFile.entry.name,
+      openedAt: Date.now(),
+    };
+    setRecents((prev) => {
+      const filtered = prev.filter((r) => r.path !== entry.path);
+      const next = [entry, ...filtered].slice(0, 30);
+      try { localStorage.setItem("vault-recents", JSON.stringify(next)); } catch { /* quota */ }
+      return next;
+    });
+  }, [openFile]);
+
   // Load a directory into a specific column index
   const loadDirectory = useCallback(async (path: string, colIndex: number) => {
     try {
@@ -412,8 +423,10 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
         } catch {
           setImageUrl(null);
         }
+        setExplorerOpen(false);
       } else if (isEditableFile(entry)) {
         await openFileInEditor(entryPath, entry);
+        setExplorerOpen(false);
       }
     },
     [columns, loadDirectory, openFileInEditor]
@@ -585,15 +598,38 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
         setTimeout(() => findInputRef.current?.focus(), 50);
         return;
       }
-      // Escape — close search/find
+      // Escape — close search/find/explorer (lowest-priority overlays first)
       if (e.key === "Escape") {
         if (searchMode) { setSearchMode(null); return; }
         if (findOpen) { setFindOpen(false); return; }
+        if (explorerOpen && !modal && !ctxMenu && !moveSource) {
+          setExplorerOpen(false);
+          return;
+        }
+      }
+      // Ctrl+E — toggle the explorer overlay
+      if ((e.ctrlKey || e.metaKey) && e.key === "e" && !e.shiftKey && !e.altKey) {
+        const target = e.target as HTMLElement | null;
+        const inField = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+        if (!inField) {
+          e.preventDefault();
+          setExplorerOpen((v) => !v);
+          return;
+        }
+      }
+      // Ctrl+1/2/3 — switch rail mode (ignored when typing in input)
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+        const target = e.target as HTMLElement | null;
+        const inField = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+        if (inField) return;
+        if (e.key === "1") { e.preventDefault(); setRailMode("trails"); return; }
+        if (e.key === "2") { e.preventDefault(); setRailMode("links"); return; }
+        if (e.key === "3") { e.preventDefault(); setRailMode("query"); return; }
       }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [searchMode, findOpen, openFile]);
+  }, [searchMode, findOpen, openFile, explorerOpen, modal, ctxMenu, moveSource]);
 
   // Debounced search execution with stale-result guard
   useEffect(() => {
@@ -820,23 +856,6 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
     }
   }, [modal, modalInput, openFile, refreshAfterMutation]);
 
-  // Unlock receding column hover on mouse movement after lock (with brief delay)
-  const unlockTimerRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (!recedingLocked) return;
-    const el = vaultRef.current;
-    if (!el) return;
-    const onMove = () => {
-      // Small delay after cursor moves so hover doesn't snap immediately
-      unlockTimerRef.current = window.setTimeout(() => setRecedingLocked(false), 250);
-    };
-    el.addEventListener("mousemove", onMove, { once: true });
-    return () => {
-      el.removeEventListener("mousemove", onMove);
-      if (unlockTimerRef.current) clearTimeout(unlockTimerRef.current);
-    };
-  }, [recedingLocked]);
-
   // Determine visible columns (max 3, shift left if deeper)
   const visibleColumns = columns.length <= 3 ? columns : columns.slice(columns.length - 3);
   const columnOffset = columns.length <= 3 ? 0 : columns.length - 3;
@@ -858,14 +877,6 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
     });
   }, [columns.length, columns[columns.length - 1]?.path]);
 
-  const columnFlex = (vi: number, total: number): number => {
-    if (total === 1) return 1;
-    if (total === 2) return vi === 0 ? 2 : 3;
-    if (vi === 0) return 1;
-    if (vi === 1) return 2;
-    return 3;
-  };
-
   const breadcrumb = columns.map((col, i) => {
     if (i === 0) return "vault";
     const parts = col.path.split("/");
@@ -873,7 +884,7 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
   });
 
   return (
-    <div className="vault-container" ref={vaultRef}>
+    <div className="vault-container">
       {/* Unified nav bar — spans full width */}
       <div className="vault-breadcrumb" ref={breadcrumbRef}>
         <div className="vault-breadcrumb-pill" style={pillStyle} />
@@ -900,15 +911,6 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
         <div className="vault-breadcrumb-actions">
           {saveStatus === "saved" && <span className="vault-editor-saved">saved</span>}
           {saveStatus === "error" && <span className="vault-editor-error">save failed</span>}
-          {openFile && openFile.entry.extension === "md" && backlinks.length > 0 && (
-            <button
-              className={`vault-backlinks-toggle ${showBacklinks ? "vault-backlinks-toggle-active" : ""}`}
-              onClick={(e) => { e.stopPropagation(); setShowBacklinks((v) => !v); }}
-              title={`${backlinks.length} backlink${backlinks.length !== 1 ? "s" : ""}`}
-            >
-              {backlinks.length} {"\u2190"}
-            </button>
-          )}
           <button
             ref={createBtnRef}
             className="vault-create-btn"
@@ -918,88 +920,51 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
         </div>
       </div>
 
-      {/* Content area — browser + editor side by side */}
+      {/* Content area — editor + rail */}
       <div className="vault-content">
-      {/* Browser pane */}
-      <div className={`vault-browser${editFocused ? " vault-browser-compact" : ""}`} onClick={() => setEditFocused(false)}>
-        <DndContext sensors={dndSensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-          <div className="vault-columns">
-            {visibleColumns.map((col, vi) => {
-              const realIndex = vi + columnOffset;
-              const isReceding = vi === 0 && visibleColumns.length === 3;
-              return (
-                <DroppableColumn key={col.path || "."} id={`drop:${col.path || "."}`} className={`vault-column${isReceding ? " vault-column-receding" : ""}${isReceding && recedingLocked ? " vault-column-receding-locked" : ""}`} style={{ flex: columnFlex(vi, visibleColumns.length) }}>
-                  {col.entries.map((entry, ei) => {
-                    const entryPath = col.path ? `${col.path}/${entry.name}` : entry.name;
-                    // Show separator between last dir and first file
-                    const prevEntry = ei > 0 ? col.entries[ei - 1] : null;
-                    const showSeparator = !entry.is_dir && prevEntry?.is_dir;
-                    // Split filename for dimmed extension
-                    const lastDot = entry.name.lastIndexOf(".");
-                    const baseName = !entry.is_dir && lastDot > 0 ? entry.name.slice(0, lastDot) : entry.name;
-                    const ext = !entry.is_dir && lastDot > 0 ? entry.name.slice(lastDot) : "";
-                    const entryContent = (
-                      <div
-                        className={`vault-entry ${col.selected === entry.name ? "vault-entry-selected" : ""} ${entry.is_dir ? "vault-entry-dir" : ""}`}
-                        onClick={() => { if (isReceding) setRecedingLocked(true); handleEntryClick(realIndex, entry); }}
-                        onContextMenu={(e) => handleContextMenu(e, entryPath, entry, realIndex)}
-                      >
-                        <span className={`vault-entry-icon ${iconClass(entry)}`}>
-                          {fileIcon(entry)}
-                        </span>
-                        <span className="vault-entry-name">
-                          {baseName}{ext && <span className="vault-entry-ext">{ext}</span>}
-                        </span>
-                        {entry.is_dir && <span className="vault-entry-chevron">&#x276F;</span>}
-                      </div>
-                    );
-
-                    const wrapped = entry.is_dir ? (
-                      <DraggableEntry key={entry.name} id={`drag:${entryPath}`}>
-                        <DroppableDir id={`drop:${entryPath}`}>
-                          {entryContent}
-                        </DroppableDir>
-                      </DraggableEntry>
-                    ) : (
-                      <DraggableEntry key={entry.name} id={`drag:${entryPath}`}>
-                        {entryContent}
-                      </DraggableEntry>
-                    );
-
-                    return showSeparator ? (
-                      <React.Fragment key={entry.name}>
-                        <div className="vault-entry-separator" />
-                        {wrapped}
-                      </React.Fragment>
-                    ) : wrapped;
-                  })}
-                  {col.entries.length === 0 && (
-                    <div className="vault-empty">Empty folder</div>
-                  )}
-                </DroppableColumn>
-              );
-            })}
-          </div>
-          <DragOverlay>
-            {draggedEntry && (
-              <div className="vault-drag-overlay">
-                <span className={`vault-entry-icon ${iconClass(draggedEntry.entry)}`}>
-                  {fileIcon(draggedEntry.entry)}
-                </span>
-                <span>{draggedEntry.entry.name}</span>
-              </div>
-            )}
-          </DragOverlay>
-        </DndContext>
-      </div>
 
       {/* Editor pane */}
       <div className="vault-editor">
 
         {!openFile && (
-          <div className="vault-editor-empty">
-            <p>Select a file to view or edit</p>
-          </div>
+          columns.length > 1 ? (
+            <div className="vault-editor-landing">
+              <div className="vault-editor-landing-title">
+                {breadcrumb[breadcrumb.length - 1]}
+              </div>
+              <div className="vault-editor-landing-meta">
+                {(() => {
+                  const tail = columns[columns.length - 1]?.entries ?? [];
+                  const notes = tail.filter((e) => !e.is_dir).length;
+                  const folders = tail.filter((e) => e.is_dir).length;
+                  return `${notes} note${notes !== 1 ? "s" : ""} · ${folders} folder${folders !== 1 ? "s" : ""}`;
+                })()}
+              </div>
+              <div className="vault-editor-landing-hint">
+                Pick a recent from Trails, search with Query, or press <kbd>Ctrl+E</kbd> to explore.
+              </div>
+            </div>
+          ) : (
+            <div className="vault-editor-hero">
+              <div className="vault-editor-hero-title">Vault</div>
+              <div className="vault-editor-hero-hint">
+                <kbd>Ctrl+P</kbd> to find a note · <kbd>Ctrl+E</kbd> to explore
+              </div>
+              {recents.length > 0 && (
+                <div className="vault-editor-hero-recents">
+                  {recents.slice(0, 5).map((r) => (
+                    <button
+                      key={r.path}
+                      className="vault-editor-hero-recent"
+                      onClick={() => navigateToPath(r.path)}
+                    >
+                      {r.name.replace(/\.[^/.]+$/, "")}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
         )}
 
         {openFile && imageUrl && (
@@ -1054,46 +1019,9 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
                 )}
               </div>
             )}
-            <div
-              className="vault-editor-content"
-              onFocus={() => setEditFocused(true)}
-              onBlur={(e) => {
-                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                  setEditFocused(false);
-                }
-              }}
-            >
-              {openFile && isHubFilePath(openFile.path) ? (
-                <HubView
-                  projectName={openFile.path.split("/").slice(-2, -1)[0] || openFile.path.split("/")[1]}
-                  projectPrefix={openFile.path.split("/").slice(0, -1).join("/") + "/"}
-                  onOpenFile={(path) => {
-                    const name = path.split("/").pop() || "";
-                    const ext = name.includes(".") ? name.split(".").pop() || null : null;
-                    openFileInEditor(path, { name, is_dir: false, extension: ext });
-                  }}
-                />
-              ) : (
-                <EditorContent editor={editor} />
-              )}
+            <div className="vault-editor-content">
+              <EditorContent editor={editor} />
             </div>
-            {showBacklinks && backlinks.length > 0 && (
-              <div className="vault-backlinks-panel">
-                <div className="vault-backlinks-header">
-                  <span>Backlinks ({backlinks.length})</span>
-                </div>
-                {backlinks.map((bl, i) => (
-                  <div
-                    key={`${bl.path}-${bl.line_number}-${i}`}
-                    className="vault-backlink-item"
-                    onClick={() => navigateToPath(bl.path)}
-                  >
-                    <span className="vault-backlink-name">{bl.name}</span>
-                    <span className="vault-backlink-context">{bl.line_content}</span>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         )}
 
@@ -1115,6 +1043,17 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
           </div>
         )}
       </div>
+
+      {/* Rail — Trails / Links / Query */}
+      <VaultRail
+        mode={railMode}
+        onModeChange={setRailMode}
+        currentPath={openFile?.path ?? null}
+        currentFolder={currentDir}
+        recents={recents}
+        backlinks={backlinks}
+        onOpenFile={(path) => navigateToPath(path)}
+      />
       </div>{/* close vault-content */}
 
       {/* ── Create dropdown (fixed, escapes overflow) ── */}
@@ -1143,6 +1082,90 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
           </div>
         );
       })()}
+
+      {/* ── Explorer overlay (summoned miller grid) ── */}
+      {explorerOpen && (
+        <div className="vault-explorer-overlay" onClick={() => setExplorerOpen(false)}>
+          <div className="vault-explorer-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="vault-explorer-header">
+              <span className="vault-explorer-title">Explore</span>
+              <span className="vault-explorer-path">{currentDir || "vault"}</span>
+              <button
+                className="vault-explorer-close"
+                onClick={() => setExplorerOpen(false)}
+                title="Close (Esc)"
+                aria-label="Close explorer"
+              >{"\u00D7"}</button>
+            </div>
+            <div className="vault-browser">
+              <DndContext sensors={dndSensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+                <div className="vault-columns">
+                  {visibleColumns.map((col, vi) => {
+                    const realIndex = vi + columnOffset;
+                    return (
+                      <DroppableColumn key={col.path || "."} id={`drop:${col.path || "."}`} className="vault-column">
+                        {col.entries.map((entry, ei) => {
+                          const entryPath = col.path ? `${col.path}/${entry.name}` : entry.name;
+                          const prevEntry = ei > 0 ? col.entries[ei - 1] : null;
+                          const showSeparator = !entry.is_dir && prevEntry?.is_dir;
+                          const lastDot = entry.name.lastIndexOf(".");
+                          const baseName = !entry.is_dir && lastDot > 0 ? entry.name.slice(0, lastDot) : entry.name;
+                          const ext = !entry.is_dir && lastDot > 0 ? entry.name.slice(lastDot) : "";
+                          const entryContent = (
+                            <div
+                              className={`vault-entry ${col.selected === entry.name ? "vault-entry-selected" : ""} ${entry.is_dir ? "vault-entry-dir" : ""}`}
+                              onClick={() => handleEntryClick(realIndex, entry)}
+                              onContextMenu={(e) => handleContextMenu(e, entryPath, entry, realIndex)}
+                            >
+                              <span className={`vault-entry-icon ${iconClass(entry)}`}>
+                                {fileIcon(entry)}
+                              </span>
+                              <span className="vault-entry-name">
+                                {baseName}{ext && <span className="vault-entry-ext">{ext}</span>}
+                              </span>
+                              {entry.is_dir && <span className="vault-entry-chevron">&#x276F;</span>}
+                            </div>
+                          );
+                          const wrapped = entry.is_dir ? (
+                            <DraggableEntry key={entry.name} id={`drag:${entryPath}`}>
+                              <DroppableDir id={`drop:${entryPath}`}>
+                                {entryContent}
+                              </DroppableDir>
+                            </DraggableEntry>
+                          ) : (
+                            <DraggableEntry key={entry.name} id={`drag:${entryPath}`}>
+                              {entryContent}
+                            </DraggableEntry>
+                          );
+                          return showSeparator ? (
+                            <React.Fragment key={entry.name}>
+                              <div className="vault-entry-separator" />
+                              {wrapped}
+                            </React.Fragment>
+                          ) : wrapped;
+                        })}
+                        {col.entries.length === 0 && (
+                          <div className="vault-empty">Empty folder</div>
+                        )}
+                      </DroppableColumn>
+                    );
+                  })}
+                </div>
+                <DragOverlay>
+                  {draggedEntry && (
+                    <div className="vault-drag-overlay">
+                      <span className={`vault-entry-icon ${iconClass(draggedEntry.entry)}`}>
+                        {fileIcon(draggedEntry.entry)}
+                      </span>
+                      <span>{draggedEntry.entry.name}</span>
+                    </div>
+                  )}
+                </DragOverlay>
+              </DndContext>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Search overlay ── */}
       {searchMode && (
