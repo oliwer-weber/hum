@@ -75,6 +75,22 @@ body {
   display: flex;
   gap: var(--space-xs);
   padding-top: var(--space-sm);
+  padding-bottom: var(--space-sm);
+  position: relative;
+}
+
+.tab-pill {
+  position: absolute;
+  background-color: var(--accent-subtle);
+  border: 1px solid var(--accent-muted);
+  border-radius: var(--radius-s);
+  transition: left 200ms var(--ease-bounce),
+              top 200ms var(--ease-bounce),
+              width 200ms var(--ease-bounce),
+              height 200ms var(--ease-bounce),
+              opacity 150ms var(--ease-smooth);
+  pointer-events: none;
+  z-index: 0;
 }
 
 /* ── Window Controls ─────────────────────────────── */
@@ -121,6 +137,7 @@ body {
 
 .tab {
   position: relative;
+  z-index: 1;
   padding: var(--space-sm) var(--space-xl);
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
@@ -130,7 +147,7 @@ body {
   color: var(--fg4);
   background: transparent;
   border: none;
-  border-radius: var(--radius-s) var(--radius-s) 0 0;
+  border-radius: var(--radius-s);
   cursor: pointer;
   transition: color 150ms var(--ease-smooth),
               transform 150ms var(--ease-smooth);
@@ -152,23 +169,10 @@ body {
 
 .tab-active {
   color: var(--aqua);
-  background: var(--bg-hard);
-}
-
-.tab-active::after {
-  content: "";
-  position: absolute;
-  bottom: -1px;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--aqua);
-  border-radius: 2px 2px 0 0;
 }
 
 .tab-active:hover {
   color: var(--aqua);
-  background: var(--bg-hard);
 }
 
 /* ── Tab Content ────────────────────────────────────── */

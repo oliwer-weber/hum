@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import Chat from "./components/Chat";
 import Dashboard from "./components/Dashboard";
@@ -22,10 +22,31 @@ export default function App() {
     setActiveTab("vault");
   }, []);
 
+  // Sliding tab pill — measures the active tab and slides into place
+  const tabGroupRef = useRef<HTMLDivElement>(null);
+  const [pillStyle, setPillStyle] = useState<React.CSSProperties>({ opacity: 0 });
+
+  useEffect(() => {
+    const container = tabGroupRef.current;
+    if (!container) return;
+    const active = container.querySelector<HTMLElement>(".tab-active");
+    if (!active) { setPillStyle({ opacity: 0 }); return; }
+    const containerRect = container.getBoundingClientRect();
+    const activeRect = active.getBoundingClientRect();
+    setPillStyle({
+      opacity: 1,
+      left: activeRect.left - containerRect.left,
+      top: activeRect.top - containerRect.top,
+      width: activeRect.width,
+      height: activeRect.height,
+    });
+  }, [activeTab]);
+
   return (
     <div className="app">
       <nav className="tab-bar" data-tauri-drag-region>
-        <div className="tab-group">
+        <div className="tab-group" ref={tabGroupRef}>
+          <div className="tab-pill" style={pillStyle} />
           <button
             className={`tab ${activeTab === "inbox" ? "tab-active" : ""}`}
             onClick={() => setActiveTab("inbox")}
