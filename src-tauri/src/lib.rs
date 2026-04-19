@@ -1514,6 +1514,99 @@ fn get_project_gravity() -> Result<Vec<ProjectGravity>, String> {
     Ok(results)
 }
 
+/* ── Focus & snooze ──────────────────────────────── */
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
+struct SnoozeEntry {
+    project: String,
+    until: String, // YYYY-MM-DD
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
+struct FocusState {
+    #[serde(default)]
+    focus: Vec<String>,
+    #[serde(default, rename = "focusSetAt")]
+    focus_set_at: String,
+    #[serde(default)]
+    snoozed: Vec<SnoozeEntry>,
+}
+
+fn focus_file_path() -> PathBuf {
+    vault_path().join(".app").join("focus.json")
+}
+
+/// Read focus state from disk, auto-clearing stale focus (set before today)
+/// and auto-dropping snoozes whose `until` date has passed.
+fn read_focus_state() -> FocusState {
+    let path = focus_file_path();
+    let mut state: FocusState = fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+
+    let today = chrono::Local::now().date_naive();
+    let today_str = today.format("%Y-%m-%d").to_string();
+
+    if state.focus_set_at != today_str {
+        state.focus.clear();
+        state.focus_set_at = String::new();
+    }
+
+    state.snoozed.retain(|s| {
+        chrono::NaiveDate::parse_from_str(&s.until, "%Y-%m-%d")
+            .map(|d| d >= today)
+            .unwrap_or(false)
+    });
+
+    state
+}
+
+fn write_focus_state(state: &FocusState) -> Result<(), String> {
+    let path = focus_file_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create .app dir: {}", e))?;
+    }
+    let json = serde_json::to_string_pretty(state)
+        .map_err(|e| format!("Failed to serialize focus state: {}", e))?;
+    fs::write(&path, json).map_err(|e| format!("Failed to write focus.json: {}", e))
+}
+
+#[tauri::command]
+fn get_focus_state() -> Result<FocusState, String> {
+    Ok(read_focus_state())
+}
+
+#[tauri::command]
+fn set_focus(projects: Vec<String>) -> Result<FocusState, String> {
+    let mut state = read_focus_state();
+    let today_str = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
+    state.focus = projects;
+    state.focus_set_at = if state.focus.is_empty() { String::new() } else { today_str };
+    write_focus_state(&state)?;
+    Ok(state)
+}
+
+#[tauri::command]
+fn snooze_project(project: String, until: String) -> Result<FocusState, String> {
+    chrono::NaiveDate::parse_from_str(&until, "%Y-%m-%d")
+        .map_err(|_| format!("Invalid until date (expected YYYY-MM-DD): {}", until))?;
+
+    let mut state = read_focus_state();
+    state.snoozed.retain(|s| s.project != project);
+    state.snoozed.push(SnoozeEntry { project, until });
+    write_focus_state(&state)?;
+    Ok(state)
+}
+
+#[tauri::command]
+fn unsnooze_project(project: String) -> Result<FocusState, String> {
+    let mut state = read_focus_state();
+    state.snoozed.retain(|s| s.project != project);
+    write_focus_state(&state)?;
+    Ok(state)
+}
+
 /* ── Todo index commands ─────────────────────────── */
 
 /// Rebuild the todo index from scratch (stamps UUIDs on active projects, scans all files).
@@ -1732,6 +1825,10 @@ pub fn run() {
             get_weekly_summary,
             rebuild_todo_index,
             get_todo_index,
+            get_focus_state,
+            set_focus,
+            snooze_project,
+            unsnooze_project,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

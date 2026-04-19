@@ -881,6 +881,313 @@
 
 .dash-error { color: var(--red); }
 
+/* ── Focus strip ────────────────────────────────── */
+
+.focus-strip {
+  margin-bottom: var(--space-lg);
+}
+
+/* Collapsed: focus active */
+.focus-strip-active {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg1);
+  border-radius: var(--radius-s);
+  border-left: 2px solid var(--aqua);
+}
+
+.focus-strip-label {
+  font-size: var(--font-size-sm);
+  color: var(--fg3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.focus-strip-pills {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.focus-strip-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-sm);
+  color: var(--fg);
+}
+
+/* Buttons shared by strip + picker */
+.focus-strip-btn {
+  font: inherit;
+  font-size: var(--font-size-sm);
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  transition: transform 120ms cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 120ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.focus-strip-btn-ghost {
+  color: var(--fg3);
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.focus-strip-btn-ghost:hover {
+  color: var(--fg);
+  background: var(--bg2);
+}
+
+.focus-strip-btn-ghost:focus-visible {
+  outline: 2px solid var(--aqua);
+  outline-offset: 1px;
+}
+
+.focus-strip-btn-ghost:active {
+  transform: scale(0.97);
+}
+
+.focus-strip-btn-primary {
+  color: var(--bg-hard);
+  background: var(--aqua);
+  border: 1px solid var(--aqua);
+}
+
+.focus-strip-btn-primary:hover {
+  opacity: 0.9;
+}
+
+.focus-strip-btn-primary:focus-visible {
+  outline: 2px solid var(--aqua);
+  outline-offset: 2px;
+}
+
+.focus-strip-btn-primary:active {
+  transform: scale(0.97);
+}
+
+/* Expanded: picker */
+.focus-picker {
+  background: var(--bg1);
+  border: 1px solid var(--bg2);
+  border-radius: var(--radius-s);
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12),
+              0 8px 16px rgba(0, 0, 0, 0.08);
+}
+
+.focus-picker-header {
+  font-size: var(--font-size-sm);
+  color: var(--fg3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+.focus-picker-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.focus-picker-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-xs);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  transition: opacity 120ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.focus-picker-item:hover {
+  background: var(--bg2);
+}
+
+.focus-picker-item:focus-within {
+  outline: 2px solid var(--aqua);
+  outline-offset: 1px;
+}
+
+.focus-picker-item-name {
+  font-size: var(--font-size-sm);
+  color: var(--fg);
+}
+
+.focus-picker-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  padding-top: var(--space-xs);
+}
+
+/* ── Per-row hover-reveal actions ──────────────── */
+
+/* Anchor cluster (count + hub) — lives in flex flow, shifts left on hover */
+.dash-project-actions-anchor {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  transition: transform 180ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Slide cluster (focus + snooze) — absolute, hidden to the right by default */
+.dash-project-actions-slide {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  transform: translate(8px, -50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 180ms cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 180ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Coordinated reveal on row hover, focus-within, or when a panel is active */
+.dash-project-row:hover .dash-project-actions-anchor,
+.dash-project-row:focus-within .dash-project-actions-anchor,
+.dash-project-row.is-active .dash-project-actions-anchor {
+  transform: translateX(-64px);
+}
+
+.dash-project-row:hover .dash-project-actions-slide,
+.dash-project-row:focus-within .dash-project-actions-slide,
+.dash-project-row.is-active .dash-project-actions-slide {
+  transform: translate(0, -50%);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Focus toggle — aqua tint + filled star when active */
+.dash-project-focus-btn.is-focused {
+  color: var(--aqua);
+}
+
+.dash-project-focus-btn.is-focused svg polygon {
+  fill: currentColor;
+}
+
+.dash-project-focus-btn.is-focused:hover {
+  color: var(--aqua);
+  background-color: var(--bg1);
+}
+
+/* Focused project row — left accent in pip color */
+.dash-project-row.is-focused {
+  position: relative;
+}
+
+.dash-project-row.is-focused::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--space-md) * -1);
+  top: var(--space-sm);
+  bottom: var(--space-sm);
+  width: 2px;
+  background: var(--row-accent, var(--aqua));
+  border-radius: 2px;
+}
+
+/* Snooze menu — inline strip below the project header */
+.snooze-menu {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  margin: 0 0 var(--space-xs) 0;
+  background: var(--bg1);
+  border-radius: var(--radius-s);
+  flex-wrap: wrap;
+}
+
+.snooze-menu-label {
+  font-size: var(--font-size-sm);
+  color: var(--fg3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+.snooze-preset {
+  font: inherit;
+  font-size: var(--font-size-sm);
+  padding: var(--space-xs) var(--space-sm);
+  color: var(--fg2);
+  background: var(--bg2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  transition: transform 120ms cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 120ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.snooze-preset:hover {
+  color: var(--fg);
+  background: var(--bg3);
+}
+
+.snooze-preset:focus-visible {
+  outline: 2px solid var(--aqua);
+  outline-offset: 1px;
+}
+
+.snooze-preset:active {
+  transform: scale(0.97);
+}
+
+/* Snoozed projects section */
+.snoozed-section {
+  margin-top: var(--space-lg);
+  padding-top: var(--space-sm);
+  border-top: 1px dashed var(--bg2);
+  opacity: 0.7;
+}
+
+.snoozed-section-title {
+  font-size: var(--font-size-sm);
+  color: var(--fg4);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  margin-bottom: var(--space-xs);
+}
+
+.snoozed-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) 0;
+  font-size: var(--font-size-sm);
+}
+
+.snoozed-row-name {
+  color: var(--fg2);
+}
+
+.snoozed-row-until {
+  color: var(--fg4);
+  font-style: italic;
+}
+
+.snoozed-row-unsnooze {
+  margin-left: auto;
+}
+
 /* ── Gravity tiers ──────────────────────────────── */
 
 .dash-tier {
@@ -1018,6 +1325,7 @@
   gap: var(--space-sm);
   padding: var(--space-sm) 0;
   cursor: pointer;
+  position: relative;
   transition: background-color 100ms var(--ease-smooth);
 }
 
@@ -3900,4 +4208,60 @@
 .vault-tag-onhold {
   color: var(--orange-dim, var(--orange));
   background-color: rgba(254, 128, 25, 0.08);
+}
+
+/* ── Tooltips ──────────────────────────────────── */
+
+/* Generic hover tooltip. Use [data-tooltip="label"] on any element.
+   Keeps aria-label on the element for a11y; this only replaces the
+   browser-default `title` tooltip with a token-matched version. */
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  padding: 4px 8px;
+  font-size: var(--font-size-xs);
+  line-height: 1.2;
+  color: var(--fg);
+  background: var(--bg-hard);
+  border: 1px solid var(--bg2);
+  border-radius: var(--radius-s);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 4px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.18),
+              0 4px 10px rgba(0, 0, 0, 0.10);
+  z-index: 100;
+  transition: opacity 120ms cubic-bezier(0.4, 0, 0.2, 1),
+              transform 120ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Appears after a short dwell; fades immediately on leave */
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  transition-delay: 500ms;
+}
+
+/* Right-edge row actions: align tooltip to button's right edge so it
+   extends leftward and never clips on the scroll-container's right side */
+.dash-project-actions-anchor [data-tooltip]::after,
+.dash-project-actions-slide [data-tooltip]::after {
+  left: auto;
+  right: 0;
+  transform: translate(0, 4px);
+}
+
+.dash-project-actions-anchor [data-tooltip]:hover::after,
+.dash-project-actions-anchor [data-tooltip]:focus-visible::after,
+.dash-project-actions-slide [data-tooltip]:hover::after,
+.dash-project-actions-slide [data-tooltip]:focus-visible::after {
+  transform: translate(0, 0);
 }

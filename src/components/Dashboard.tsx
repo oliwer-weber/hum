@@ -48,6 +48,19 @@ interface CalendarData {
   events: CalendarEvent[];
 }
 
+interface SnoozeEntry {
+  project: string;
+  until: string;
+}
+
+interface FocusState {
+  focus: string[];
+  focusSetAt: string;
+  snoozed: SnoozeEntry[];
+}
+
+const DAMPEN_FACTOR = 0.3;
+
 /* ── Constants ──────────────────────────────────────── */
 
 const PROJECT_COLORS = [
@@ -71,6 +84,35 @@ function parseDateStr(dateStr: string): string {
     return `${y}-${m}-${day}`;
   }
   return dateStr;
+}
+
+function ymd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function addDaysStr(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return ymd(d);
+}
+
+function nextMondayStr(): string {
+  const d = new Date();
+  const dow = d.getDay(); // 0=Sun..6=Sat
+  const daysUntilMonday = dow === 0 ? 1 : (8 - dow);
+  d.setDate(d.getDate() + daysUntilMonday);
+  return ymd(d);
+}
+
+function formatSnoozeUntil(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  if (isNaN(d.getTime())) return dateStr;
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${months[d.getMonth()]} ${d.getDate()}`;
 }
 
 function formatDateLabel(dateStr: string): string {
@@ -222,6 +264,10 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(getTodayStr());
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
+  const [focusState, setFocusState] = useState<FocusState>({ focus: [], focusSetAt: "", snoozed: [] });
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [draftFocus, setDraftFocus] = useState<string[]>([]);
+  const [snoozeMenuFor, setSnoozeMenuFor] = useState<string | null>(null);
 
   async function loadGravity() {
     try {
@@ -242,10 +288,31 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
     }
   }
 
+  async function loadFocus() {
+    try {
+      const data = await invoke<FocusState>("get_focus_state");
+      setFocusState(data);
+    } catch (err) {
+      console.error("Failed to load focus state:", err);
+    }
+  }
+
   useEffect(() => {
     loadGravity();
     loadCalendar();
+    loadFocus();
   }, [refreshKey]);
+
+  const focusSet = useMemo(() => new Set(focusState.focus), [focusState.focus]);
+  const hasFocus = focusSet.size > 0;
+  const snoozedSet = useMemo(
+    () => new Set(focusState.snoozed.map((s) => s.project)),
+    [focusState.snoozed],
+  );
+  const snoozeUntilByPath = useMemo(
+    () => new Map(focusState.snoozed.map((s) => [s.project, s.until])),
+    [focusState.snoozed],
+  );
 
   // ── Tier 1: Top 5 gravity-ranked todos across all projects ──
   const gravityMap = useMemo(() => new Map(projects.map(p => [p.name, p.gravity])), [projects]);
@@ -253,6 +320,7 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
   const topTodos = useMemo(() => {
     const all: GravityTodo[] = [];
     for (const p of projects) {
+      if (snoozedSet.has(p.path)) continue;
       for (const t of p.top_todos) {
         if (!t.is_blocked && !t.is_waiting) {
           all.push(t);
@@ -260,17 +328,20 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
       }
     }
     all.sort((a, b) => {
-      const aScore = Math.min(a.age_days / 14, 5.0) + (gravityMap.get(a.project_name) ?? 0) / 10;
-      const bScore = Math.min(b.age_days / 14, 5.0) + (gravityMap.get(b.project_name) ?? 0) / 10;
+      const factorA = hasFocus && !focusSet.has(a.project_path) ? DAMPEN_FACTOR : 1;
+      const factorB = hasFocus && !focusSet.has(b.project_path) ? DAMPEN_FACTOR : 1;
+      const aScore = Math.min(a.age_days / 14, 5.0) + ((gravityMap.get(a.project_name) ?? 0) / 10) * factorA;
+      const bScore = Math.min(b.age_days / 14, 5.0) + ((gravityMap.get(b.project_name) ?? 0) / 10) * factorB;
       return bScore - aScore;
     });
     return all.slice(0, 5);
-  }, [projects, gravityMap]);
+  }, [projects, gravityMap, focusSet, hasFocus, snoozedSet]);
 
   // ── Tier 2: Blocked & waiting todos ──
   const stuckTodos = useMemo(() => {
     const all: GravityTodo[] = [];
     for (const p of projects) {
+      if (snoozedSet.has(p.path)) continue;
       for (const t of p.top_todos) {
         if (t.is_blocked || t.is_waiting) {
           all.push(t);
@@ -278,12 +349,20 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
       }
     }
     return all;
-  }, [projects]);
+  }, [projects, snoozedSet]);
 
-  // ── Tier 3: Projects sorted by gravity ──
-  const projectsWithOpenTodos = useMemo(
+  // ── Tier 3: Projects sorted by gravity (snoozed filtered to separate list) ──
+  const allOpenProjects = useMemo(
     () => projects.filter(p => p.open_todos > 0),
     [projects],
+  );
+  const projectsWithOpenTodos = useMemo(
+    () => allOpenProjects.filter(p => !snoozedSet.has(p.path)),
+    [allOpenProjects, snoozedSet],
+  );
+  const snoozedProjects = useMemo(
+    () => allOpenProjects.filter(p => snoozedSet.has(p.path)),
+    [allOpenProjects, snoozedSet],
   );
 
   // ── Assign unique color+shape to visible projects ──
@@ -297,7 +376,7 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
 
   const projectPipMap = useMemo(() => {
     const assigned = pipAssignmentsRef.current;
-    for (const p of projectsWithOpenTodos) {
+    for (const p of allOpenProjects) {
       if (!assigned.has(p.name)) {
         const idx = pipCounterRef.current++;
         // Order: first 6 filled-circle, next 6 filled-square, next 6 outline-circle, next 6 outline-square, then wrap
@@ -307,7 +386,7 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
       }
     }
     return new Map(assigned);
-  }, [projectsWithOpenTodos]);
+  }, [allOpenProjects]);
 
   const pipFor = useCallback(
     (name: string) => projectPipMap.get(name) ?? { color: PROJECT_COLORS[0], shape: PIP_SHAPES[0] },
@@ -349,6 +428,37 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
     }
   }, []);
 
+  const handleToggleProjectFocus = useCallback(async (projectPath: string) => {
+    const next = focusSet.has(projectPath)
+      ? focusState.focus.filter((p) => p !== projectPath)
+      : [...focusState.focus, projectPath];
+    try {
+      await invoke("set_focus", { projects: next });
+      await loadFocus();
+    } catch (err) {
+      console.error("Failed to toggle focus:", err);
+    }
+  }, [focusSet, focusState.focus]);
+
+  const handleSnooze = useCallback(async (projectPath: string, until: string) => {
+    try {
+      await invoke("snooze_project", { project: projectPath, until });
+      await loadFocus();
+      setSnoozeMenuFor(null);
+    } catch (err) {
+      console.error("Failed to snooze:", err);
+    }
+  }, []);
+
+  const handleUnsnooze = useCallback(async (projectPath: string) => {
+    try {
+      await invoke("unsnooze_project", { project: projectPath });
+      await loadFocus();
+    } catch (err) {
+      console.error("Failed to unsnooze:", err);
+    }
+  }, []);
+
   const handleNavigateToProject = useCallback((name: string) => {
     invoke<string>("vault_resolve_link", { target: name })
       .then((path) => onNavigateToFile?.(path))
@@ -368,6 +478,101 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
       <div className="dash-layout">
         {/* Left: Gravity tiers */}
         <div className={`dash-main dash-fade-${mainEdge}`} ref={mainRef}>
+
+          {/* Focus strip — only renders when focus is set or picker is open */}
+          {(hasFocus || pickerOpen) && (
+          <div className="focus-strip">
+            {!pickerOpen && hasFocus && (
+              <div className="focus-strip-active">
+                <span className="focus-strip-label">Focused</span>
+                <div className="focus-strip-pills">
+                  {focusState.focus.map((path) => {
+                    const p = projects.find((x) => x.path === path);
+                    if (!p) return null;
+                    return (
+                      <span key={path} className="focus-strip-pill">
+                        <span
+                          className={`project-pip project-pip-${pipFor(p.name).shape}`}
+                          style={{ "--pip-color": pipFor(p.name).color } as React.CSSProperties}
+                        />
+                        {p.name}
+                      </span>
+                    );
+                  })}
+                </div>
+                <button
+                  type="button"
+                  className="focus-strip-btn focus-strip-btn-ghost"
+                  onClick={() => { setDraftFocus(focusState.focus); setPickerOpen(true); }}
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  className="focus-strip-btn focus-strip-btn-ghost"
+                  onClick={async () => {
+                    await invoke("set_focus", { projects: [] });
+                    await loadFocus();
+                  }}
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+
+            {pickerOpen && (
+              <div className="focus-picker">
+                <div className="focus-picker-header">Focus for today</div>
+                <div className="focus-picker-list">
+                  {projects.map((p) => {
+                    const checked = draftFocus.includes(p.path);
+                    return (
+                      <label key={p.path} className="focus-picker-item">
+                        <input
+                          type="checkbox"
+                          className="todo-checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setDraftFocus((prev) =>
+                              prev.includes(p.path)
+                                ? prev.filter((x) => x !== p.path)
+                                : [...prev, p.path]
+                            )
+                          }
+                        />
+                        <span
+                          className={`project-pip project-pip-${pipFor(p.name).shape}`}
+                          style={{ "--pip-color": pipFor(p.name).color } as React.CSSProperties}
+                        />
+                        <span className="focus-picker-item-name">{p.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <div className="focus-picker-actions">
+                  <button
+                    type="button"
+                    className="focus-strip-btn focus-strip-btn-ghost"
+                    onClick={() => setPickerOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="focus-strip-btn focus-strip-btn-primary"
+                    onClick={async () => {
+                      await invoke("set_focus", { projects: draftFocus });
+                      await loadFocus();
+                      setPickerOpen(false);
+                    }}
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+          )}
 
           {/* Tier 1: Needs attention */}
           <div className="dash-tier">
@@ -423,8 +628,14 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
           <div className="dash-tier dash-tier-projects">
             <h3 className="dash-tier-title">Projects</h3>
             <div className="dash-projects-list">
-              {projectsWithOpenTodos.map((project) => (
-                <div key={project.name} className="dash-project-row">
+              {projectsWithOpenTodos.map((project) => {
+                const rowActive = snoozeMenuFor === project.path;
+                return (
+                <div
+                  key={project.name}
+                  className={`dash-project-row${focusSet.has(project.path) ? " is-focused" : ""}${rowActive ? " is-active" : ""}`}
+                  style={{ "--row-accent": pipFor(project.name).color } as React.CSSProperties}
+                >
                   <div
                     className="dash-project-header"
                     onClick={() => setExpandedProject(
@@ -438,18 +649,74 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
                     <span className="dash-project-name">
                       {project.name}
                     </span>
-                    <span className="dash-project-count">{project.open_todos}</span>
-                    <button
-                      className="dash-project-hub-btn"
-                      onClick={(e) => { e.stopPropagation(); handleNavigateToProject(project.name); }}
-                      title={`Open ${project.name} hub`}
-                      aria-label={`Open ${project.name} hub`}
-                    >
-                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M2 4.5V13a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V6.5a1 1 0 0 0-1-1H8.5L7 4H3a1 1 0 0 0-1 .5Z" />
-                      </svg>
-                    </button>
+                    <div className="dash-project-actions-anchor">
+                      <span className="dash-project-count">{project.open_todos}</span>
+                      <button
+                        className="dash-project-hub-btn"
+                        onClick={(e) => { e.stopPropagation(); handleNavigateToProject(project.name); }}
+                        data-tooltip={`Open ${project.name} hub`}
+                        aria-label={`Open ${project.name} hub`}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M2 4.5V13a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V6.5a1 1 0 0 0-1-1H8.5L7 4H3a1 1 0 0 0-1 .5Z" />
+                        </svg>
+                      </button>
+                    </div>
+                    <div className="dash-project-actions-slide" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        className={`dash-project-hub-btn dash-project-focus-btn${focusSet.has(project.path) ? " is-focused" : ""}`}
+                        onClick={(e) => { e.stopPropagation(); handleToggleProjectFocus(project.path); }}
+                        data-tooltip={focusSet.has(project.path) ? `Remove ${project.name} from focus` : `Focus ${project.name}`}
+                        aria-label={focusSet.has(project.path) ? `Remove ${project.name} from focus` : `Focus ${project.name}`}
+                        aria-pressed={focusSet.has(project.path)}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                        </svg>
+                      </button>
+                      <button
+                        className="dash-project-hub-btn dash-project-snooze-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSnoozeMenuFor(snoozeMenuFor === project.path ? null : project.path);
+                        }}
+                        data-tooltip={`Snooze ${project.name}`}
+                        aria-label={`Snooze ${project.name}`}
+                        aria-expanded={snoozeMenuFor === project.path}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="8" cy="8" r="6" />
+                          <path d="M8 4.5V8l2.5 1.75" />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
+                  {snoozeMenuFor === project.path && (
+                    <div className="snooze-menu">
+                      <span className="snooze-menu-label">Snooze until</span>
+                      <button
+                        type="button"
+                        className="snooze-preset"
+                        onClick={() => handleSnooze(project.path, addDaysStr(1))}
+                      >
+                        Tomorrow
+                      </button>
+                      <button
+                        type="button"
+                        className="snooze-preset"
+                        onClick={() => handleSnooze(project.path, nextMondayStr())}
+                      >
+                        Next Mon
+                      </button>
+                      <button
+                        type="button"
+                        className="snooze-preset"
+                        onClick={() => handleSnooze(project.path, addDaysStr(7))}
+                      >
+                        1 week
+                      </button>
+                    </div>
+                  )}
                   {expandedProject === project.name && (
                     <div className="dash-project-todos">
                       {project.top_todos.map((todo, i) => (
@@ -469,8 +736,37 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
+
+            {snoozedProjects.length > 0 && (
+              <div className="snoozed-section">
+                <div className="snoozed-section-title">Snoozed</div>
+                {snoozedProjects.map((project) => {
+                  const until = snoozeUntilByPath.get(project.path);
+                  return (
+                    <div key={project.name} className="snoozed-row">
+                      <span
+                        className={`project-pip project-pip-${pipFor(project.name).shape}`}
+                        style={{ "--pip-color": pipFor(project.name).color } as React.CSSProperties}
+                      />
+                      <span className="snoozed-row-name">{project.name}</span>
+                      {until && (
+                        <span className="snoozed-row-until">until {formatSnoozeUntil(until)}</span>
+                      )}
+                      <button
+                        type="button"
+                        className="focus-strip-btn focus-strip-btn-ghost snoozed-row-unsnooze"
+                        onClick={() => handleUnsnooze(project.path)}
+                      >
+                        Unsnooze
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 
