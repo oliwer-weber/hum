@@ -64,8 +64,8 @@ const DAMPEN_FACTOR = 0.3;
 /* ── Constants ──────────────────────────────────────── */
 
 const PROJECT_COLORS = [
-  "var(--aqua)", "var(--green)", "var(--yellow)",
-  "var(--blue)", "var(--purple)", "var(--orange)",
+  "var(--emerald)", "var(--sage)", "var(--lime)",
+  "var(--emerald-dim)", "var(--sage-dim)", "var(--lime-dim)",
 ];
 
 /* ── Helpers ────────────────────────────────────────── */

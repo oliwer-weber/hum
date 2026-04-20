@@ -29,7 +29,7 @@ export function MarkdownRenderer({ text }: { text: string }) {
 /* ── Action Report ────────────────────────────────── */
 // Renders project-based action results as a structured card
 
-const ACCENT_CYCLE = ["green", "aqua", "yellow", "blue", "purple", "orange"] as const;
+const ACCENT_CYCLE = ["emerald", "sage", "lime", "emerald-dim", "sage-dim", "lime-dim"] as const;
 
 export function ActionReportCard({ data }: { data: ActionReportData }) {
   return (

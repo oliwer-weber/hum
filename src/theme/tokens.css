@@ -50,6 +50,16 @@
   --orange:    #fe8019;
   --orange-dim:#d65d0e;
 
+  /* Collection-family greens — distinct hues within the green family
+     so wayfinding still works, but aqua stays reserved for app accent.
+     Emerald = cool/deep, sage = muted/earthy, lime = bright/warm. */
+  --emerald:     #5ea869;
+  --emerald-dim: #467f50;
+  --sage:        #9ba876;
+  --sage-dim:    #77845a;
+  --lime:        #c0c755;
+  --lime-dim:    #99a03e;
+
   /* Semantic */
   --accent:         var(--aqua);
   --accent-hover:   #a9d4a0;
@@ -168,43 +178,45 @@
   --mention-font:    var(--font-size-sm);
   --mention-weight:  600;
 
-  /* Mention pills by kind — resolved when the @tag matches a known target. */
-  --color-type-work:        var(--blue);
-  --color-type-work-bg:     rgba(131, 165, 152, 0.12);
-  --color-type-work-border: rgba(131, 165, 152, 0.30);
+  /* Mention pills by kind — work/personal both resolve to Projects so
+     both share emerald; notes → lime; wiki → sage. bg/border derive
+     via color-mix so changing the base hue cascades automatically. */
+  --color-type-work:        var(--emerald);
+  --color-type-work-bg:     color-mix(in srgb, var(--color-type-work) 12%, transparent);
+  --color-type-work-border: color-mix(in srgb, var(--color-type-work) 30%, transparent);
 
-  --color-type-personal:        var(--green);
-  --color-type-personal-bg:     rgba(184, 187, 38, 0.12);
-  --color-type-personal-border: rgba(184, 187, 38, 0.30);
+  --color-type-personal:        var(--emerald);
+  --color-type-personal-bg:     color-mix(in srgb, var(--color-type-personal) 12%, transparent);
+  --color-type-personal-border: color-mix(in srgb, var(--color-type-personal) 30%, transparent);
 
-  --color-type-notes:        var(--yellow);
-  --color-type-notes-bg:     rgba(250, 189, 47, 0.12);
-  --color-type-notes-border: rgba(250, 189, 47, 0.30);
+  --color-type-notes:        var(--lime);
+  --color-type-notes-bg:     color-mix(in srgb, var(--color-type-notes) 12%, transparent);
+  --color-type-notes-border: color-mix(in srgb, var(--color-type-notes) 30%, transparent);
 
-  --color-type-wiki:        var(--purple);
-  --color-type-wiki-bg:     rgba(211, 134, 155, 0.12);
-  --color-type-wiki-border: rgba(211, 134, 155, 0.30);
+  --color-type-wiki:        var(--sage);
+  --color-type-wiki-bg:     color-mix(in srgb, var(--color-type-wiki) 12%, transparent);
+  --color-type-wiki-border: color-mix(in srgb, var(--color-type-wiki) 30%, transparent);
 
   /* Pending — classification unknown (new tag). Muted grey + dashed outline. */
   --color-type-pending:        var(--fg4);
-  --color-type-pending-bg:     rgba(146, 131, 116, 0.08);
-  --color-type-pending-border: rgba(146, 131, 116, 0.45);
+  --color-type-pending-bg:     color-mix(in srgb, var(--color-type-pending) 8%, transparent);
+  --color-type-pending-border: color-mix(in srgb, var(--color-type-pending) 45%, transparent);
 
   /* ─── Vault collection accents ─────────────────────────────
      Drive per-collection UI tinting (landing cards, breadcrumb pill,
-     FAB, chips). Themes typically only need to override the base
-     color — bg/border/tint derive via color-mix. */
-  --color-collection-projects:        var(--blue);
+     FAB, chips). Themes override the base hue — bg/border/tint derive
+     via color-mix. Aqua is reserved for app identity, not a collection. */
+  --color-collection-projects:        var(--emerald);
   --color-collection-projects-bg:     color-mix(in srgb, var(--color-collection-projects) 12%, transparent);
   --color-collection-projects-border: color-mix(in srgb, var(--color-collection-projects) 30%, transparent);
   --color-collection-projects-tint:   color-mix(in srgb, var(--color-collection-projects)  6%, transparent);
 
-  --color-collection-library:         var(--purple);
+  --color-collection-library:         var(--sage);
   --color-collection-library-bg:      color-mix(in srgb, var(--color-collection-library)  12%, transparent);
   --color-collection-library-border:  color-mix(in srgb, var(--color-collection-library)  30%, transparent);
   --color-collection-library-tint:    color-mix(in srgb, var(--color-collection-library)   6%, transparent);
 
-  --color-collection-notes:           var(--yellow);
+  --color-collection-notes:           var(--lime);
   --color-collection-notes-bg:        color-mix(in srgb, var(--color-collection-notes)    12%, transparent);
   --color-collection-notes-border:    color-mix(in srgb, var(--color-collection-notes)    30%, transparent);
   --color-collection-notes-tint:      color-mix(in srgb, var(--color-collection-notes)     6%, transparent);
@@ -252,6 +264,16 @@
   --orange:    #e39b5d;
   --orange-dim:#c27a3d;
 
+  /* Collection-family greens — slightly warmer saturation to hold on
+     cool charcoal bg. Distinct hues keep wayfinding without competing
+     with aqua's role as app identity. */
+  --emerald:     #68b075;
+  --emerald-dim: #4d8758;
+  --sage:        #a0b084;
+  --sage-dim:    #7a8a66;
+  --lime:        #b8c860;
+  --lime-dim:    #93a143;
+
   /* Semantic */
   --accent:         var(--aqua);
   --accent-hover:   #a9d4a0;
@@ -271,39 +293,41 @@
   --mention-bg:      rgba(142, 192, 124, 0.12);
   --mention-border:  rgba(142, 192, 124, 0.30);
 
-  /* Per-type mention colors — derive bg/border from new accent hues. */
-  --color-type-work:        var(--blue);
-  --color-type-work-bg:     color-mix(in srgb, var(--blue) 14%, transparent);
-  --color-type-work-border: color-mix(in srgb, var(--blue) 32%, transparent);
+  /* Per-type mention colors — work+personal both Projects (emerald);
+     notes → lime; wiki → sage (matches library collection). */
+  --color-type-work:        var(--emerald);
+  --color-type-work-bg:     color-mix(in srgb, var(--color-type-work) 14%, transparent);
+  --color-type-work-border: color-mix(in srgb, var(--color-type-work) 32%, transparent);
 
-  --color-type-personal:        var(--green);
-  --color-type-personal-bg:     color-mix(in srgb, var(--green) 14%, transparent);
-  --color-type-personal-border: color-mix(in srgb, var(--green) 32%, transparent);
+  --color-type-personal:        var(--emerald);
+  --color-type-personal-bg:     color-mix(in srgb, var(--color-type-personal) 14%, transparent);
+  --color-type-personal-border: color-mix(in srgb, var(--color-type-personal) 32%, transparent);
 
-  --color-type-notes:        var(--yellow);
-  --color-type-notes-bg:     color-mix(in srgb, var(--yellow) 14%, transparent);
-  --color-type-notes-border: color-mix(in srgb, var(--yellow) 32%, transparent);
+  --color-type-notes:        var(--lime);
+  --color-type-notes-bg:     color-mix(in srgb, var(--color-type-notes) 14%, transparent);
+  --color-type-notes-border: color-mix(in srgb, var(--color-type-notes) 32%, transparent);
 
-  --color-type-wiki:        var(--purple);
-  --color-type-wiki-bg:     color-mix(in srgb, var(--purple) 14%, transparent);
-  --color-type-wiki-border: color-mix(in srgb, var(--purple) 32%, transparent);
+  --color-type-wiki:        var(--sage);
+  --color-type-wiki-bg:     color-mix(in srgb, var(--color-type-wiki) 14%, transparent);
+  --color-type-wiki-border: color-mix(in srgb, var(--color-type-wiki) 32%, transparent);
 
   --color-type-pending:        var(--fg4);
   --color-type-pending-bg:     color-mix(in srgb, var(--fg4) 10%, transparent);
   --color-type-pending-border: color-mix(in srgb, var(--fg4) 48%, transparent);
 
-  /* Vault collection accents — derive via color-mix from new hues. */
-  --color-collection-projects:        var(--blue);
+  /* Vault collection accents — green-family instead of diverse hues.
+     Aqua reserved for app identity. */
+  --color-collection-projects:        var(--emerald);
   --color-collection-projects-bg:     color-mix(in srgb, var(--color-collection-projects) 14%, transparent);
   --color-collection-projects-border: color-mix(in srgb, var(--color-collection-projects) 32%, transparent);
   --color-collection-projects-tint:   color-mix(in srgb, var(--color-collection-projects)  7%, transparent);
 
-  --color-collection-library:         var(--purple);
+  --color-collection-library:         var(--sage);
   --color-collection-library-bg:      color-mix(in srgb, var(--color-collection-library)  14%, transparent);
   --color-collection-library-border:  color-mix(in srgb, var(--color-collection-library)  32%, transparent);
   --color-collection-library-tint:    color-mix(in srgb, var(--color-collection-library)   7%, transparent);
 
-  --color-collection-notes:           var(--yellow);
+  --color-collection-notes:           var(--lime);
   --color-collection-notes-bg:        color-mix(in srgb, var(--color-collection-notes)    14%, transparent);
   --color-collection-notes-border:    color-mix(in srgb, var(--color-collection-notes)    32%, transparent);
   --color-collection-notes-tint:      color-mix(in srgb, var(--color-collection-notes)     7%, transparent);
@@ -355,6 +379,18 @@
   --orange:    #c56a18;
   --orange-dim:#9c5312;
 
+  /* Collection-family greens — darker variants hold contrast on warm
+     paper. Emerald = deep forest (cool, saturated); sage = lighter
+     warm moss-sage shifted further from emerald so Library doesn't
+     read as muddy-green-twin when drilled into; lime = muted olive-
+     gold (saturated lime would vibrate on paper). */
+  --emerald:     #3b7b45;
+  --emerald-dim: #2a5a33;
+  --sage:        #8fa674;
+  --sage-dim:    #6d825a;
+  --lime:        #6d8e30;
+  --lime-dim:    #506b1f;
+
   /* Semantic */
   --accent:         var(--aqua);
   --accent-hover:   #357057;
@@ -380,41 +416,41 @@
   --mention-bg:      color-mix(in srgb, var(--aqua) 10%, transparent);
   --mention-border:  color-mix(in srgb, var(--aqua) 32%, transparent);
 
-  /* Per-type mention colors — lower opacities on bg (light surfaces
-     get muddy fast) but slightly stronger borders for definition. */
-  --color-type-work:        var(--blue);
-  --color-type-work-bg:     color-mix(in srgb, var(--blue) 9%, transparent);
-  --color-type-work-border: color-mix(in srgb, var(--blue) 34%, transparent);
+  /* Per-type mention colors — work/personal both Projects (emerald);
+     notes → lime; wiki → sage. Lower opacities on paper. */
+  --color-type-work:        var(--emerald);
+  --color-type-work-bg:     color-mix(in srgb, var(--color-type-work) 9%, transparent);
+  --color-type-work-border: color-mix(in srgb, var(--color-type-work) 34%, transparent);
 
-  --color-type-personal:        var(--green);
-  --color-type-personal-bg:     color-mix(in srgb, var(--green) 9%, transparent);
-  --color-type-personal-border: color-mix(in srgb, var(--green) 34%, transparent);
+  --color-type-personal:        var(--emerald);
+  --color-type-personal-bg:     color-mix(in srgb, var(--color-type-personal) 9%, transparent);
+  --color-type-personal-border: color-mix(in srgb, var(--color-type-personal) 34%, transparent);
 
-  --color-type-notes:        var(--yellow);
-  --color-type-notes-bg:     color-mix(in srgb, var(--yellow) 10%, transparent);
-  --color-type-notes-border: color-mix(in srgb, var(--yellow) 38%, transparent);
+  --color-type-notes:        var(--lime);
+  --color-type-notes-bg:     color-mix(in srgb, var(--color-type-notes) 10%, transparent);
+  --color-type-notes-border: color-mix(in srgb, var(--color-type-notes) 38%, transparent);
 
-  --color-type-wiki:        var(--purple);
-  --color-type-wiki-bg:     color-mix(in srgb, var(--purple) 9%, transparent);
-  --color-type-wiki-border: color-mix(in srgb, var(--purple) 34%, transparent);
+  --color-type-wiki:        var(--sage);
+  --color-type-wiki-bg:     color-mix(in srgb, var(--color-type-wiki) 9%, transparent);
+  --color-type-wiki-border: color-mix(in srgb, var(--color-type-wiki) 34%, transparent);
 
   --color-type-pending:        var(--fg3);
   --color-type-pending-bg:     color-mix(in srgb, var(--fg3) 7%, transparent);
   --color-type-pending-border: color-mix(in srgb, var(--fg3) 40%, transparent);
 
-  /* Vault collection accents — same color-mix pattern, opacities tuned
-     for light surfaces. */
-  --color-collection-projects:        var(--blue);
+  /* Vault collection accents — green-family. Aqua reserved for app
+     identity and never used as a collection color. */
+  --color-collection-projects:        var(--emerald);
   --color-collection-projects-bg:     color-mix(in srgb, var(--color-collection-projects) 10%, transparent);
   --color-collection-projects-border: color-mix(in srgb, var(--color-collection-projects) 34%, transparent);
   --color-collection-projects-tint:   color-mix(in srgb, var(--color-collection-projects)  5%, transparent);
 
-  --color-collection-library:         var(--purple);
+  --color-collection-library:         var(--sage);
   --color-collection-library-bg:      color-mix(in srgb, var(--color-collection-library)  10%, transparent);
   --color-collection-library-border:  color-mix(in srgb, var(--color-collection-library)  34%, transparent);
   --color-collection-library-tint:    color-mix(in srgb, var(--color-collection-library)   5%, transparent);
 
-  --color-collection-notes:           var(--yellow);
+  --color-collection-notes:           var(--lime);
   --color-collection-notes-bg:        color-mix(in srgb, var(--color-collection-notes)    10%, transparent);
   --color-collection-notes-border:    color-mix(in srgb, var(--color-collection-notes)    38%, transparent);
   --color-collection-notes-tint:      color-mix(in srgb, var(--color-collection-notes)     5%, transparent);
