@@ -677,6 +677,7 @@
   padding: var(--space-lg);
   margin: var(--space-md) 0;
   overflow-x: auto;
+  font-family: var(--font-mono);
 }
 
 .res-markdown pre code {
@@ -1693,7 +1694,7 @@
   width: 100%;
   height: 100%;
   padding: var(--space-2xl) var(--space-3xl);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--font-size);
   color: var(--fg);
   line-height: 1.7;
@@ -1712,7 +1713,7 @@
 
 .inbox-tiptap {
   padding: var(--space-2xl) var(--space-3xl);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--font-size);
   color: var(--fg);
   line-height: 1.7;
@@ -1812,13 +1813,14 @@
 .inbox-tiptap a { color: var(--blue); text-decoration: none; }
 .inbox-tiptap a:hover { text-decoration: underline; }
 
-/* Code */
+/* Code — always monospace regardless of chosen font preset. */
 .inbox-tiptap code {
   background-color: var(--bg-soft);
   color: var(--green);
   border-radius: 4px;
   padding: 2px 6px;
   font-size: 0.92em;
+  font-family: var(--font-mono);
 }
 
 .inbox-tiptap pre {
@@ -1828,6 +1830,7 @@
   padding: var(--space-lg);
   margin: var(--space-md) 0;
   overflow-x: auto;
+  font-family: var(--font-mono);
 }
 
 .inbox-tiptap pre code {
@@ -2435,7 +2438,7 @@
   border-radius: var(--radius-s);
   padding: var(--space-sm) var(--space-md);
   color: var(--fg);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--font-size-base);
   outline: none;
   transition: border-color 150ms var(--ease-smooth);
@@ -2452,7 +2455,7 @@
 .hub-ambient-stats {
   color: var(--fg4);
   font-size: var(--font-size-sm);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   margin-bottom: var(--space-md);
   text-align: center;
 }
@@ -2471,7 +2474,7 @@
 
 .hub-ambient-date {
   color: var(--fg4);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--font-size-sm);
   flex-shrink: 0;
   min-width: 5ch;
@@ -2479,7 +2482,7 @@
 
 .hub-ambient-gist {
   color: var(--fg3);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--font-size-sm);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2497,7 +2500,7 @@
 .hub-results-empty {
   color: var(--fg4);
   font-size: var(--font-size-sm);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   text-align: center;
   padding: var(--space-lg) 0;
 }
@@ -2507,7 +2510,7 @@
 .hub-results-label {
   color: var(--fg3);
   font-size: var(--font-size-sm);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   padding: var(--space-sm) var(--space-sm) var(--space-xs);
@@ -2531,14 +2534,14 @@
 .hub-result-name {
   color: var(--fg2);
   font-size: var(--font-size-sm);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
 }
 .hub-result-active .hub-result-name { color: var(--aqua); }
 
 .hub-result-preview {
   color: var(--fg3);
   font-size: var(--font-size-sm);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2547,7 +2550,7 @@
 .hub-result-path {
   color: var(--fg4);
   font-size: var(--font-size-xs);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3378,7 +3381,7 @@
   flex: 1;
   font-size: var(--font-size-sm);
   color: var(--fg4);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3506,7 +3509,7 @@
 /* Reuse inbox TipTap styles */
 .vault-editor-tiptap {
   padding: var(--space-2xl) var(--space-3xl);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--font-size);
   color: var(--fg);
   line-height: 1.7;
@@ -3536,6 +3539,7 @@
   border-radius: 4px;
   padding: 2px 6px;
   font-size: 0.92em;
+  font-family: var(--font-mono);
 }
 
 .vault-editor-tiptap pre {
@@ -3545,6 +3549,7 @@
   padding: var(--space-lg);
   margin: var(--space-md) 0;
   overflow-x: auto;
+  font-family: var(--font-mono);
 }
 
 .vault-editor-tiptap pre code {
@@ -3647,7 +3652,7 @@
 .vault-editor-textarea {
   flex: 1;
   padding: var(--space-2xl) var(--space-3xl);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--font-size-sm);
   color: var(--fg1);
   background-color: var(--bg-hard);
@@ -3895,20 +3900,24 @@
   font-size: 18px;
   padding: 0;
   cursor: pointer;
+  opacity: 0.45;
   transition: color 150ms var(--ease-smooth),
               background-color 150ms var(--ease-smooth),
-              border-color 150ms var(--ease-smooth);
+              border-color 150ms var(--ease-smooth),
+              opacity 150ms var(--ease-smooth);
 }
 
 .settings-cog:hover {
   color: var(--fg1);
   background-color: var(--bg1);
+  opacity: 1;
 }
 
 .settings-cog:focus-visible {
   outline: none;
   border-color: var(--accent-muted);
   color: var(--fg1);
+  opacity: 1;
 }
 
 .settings-cog:active {
@@ -4146,3 +4155,124 @@
 
 [data-theme-preview="light"] .settings-swatch-bg       { background: #f4f1ea; }
 [data-theme-preview="light"] .settings-swatch-accent   { background: #4a9678; }
+
+/* ── Font picker ──────────────────────────────────
+   Stacked rows (not a grid) so there's room for each font to render
+   its own label in its own face — the card IS the preview. Sample
+   glyph "Aa" on the right reinforces the preview. */
+.settings-fonts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.settings-font {
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  background: transparent;
+  border: 1px solid var(--bg2);
+  border-radius: var(--radius-m);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 150ms var(--ease-smooth),
+              background-color 150ms var(--ease-smooth);
+}
+
+.settings-font:hover {
+  border-color: var(--bg3);
+  background-color: var(--bg1);
+}
+
+.settings-font:focus-visible {
+  outline: none;
+  border-color: var(--accent-muted);
+  background-color: var(--accent-subtle);
+}
+
+.settings-font-active {
+  border-color: var(--accent);
+  background-color: var(--accent-subtle);
+}
+
+.settings-font-active:hover {
+  border-color: var(--accent);
+  background-color: var(--accent-subtle);
+}
+
+/* Radio disc — hollow at rest, filled with accent when active. */
+.settings-font-radio {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid var(--fg4);
+  background: transparent;
+  transition: border-color 150ms var(--ease-smooth),
+              background-color 150ms var(--ease-smooth),
+              box-shadow 150ms var(--ease-smooth);
+}
+
+.settings-font-active .settings-font-radio {
+  border-color: var(--accent);
+  background-color: var(--accent);
+  box-shadow: inset 0 0 0 3px var(--bg-soft);
+}
+
+.settings-font-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* The label renders in its own font so the row doubles as a preview. */
+.settings-font-label {
+  font-size: var(--font-size);
+  font-weight: 600;
+  color: var(--fg);
+  line-height: 1.2;
+}
+
+.settings-font-desc {
+  font-size: var(--font-size-xs);
+  color: var(--fg3);
+  font-family: var(--font-mono);
+  line-height: 1.3;
+}
+
+/* Display-size sample glyph — shows the font's character at scale. */
+.settings-font-sample {
+  font-size: var(--font-size-2xl);
+  font-weight: 500;
+  color: var(--fg2);
+  letter-spacing: var(--letter-spacing-tight);
+  line-height: 1;
+  opacity: 0.8;
+}
+
+.settings-font-active .settings-font-sample {
+  color: var(--accent);
+  opacity: 1;
+}
+
+/* Per-preset preview fonts — independent of the app's current
+   --font-body so you see each option's face while on any preset. */
+[data-font-preview="mono"] .settings-font-label,
+[data-font-preview="mono"] .settings-font-sample {
+  font-family: var(--font-mono);
+}
+
+[data-font-preview="modern"] .settings-font-label,
+[data-font-preview="modern"] .settings-font-sample {
+  font-family: var(--font-sans);
+}
+
+[data-font-preview="editorial"] .settings-font-label {
+  font-family: var(--font-serif);
+}
+
+[data-font-preview="editorial"] .settings-font-sample {
+  font-family: var(--font-serif-display);
+}

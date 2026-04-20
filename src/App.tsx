@@ -107,7 +107,6 @@ export default function App() {
             className="settings-cog"
             onClick={() => setSettingsOpen(true)}
             aria-label="Open settings"
-            data-tooltip="Settings (Ctrl+,)"
           >
             &#x2699;
           </button>
@@ -117,15 +116,15 @@ export default function App() {
           <button
             className="window-btn window-btn-minimize"
             onClick={() => appWindow.minimize()}
-          >
-            &#x2500;
-          </button>
+            aria-label="Minimize"
+          />
+
           <button
             className="window-btn window-btn-maximize"
             onClick={() => appWindow.toggleMaximize()}
-          >
-            &#x25A1;
-          </button>
+            aria-label="Maximize"
+          />
+
           <button
             className="window-btn window-btn-close"
             onClick={() => appWindow.close()}

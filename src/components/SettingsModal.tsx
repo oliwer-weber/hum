@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { THEMES, getStoredTheme, setTheme, type ThemeId } from "../theme/theme";
+import {
+  THEMES, getStoredTheme, setTheme, type ThemeId,
+  FONTS, getStoredFont, setFont, type FontId,
+} from "../theme/theme";
 
 interface Props {
   open: boolean;
@@ -7,7 +10,8 @@ interface Props {
 }
 
 export default function SettingsModal({ open, onClose }: Props) {
-  const [current, setCurrent] = useState<ThemeId>(() => getStoredTheme());
+  const [currentTheme, setCurrentTheme] = useState<ThemeId>(() => getStoredTheme());
+  const [currentFont, setCurrentFont] = useState<FontId>(() => getStoredFont());
 
   useEffect(() => {
     if (!open) return;
@@ -22,14 +26,22 @@ export default function SettingsModal({ open, onClose }: Props) {
   }, [open, onClose]);
 
   useEffect(() => {
-    if (open) setCurrent(getStoredTheme());
+    if (open) {
+      setCurrentTheme(getStoredTheme());
+      setCurrentFont(getStoredFont());
+    }
   }, [open]);
 
   if (!open) return null;
 
-  const pick = (id: ThemeId) => {
+  const pickTheme = (id: ThemeId) => {
     setTheme(id);
-    setCurrent(id);
+    setCurrentTheme(id);
+  };
+
+  const pickFont = (id: FontId) => {
+    setFont(id);
+    setCurrentFont(id);
   };
 
   return (
@@ -79,16 +91,38 @@ export default function SettingsModal({ open, onClose }: Props) {
                 {THEMES.map((t) => (
                   <button
                     key={t.id}
-                    className={`settings-swatch ${current === t.id ? "settings-swatch-active" : ""}`}
+                    className={`settings-swatch ${currentTheme === t.id ? "settings-swatch-active" : ""}`}
                     data-theme-preview={t.id}
-                    onClick={() => pick(t.id)}
-                    aria-pressed={current === t.id}
+                    onClick={() => pickTheme(t.id)}
+                    aria-pressed={currentTheme === t.id}
                   >
                     <div className="settings-swatch-preview">
                       <span className="settings-swatch-bg" />
                       <span className="settings-swatch-accent" />
                     </div>
                     <div className="settings-swatch-label">{t.label}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="settings-group">
+              <div className="settings-group-label">Font</div>
+              <div className="settings-fonts">
+                {FONTS.map((f) => (
+                  <button
+                    key={f.id}
+                    className={`settings-font ${currentFont === f.id ? "settings-font-active" : ""}`}
+                    data-font-preview={f.id}
+                    onClick={() => pickFont(f.id)}
+                    aria-pressed={currentFont === f.id}
+                  >
+                    <span className="settings-font-radio" aria-hidden="true" />
+                    <span className="settings-font-text">
+                      <span className="settings-font-label">{f.label}</span>
+                      <span className="settings-font-desc">{f.description}</span>
+                    </span>
+                    <span className="settings-font-sample" aria-hidden="true">Aa</span>
                   </button>
                 ))}
               </div>

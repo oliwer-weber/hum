@@ -16,7 +16,7 @@ html, body, #root {
 body {
   background-color: var(--bg-hard);
   color: var(--fg);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--font-size);
   line-height: var(--line-height);
   -webkit-font-smoothing: antialiased;
@@ -130,48 +130,99 @@ body {
 .window-controls {
   display: flex;
   align-items: center;
+  gap: 2px;
+  padding: 0 var(--space-xs);
 }
 
+/* Window controls: full-height hit target, but the hover "chip" is an
+   inset pseudo-element with a matched radius so the interaction feels
+   like the rest of the app (soft rounded pills) rather than flat OS
+   squares. The button itself is transparent at rest — only the chip
+   tints on hover. */
 .window-btn {
-  width: 46px;
-  height: 34px;
+  position: relative;
+  width: 40px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: transparent;
   border: none;
-  border-radius: 0;
+  border-radius: var(--radius-s);
   color: var(--fg3);
-  font-size: 12px;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
   padding: 0;
   cursor: pointer;
-  transition: opacity 150ms var(--ease-smooth);
+  opacity: 0.6;
+  transition: color 150ms var(--ease-smooth),
+              background-color 150ms var(--ease-smooth),
+              opacity 150ms var(--ease-smooth);
 }
 
 .window-btn:hover {
-  opacity: 1;
+  color: var(--fg1);
   background-color: var(--bg1);
+  opacity: 1;
 }
 
 .window-btn:focus-visible {
-  outline: 2px solid var(--aqua-dim);
-  outline-offset: -2px;
+  outline: none;
+  background-color: var(--bg1);
+  box-shadow: 0 0 0 1px var(--accent-muted);
+  opacity: 1;
 }
 
 .window-btn:active {
-  transform: none;
+  background-color: var(--bg2);
 }
 
+/* Close button keeps the destructive red cue on hover, but uses the
+   tinted red variant instead of full --red for a softer treatment
+   that matches the rest of the app's hover language. */
 .window-btn-close:hover {
-  background-color: var(--red);
+  color: var(--red);
+  background-color: var(--tint-red-danger);
+}
+
+.window-btn-close:active {
   color: var(--fg);
+  background-color: var(--red);
+}
+
+/* Minimize + maximize glyphs are CSS-drawn with matched 1.5px stroke
+   so they read as the same weight rather than relying on the system
+   font's (inconsistent) rendering of U+2500 / U+25A1. Close stays as
+   a unicode X since it renders consistently and the diagonals would
+   be fiddly to redraw in CSS. */
+.window-btn-minimize::before {
+  content: "";
+  width: 10px;
+  height: 1.5px;
+  background: currentColor;
+  display: block;
+}
+
+.window-btn-maximize::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid currentColor;
+  border-radius: 1px;
+  display: block;
+}
+
+.window-btn-close {
+  font-size: 13px;
 }
 
 .tab {
   position: relative;
   z-index: 1;
   padding: var(--space-sm) var(--space-xl);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--font-size-sm);
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -235,7 +286,7 @@ input, textarea, [contenteditable="true"] {
 }
 
 input, textarea {
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--font-size);
   color: var(--fg);
   background-color: var(--bg1);
@@ -263,7 +314,7 @@ textarea {
 /* ── Buttons ─────────────────────────────────────── */
 
 button {
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--bg-hard);

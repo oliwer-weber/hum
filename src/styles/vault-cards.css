@@ -382,7 +382,7 @@
 }
 
 .vcard[data-variant="project"] .vcard-metric {
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--font-size-sm);
   color: var(--fg3);
 }
