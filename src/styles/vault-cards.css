@@ -520,6 +520,13 @@
   border: 1px solid var(--fg4);
   border-radius: var(--radius-l);
   width: fit-content;
+  /* Perceptual-alignment nudge: on a ~30px tall container the 14px
+     corner arcs dominate the left-edge profile, so the eye reads the
+     chip as ~4px further right than the taller cards below (whose
+     long straight edges dominate). Negative margin shifts the true
+     box-edge left by the average curve offset so the visual alignment
+     matches the cards' straight left edge. */
+  margin-left: -4px;
 }
 
 .vchips-pill {
