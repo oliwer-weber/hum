@@ -88,9 +88,41 @@ body {
               top 200ms var(--ease-bounce),
               width 200ms var(--ease-bounce),
               height 200ms var(--ease-bounce),
-              opacity 150ms var(--ease-smooth);
+              opacity 150ms var(--ease-smooth),
+              background-color 260ms var(--ease-smooth),
+              border-color 260ms var(--ease-smooth);
   pointer-events: none;
   z-index: 0;
+}
+
+/* Tab pill color morph — while the user is inside a vault collection,
+   the pill takes on the collection's tint (softer -bg/-border variants,
+   not full-saturation accent) to reinforce the "you are here" signal
+   already present in the breadcrumb, chips, cards, and FAB. Cleared on
+   tab switch or at L0 so green (the app's signature accent) stays the
+   resting color. */
+[data-vault-collection="projects"] .tab-pill {
+  background-color: var(--color-collection-projects-bg);
+  border-color: var(--color-collection-projects-border);
+}
+[data-vault-collection="projects"] .tab-active {
+  color: var(--color-collection-projects);
+}
+
+[data-vault-collection="library"] .tab-pill {
+  background-color: var(--color-collection-library-bg);
+  border-color: var(--color-collection-library-border);
+}
+[data-vault-collection="library"] .tab-active {
+  color: var(--color-collection-library);
+}
+
+[data-vault-collection="notes"] .tab-pill {
+  background-color: var(--color-collection-notes-bg);
+  border-color: var(--color-collection-notes-border);
+}
+[data-vault-collection="notes"] .tab-active {
+  color: var(--color-collection-notes);
 }
 
 /* ── Window Controls ─────────────────────────────── */

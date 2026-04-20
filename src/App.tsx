@@ -7,12 +7,14 @@ import Vault from "./components/Vault";
 import SettingsModal from "./components/SettingsModal";
 
 type Tab = "inbox" | "dashboard" | "vault" | "hum";
+type VaultCollection = "projects" | "library" | "notes" | null;
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("inbox");
   const [refreshKey, setRefreshKey] = useState(0);
   const [vaultOpenPath, setVaultOpenPath] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [vaultCollection, setVaultCollection] = useState<VaultCollection>(null);
   const appWindow = getCurrentWindow();
 
   const triggerVaultRefresh = useCallback(() => {
@@ -39,6 +41,19 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // Mirror the vault's active collection onto the root element so the
+  // tab pill's color can morph to match where the user is inside the
+  // vault. Cleared when the user is on any other tab — the pill's
+  // color is a "where am I in vault" signal, not a persistent state.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (activeTab === "vault" && vaultCollection) {
+      root.setAttribute("data-vault-collection", vaultCollection);
+    } else {
+      root.removeAttribute("data-vault-collection");
+    }
+  }, [activeTab, vaultCollection]);
 
   useEffect(() => {
     const container = tabGroupRef.current;
@@ -128,7 +143,12 @@ export default function App() {
           <Dashboard refreshKey={refreshKey} onNavigateToFile={navigateToVaultFile} />
         </div>
         <div className={`tab-panel ${activeTab === "vault" ? "tab-panel-active" : ""}`}>
-          <Vault refreshKey={refreshKey} openPath={vaultOpenPath} onOpenPathHandled={() => setVaultOpenPath(null)} />
+          <Vault
+            refreshKey={refreshKey}
+            openPath={vaultOpenPath}
+            onOpenPathHandled={() => setVaultOpenPath(null)}
+            onActiveCollectionChange={setVaultCollection}
+          />
         </div>
         <div className={`tab-panel ${activeTab === "hum" ? "tab-panel-active" : ""}`}>
           <Chat onVaultChanged={triggerVaultRefresh} />

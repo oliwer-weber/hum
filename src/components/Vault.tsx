@@ -65,6 +65,7 @@ interface VaultProps {
   refreshKey: number;
   openPath?: string | null;
   onOpenPathHandled?: () => void;
+  onActiveCollectionChange?: (collection: CollectionKey | null) => void;
 }
 
 /* ── File icons ───────────────────────────────────── */
@@ -175,7 +176,7 @@ type ModalState =
 
 /* ── Vault Component ──────────────────────────────── */
 
-export default function Vault({ refreshKey, openPath, onOpenPathHandled }: VaultProps) {
+export default function Vault({ refreshKey, openPath, onOpenPathHandled, onActiveCollectionChange }: VaultProps) {
   const [columns, setColumns] = useState<ColumnState[]>([]);
   const [openFile, setOpenFile] = useState<{ path: string; entry: VaultEntry } | null>(null);
   const [fileContent, setFileContent] = useState("");
@@ -969,6 +970,12 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
     }
     return null;
   })();
+
+  // Hoist the active collection up so App.tsx can color the tab pill to
+  // match the user's current location inside the vault.
+  useEffect(() => {
+    onActiveCollectionChange?.(activeCollection);
+  }, [activeCollection, onActiveCollectionChange]);
 
   const goToLanding = () => {
     loadDirectory("", 0);
