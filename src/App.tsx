@@ -6,11 +6,11 @@ import Inbox from "./components/Inbox";
 import Vault from "./components/Vault";
 import SettingsModal from "./components/SettingsModal";
 
-type Tab = "inbox" | "dashboard" | "vault" | "hum";
+type Tab = "write" | "focus" | "find" | "hum";
 type VaultCollection = "projects" | "library" | "notes" | null;
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<Tab>("inbox");
+  const [activeTab, setActiveTab] = useState<Tab>("write");
   const [refreshKey, setRefreshKey] = useState(0);
   const [vaultOpenPath, setVaultOpenPath] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -23,7 +23,7 @@ export default function App() {
 
   const navigateToVaultFile = useCallback((path: string) => {
     setVaultOpenPath(path);
-    setActiveTab("vault");
+    setActiveTab("find");
   }, []);
 
   // Sliding tab pill — measures the active tab and slides into place
@@ -48,14 +48,14 @@ export default function App() {
   // color is a "where am I in vault" signal, not a persistent state.
   useEffect(() => {
     const root = document.documentElement;
-    if (activeTab === "vault" && vaultCollection) {
+    if (activeTab === "find" && vaultCollection) {
       root.setAttribute("data-vault-collection", vaultCollection);
     } else {
       root.removeAttribute("data-vault-collection");
     }
   }, [activeTab, vaultCollection]);
 
-  useEffect(() => {
+  const measurePill = useCallback(() => {
     const container = tabGroupRef.current;
     if (!container) return;
     const active = container.querySelector<HTMLElement>(".tab-active");
@@ -69,7 +69,23 @@ export default function App() {
       width: activeRect.width,
       height: activeRect.height,
     });
-  }, [activeTab]);
+  }, []);
+
+  useEffect(() => {
+    measurePill();
+  }, [activeTab, measurePill]);
+
+  // Re-measure whenever any tab's size changes — catches font-preset swaps,
+  // window resizes, and any other layout shift. Without this the pill drifts
+  // when switching fonts until the user clicks a tab.
+  useEffect(() => {
+    const container = tabGroupRef.current;
+    if (!container) return;
+    const observer = new ResizeObserver(() => measurePill());
+    observer.observe(container);
+    container.querySelectorAll<HTMLElement>(".tab").forEach((tab) => observer.observe(tab));
+    return () => observer.disconnect();
+  }, [measurePill]);
 
   return (
     <div className="app">
@@ -77,22 +93,22 @@ export default function App() {
         <div className="tab-group" ref={tabGroupRef}>
           <div className="tab-pill" style={pillStyle} />
           <button
-            className={`tab ${activeTab === "inbox" ? "tab-active" : ""}`}
-            onClick={() => setActiveTab("inbox")}
+            className={`tab ${activeTab === "write" ? "tab-active" : ""}`}
+            onClick={() => setActiveTab("write")}
           >
-            Inbox
+            Write
           </button>
           <button
-            className={`tab ${activeTab === "dashboard" ? "tab-active" : ""}`}
-            onClick={() => setActiveTab("dashboard")}
+            className={`tab ${activeTab === "focus" ? "tab-active" : ""}`}
+            onClick={() => setActiveTab("focus")}
           >
-            Dashboard
+            Focus
           </button>
           <button
-            className={`tab ${activeTab === "vault" ? "tab-active" : ""}`}
-            onClick={() => setActiveTab("vault")}
+            className={`tab ${activeTab === "find" ? "tab-active" : ""}`}
+            onClick={() => setActiveTab("find")}
           >
-            Vault
+            Find
           </button>
           <button
             className={`tab ${activeTab === "hum" ? "tab-active" : ""}`}
@@ -135,13 +151,13 @@ export default function App() {
       </nav>
 
       <main className="tab-content">
-        <div className={`tab-panel ${activeTab === "inbox" ? "tab-panel-active" : ""}`}>
+        <div className={`tab-panel ${activeTab === "write" ? "tab-panel-active" : ""}`}>
           <Inbox refreshKey={refreshKey} onVaultChanged={triggerVaultRefresh} />
         </div>
-        <div className={`tab-panel ${activeTab === "dashboard" ? "tab-panel-active" : ""}`}>
+        <div className={`tab-panel ${activeTab === "focus" ? "tab-panel-active" : ""}`}>
           <Dashboard refreshKey={refreshKey} onNavigateToFile={navigateToVaultFile} />
         </div>
-        <div className={`tab-panel ${activeTab === "vault" ? "tab-panel-active" : ""}`}>
+        <div className={`tab-panel ${activeTab === "find" ? "tab-panel-active" : ""}`}>
           <Vault
             refreshKey={refreshKey}
             openPath={vaultOpenPath}

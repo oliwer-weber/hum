@@ -1771,6 +1771,7 @@
   position: absolute;
   left: 0;
   top: 0;
+  font-family: var(--font-mono);
   color: var(--accent);
   pointer-events: none;
   animation: phantom-cursor 2.4s ease-in-out infinite;

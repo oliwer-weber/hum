@@ -222,7 +222,10 @@ body {
   position: relative;
   z-index: 1;
   padding: var(--space-sm) var(--space-xl);
-  font-family: var(--font-body);
+  /* Tabs are chrome, not body copy — route through the display face so
+     Editorial gets Fraunces instead of Lora. For Mono and Modern the
+     display and body tokens resolve to the same family, so no change. */
+  font-family: var(--font-display);
   font-size: var(--font-size-sm);
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -234,6 +237,16 @@ body {
   cursor: pointer;
   transition: color 150ms var(--ease-smooth),
               transform 150ms var(--ease-smooth);
+}
+
+/* Editorial-mode tabs get a display-opsz Fraunces cut: heavier weight,
+   slightly larger size, and an optical-size axis pushed toward display so
+   the letterforms feel proud instead of hesitant. */
+[data-font="editorial"] .tab {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  font-variation-settings: "opsz" 96;
 }
 
 .tab:hover {

@@ -1036,7 +1036,7 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled, onActiv
     // top-level collection dirs (wiki → Library, etc.).
     columns.forEach((col, i) => {
       if (i === 0) {
-        segments.push({ label: "Vault", onClick: goToLanding });
+        segments.push({ label: "Find", onClick: goToLanding });
         return;
       }
       const parts = col.path.split("/");
@@ -1086,7 +1086,7 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled, onActiv
       });
     }
   } else if (isCollectionView) {
-    segments.push({ label: "Vault", onClick: goToLanding });
+    segments.push({ label: "Find", onClick: goToLanding });
     if (vaultView === "project-hub" || vaultView === "project-notes") {
       segments.push({ label: "Projects", onClick: () => goToCollection("projects") });
       const projectName = activeProjectPath.split("/").pop() || "Project";
@@ -1211,7 +1211,7 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled, onActiv
 
         {!openFile && (
           <div className="vault-editor-hero">
-            <div className="vault-editor-hero-title">Vault</div>
+            <div className="vault-editor-hero-title">Find</div>
             <div className="vault-editor-hero-hint">
               <kbd>Ctrl+P</kbd> to find a note · <kbd>Ctrl+E</kbd> to explore
             </div>
@@ -1331,7 +1331,7 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled, onActiv
           <div className="vault-explorer-panel" onClick={(e) => e.stopPropagation()}>
             <div className="vault-explorer-header">
               <span className="vault-explorer-title">Explore</span>
-              <span className="vault-explorer-path">{currentDir || "vault"}</span>
+              <span className="vault-explorer-path">{currentDir || "find"}</span>
               <button
                 className="vault-explorer-close"
                 onClick={() => setExplorerOpen(false)}

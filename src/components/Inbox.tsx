@@ -312,12 +312,31 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
     setProcessing(false);
   }, [editorReady, rawMarkdown, saveToFile]);
 
+  // ── Ctrl+Enter to process (only when Write tab is active) ──
+  const handleProcessRef = useRef(handleProcess);
+  const processingRef = useRef(processing);
+  useEffect(() => { handleProcessRef.current = handleProcess; }, [handleProcess]);
+  useEffect(() => { processingRef.current = processing; }, [processing]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key !== "Enter") return;
+      if (!document.querySelector(".tab-panel-active .inbox-canvas")) return;
+      if (processingRef.current) return;
+      e.preventDefault();
+      e.stopPropagation();
+      handleProcessRef.current();
+    };
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
+  }, []);
+
   // ── Render ────────────────────────────────────────
 
   if (rawMarkdown === null) {
     return (
       <div className="inbox-canvas">
-        <div className="inbox-loading">Loading inbox...</div>
+        <div className="inbox-loading">Loading...</div>
       </div>
     );
   }
@@ -353,7 +372,7 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
         <span className="inbox-status-left">
           {(statusRoll === "idle" || statusRoll === "rolling-out") && (
             <span className={`inbox-hint ${statusRoll === "rolling-out" ? "roll-out" : "roll-in"}`}>
-              {saving ? "Saving..." : "@project to route — edits auto-save — Ctrl+B bold, Ctrl+I italic, Ctrl+L checkbox"}
+              {saving ? "Saving..." : "@project to route — Ctrl+Enter to process — edits auto-save — Ctrl+B bold, Ctrl+I italic, Ctrl+L checkbox"}
             </span>
           )}
           {(statusRoll === "result" || statusRoll === "rolling-back") && lastResult && (
@@ -379,7 +398,7 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
             onClick={handleProcess}
             disabled={processing}
           >
-            {processing ? "Processing..." : "Process inbox"}
+            {processing ? "Processing..." : "Process"}
           </button>
         </div>
       </div>

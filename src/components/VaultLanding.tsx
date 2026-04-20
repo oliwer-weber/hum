@@ -170,12 +170,12 @@ export default function VaultLanding({ refreshKey, onOpenCollection, onOpenPath 
           <input
             className="vsearch-input"
             type="text"
-            placeholder="Search the vault…"
+            placeholder="Search your notes…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onFocus={() => { if (results.length > 0) setShowResults(true); }}
             onKeyDown={handleKeyDown}
-            aria-label="Search the vault"
+            aria-label="Search your notes"
           />
           <span className="vsearch-kbd">↵</span>
         </div>

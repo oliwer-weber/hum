@@ -269,10 +269,23 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
   const [draftFocus, setDraftFocus] = useState<string[]>([]);
   const [snoozeMenuFor, setSnoozeMenuFor] = useState<string | null>(null);
 
-  async function loadGravity() {
+  // When `preserveOrder` is true, the fresh backend data is re-sorted to match
+  // the previous visual order. Used after in-place interactions (ticking a
+  // todo) so the list doesn't shuffle under the user's cursor. External
+  // refreshes (mount, refreshKey) call with the default — the order resets
+  // naturally next time the user returns to the tab.
+  async function loadGravity(preserveOrder = false) {
     try {
       const data = await invoke<ProjectGravity[]>("get_project_gravity");
-      setProjects(data);
+      setProjects((prev) => {
+        if (!preserveOrder || prev.length === 0) return data;
+        const prevOrder = new Map(prev.map((p, i) => [p.path, i]));
+        return [...data].sort((a, b) => {
+          const ai = prevOrder.get(a.path) ?? Infinity;
+          const bi = prevOrder.get(b.path) ?? Infinity;
+          return ai - bi;
+        });
+      });
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -419,12 +432,10 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
         todoText: todo.text,
         checked: true,
       });
-      // Reload full gravity data so rankings recalculate
-      loadGravity();
+      loadGravity(true);
     } catch (err) {
       console.error("Failed to toggle todo:", err);
-      // Revert on error
-      loadGravity();
+      loadGravity(true);
     }
   }, []);
 
