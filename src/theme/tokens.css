@@ -328,12 +328,13 @@
   --bg3:       #b5b0a2;
   --bg4:       #8a8478;
 
-  /* Foreground — warm off-black ramping to warm mid grey. --fg is
-     deliberately not pure near-black (~13:1 reads too stark on paper);
-     landing on ~9:1 is more comfortable for extended reading. */
-  --fg:        #3a3530;
-  --fg1:       #4a443e;
-  --fg2:       #5d564e;
+  /* Foreground — warm dark-brown ramping to warm mid grey. --fg sits
+     around ~8:1 on --bg — plenty for AAA on body, not so heavy that
+     large display text (hero titles, card titles) feels hammer-struck.
+     Lower levels (--fg3/--fg4) stay put to preserve the muted step. */
+  --fg:        #4a433b;
+  --fg1:       #5a5349;
+  --fg2:       #6a6258;
   --fg3:       #6e685f;
   --fg4:       #8e877c;
 
@@ -343,8 +344,8 @@
   --red-dim:   #9c3a30;
   --green:     #5c8a2a;
   --green-dim: #486c20;
-  --yellow:    #a07218;
-  --yellow-dim:#7a571b;
+  --yellow:    #c18401;
+  --yellow-dim:#9a6700;
   --blue:      #3d7a96;
   --blue-dim:  #2e6078;
   --purple:    #9d4a78;

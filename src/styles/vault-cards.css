@@ -192,18 +192,32 @@
   overflow: hidden;
 }
 
-/* Accent top bar — full-saturation strip matching the L0 icon colors.
-   Height grows subtly on hover to echo the card's lift.
-   Folder-shape cards reorient this into a left stripe further below. */
+/* Accent pill — floats inside the card frame, detached from the top
+   edge with a small breathing margin and rounded into a pill shape so
+   the ends read as designed terminals rather than cut-off rectangles.
+   Hover extends it horizontally toward the card edges (the card is
+   "opening up"). Vertical gradient mixes toward --shadow-rgb for
+   subtle theme-aware depth — darkens to black on dark themes, warm
+   grey on the light theme. Folder-shape cards reorient this into a
+   left stripe further below. */
 .vcard::before {
   content: "";
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: var(--vcard-accent);
-  transition: height 180ms var(--ease-smooth),
+  top: var(--space-sm);
+  left: var(--radius-l);
+  right: var(--radius-l);
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to bottom,
+    var(--vcard-accent),
+    color-mix(in srgb, var(--vcard-accent) 82%, rgb(var(--shadow-rgb)))
+  );
+  transition: left 220ms var(--ease-smooth),
+              right 220ms var(--ease-smooth),
+              top 220ms var(--ease-smooth),
+              bottom 220ms var(--ease-smooth),
+              height 180ms var(--ease-smooth),
               width 180ms var(--ease-smooth);
   pointer-events: none;
 }
@@ -215,7 +229,8 @@
 }
 
 .vcard:hover::before {
-  height: 4px;
+  left: var(--space-sm);
+  right: var(--space-sm);
 }
 
 .vcard:focus-visible {
@@ -257,11 +272,12 @@
 }
 
 .vcard[data-variant="hero"]::before {
-  height: 4px;
+  height: 5px;
 }
 
 .vcard[data-variant="hero"]:hover::before {
-  height: 6px;
+  left: var(--space-sm);
+  right: var(--space-sm);
 }
 
 .vcard[data-variant="hero"] .vcard-icon {
@@ -581,7 +597,7 @@
   min-width: 48px;
   height: 48px;
   padding: 0 var(--space-md);
-  border-radius: 24px;
+  border-radius: var(--radius-l);
   background: var(--bg-hard);
   color: var(--vfab-accent, var(--accent));
   border: 1px solid var(--vfab-accent-border, var(--fg4));
@@ -781,16 +797,25 @@
 }
 
 .vcard[data-variant="content"][data-shape="folder"]::before {
-  top: 0;
-  bottom: 0;
-  left: 0;
+  top: var(--radius-l);
+  bottom: var(--radius-l);
+  left: var(--space-sm);
   right: auto;
-  width: 5px;
+  width: 4px;
   height: auto;
+  /* Rotate the depth gradient 90° — on a vertical stripe the shadow
+     should fall toward the card interior, not down the stripe. */
+  background: linear-gradient(
+    to right,
+    var(--vcard-accent),
+    color-mix(in srgb, var(--vcard-accent) 82%, rgb(var(--shadow-rgb)))
+  );
 }
 
 .vcard[data-variant="content"][data-shape="folder"]:hover::before {
-  width: 7px;
+  top: var(--space-sm);
+  bottom: var(--space-sm);
+  width: 4px;
   height: auto;
 }
 

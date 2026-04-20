@@ -2040,7 +2040,7 @@
   background: var(--bg2);
   color: var(--fg2);
   border: 1px solid var(--bg3);
-  border-radius: var(--radius-m);
+  border-radius: var(--radius-s);
   cursor: pointer;
   transition: background 150ms var(--ease-smooth), color 150ms var(--ease-smooth);
   flex-shrink: 0;
