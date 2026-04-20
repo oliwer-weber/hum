@@ -61,15 +61,19 @@
   --error:          var(--red);
 
   /* Typography */
-  --font-mono:  "JetBrainsMono Nerd Font", "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
+  --font-mono:    "JetBrainsMono Nerd Font", "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
+  --font-body:    var(--font-mono);
+  --font-display: var(--font-mono); /* themes can override with a serif/display face */
   --font-size:  14px;
   --font-size-sm: 12px;
   --font-size-xs: 11px;
   --font-size-lg: 16px;
   --font-size-xl: 20px;
   --font-size-2xl: 28px;
+  --font-size-3xl: 36px;
   --line-height: 1.5;
   --line-height-tight: 1.3;
+  --letter-spacing-tight: -0.02em;
 
   /* Spacing — 4px base unit */
   --space-xs:   4px;
@@ -132,6 +136,25 @@
   --color-type-pending:        var(--fg4);
   --color-type-pending-bg:     rgba(146, 131, 116, 0.08);
   --color-type-pending-border: rgba(146, 131, 116, 0.45);
+
+  /* ─── Vault collection accents ─────────────────────────────
+     Drive per-collection UI tinting (landing cards, breadcrumb pill,
+     FAB, chips). Themes typically only need to override the base
+     color — bg/border/tint derive via color-mix. */
+  --color-collection-projects:        var(--blue);
+  --color-collection-projects-bg:     color-mix(in srgb, var(--color-collection-projects) 12%, transparent);
+  --color-collection-projects-border: color-mix(in srgb, var(--color-collection-projects) 30%, transparent);
+  --color-collection-projects-tint:   color-mix(in srgb, var(--color-collection-projects)  6%, transparent);
+
+  --color-collection-library:         var(--purple);
+  --color-collection-library-bg:      color-mix(in srgb, var(--color-collection-library)  12%, transparent);
+  --color-collection-library-border:  color-mix(in srgb, var(--color-collection-library)  30%, transparent);
+  --color-collection-library-tint:    color-mix(in srgb, var(--color-collection-library)   6%, transparent);
+
+  --color-collection-notes:           var(--yellow);
+  --color-collection-notes-bg:        color-mix(in srgb, var(--color-collection-notes)    12%, transparent);
+  --color-collection-notes-border:    color-mix(in srgb, var(--color-collection-notes)    30%, transparent);
+  --color-collection-notes-tint:      color-mix(in srgb, var(--color-collection-notes)     6%, transparent);
 
   /* Scrollbar */
   --scrollbar-width: 6px;

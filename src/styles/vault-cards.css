@@ -1,0 +1,1085 @@
+/* ═══════════════════════════════════════════════════════════════════
+ * Vault Cards — landing, collection views, card primitive
+ *
+ * All styles are token-driven. Per-collection theming is applied via
+ * the [data-collection] attribute on cards or containers. Themes can
+ * override the --color-collection-* tokens to re-theme the whole vault.
+ *
+ * Layering:
+ *   vlanding-shell    → base page surface (uses --bg)
+ *   .vcard            → elevated card (uses --bg-soft + border)
+ *   .vcard[variant=pivot] → pseudo-floating (uses --bg-hard)
+ *
+ * Animation: only transform + opacity. No transition-all.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Landing shell ───────────────────────────────────────────── */
+.vlanding-shell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-3xl) var(--space-2xl) var(--space-2xl);
+  gap: var(--space-2xl);
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+.vlanding-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  max-width: 720px;
+}
+
+.vlanding-title {
+  font-family: var(--font-display);
+  font-size: var(--font-size-3xl);
+  letter-spacing: var(--letter-spacing-tight);
+  color: var(--fg);
+  line-height: var(--line-height-tight);
+  margin: 0;
+}
+
+.vlanding-tagline {
+  font-family: var(--font-body);
+  font-size: var(--font-size);
+  color: var(--fg3);
+  line-height: var(--line-height);
+  margin: 0;
+}
+
+/* ── Search bar (inline, collection-scoped) ──────────────────── */
+.vsearch {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 560px;
+  background: var(--bg-soft);
+  border: 1px solid var(--fg4);
+  border-radius: var(--radius-l);
+  padding: var(--space-sm) var(--space-md);
+  gap: var(--space-sm);
+  transition: border-color 150ms var(--ease-smooth),
+              transform 150ms var(--ease-smooth);
+}
+
+.vsearch:focus-within {
+  border-color: var(--vsearch-accent, var(--accent));
+  transform: translateY(-1px);
+}
+
+.vsearch-icon {
+  color: var(--fg3);
+  font-size: var(--font-size-lg);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.vsearch-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: var(--font-body);
+  font-size: var(--font-size);
+  color: var(--fg);
+  padding: 0;
+  min-width: 0;
+}
+
+.vsearch-input::placeholder {
+  color: var(--fg4);
+}
+
+.vsearch-kbd {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--fg4);
+  background: var(--bg-hard);
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-s);
+  border: 1px solid var(--fg4);
+  user-select: none;
+  flex-shrink: 0;
+}
+
+/* Collection-scoped search accent — picks up the parent collection */
+[data-collection="projects"] .vsearch { --vsearch-accent: var(--color-collection-projects); }
+[data-collection="library"]  .vsearch { --vsearch-accent: var(--color-collection-library); }
+[data-collection="notes"]    .vsearch { --vsearch-accent: var(--color-collection-notes); }
+
+/* ── Grid containers ─────────────────────────────────────────── */
+.vgrid-hero {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--space-xl);
+  width: 100%;
+}
+
+.vgrid-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-auto-rows: 120px;
+  gap: var(--space-xl);
+  width: 100%;
+}
+
+.vgrid-pivot {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-xl);
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+@media (max-width: 900px) {
+  .vgrid-hero,
+  .vgrid-content {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .vgrid-hero,
+  .vgrid-content,
+  .vgrid-pivot {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Card primitive — .vcard
+ *
+ * Collection theming via [data-collection]. Variants via [data-variant].
+ * Local CSS vars (--vcard-accent, --vcard-accent-bg, --vcard-accent-border)
+ * are inherited down so children don't need to repeat attribute selectors.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.vcard {
+  /* Locals — default to neutral. Overridden by [data-collection]. */
+  --vcard-accent:        var(--fg3);
+  --vcard-accent-bg:     var(--bg-soft);
+  --vcard-accent-border: var(--fg4);
+  --vcard-accent-tint:   transparent;
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  background: var(--bg-soft);
+  border: 1px solid var(--fg3);
+  border-radius: var(--radius-l);
+  padding: var(--space-lg);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-body);
+  color: var(--fg);
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  /* Layered depth: border does the separation work at rest */
+  box-shadow: none;
+  transition: transform 180ms var(--ease-smooth),
+              opacity 180ms var(--ease-smooth),
+              border-color 180ms var(--ease-smooth),
+              box-shadow 180ms var(--ease-smooth);
+  will-change: transform;
+  overflow: hidden;
+}
+
+/* Accent top bar — full-saturation strip matching the L0 icon colors.
+   Height grows subtly on hover to echo the card's lift.
+   Folder-shape cards reorient this into a left stripe further below. */
+.vcard::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--vcard-accent);
+  transition: height 180ms var(--ease-smooth),
+              width 180ms var(--ease-smooth);
+  pointer-events: none;
+}
+
+.vcard:hover {
+  transform: translateY(-2px);
+  border-color: var(--vcard-accent-border);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 8px 24px -8px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.vcard:hover::before {
+  height: 4px;
+}
+
+.vcard:focus-visible {
+  outline: 2px solid var(--vcard-accent);
+  outline-offset: 2px;
+}
+
+.vcard:active {
+  transform: translateY(0);
+}
+
+/* Collection accent application */
+.vcard[data-collection="projects"] {
+  --vcard-accent:        var(--color-collection-projects);
+  --vcard-accent-bg:     var(--color-collection-projects-bg);
+  --vcard-accent-border: var(--color-collection-projects-border);
+  --vcard-accent-tint:   var(--color-collection-projects-tint);
+}
+
+.vcard[data-collection="library"] {
+  --vcard-accent:        var(--color-collection-library);
+  --vcard-accent-bg:     var(--color-collection-library-bg);
+  --vcard-accent-border: var(--color-collection-library-border);
+  --vcard-accent-tint:   var(--color-collection-library-tint);
+}
+
+.vcard[data-collection="notes"] {
+  --vcard-accent:        var(--color-collection-notes);
+  --vcard-accent-bg:     var(--color-collection-notes-bg);
+  --vcard-accent-border: var(--color-collection-notes-border);
+  --vcard-accent-tint:   var(--color-collection-notes-tint);
+}
+
+/* ── Variant: hero (L0 landing) ──────────────────────────────── */
+.vcard[data-variant="hero"] {
+  min-height: 220px;
+  padding: var(--space-xl);
+  gap: var(--space-lg);
+}
+
+.vcard[data-variant="hero"]::before {
+  height: 4px;
+}
+
+.vcard[data-variant="hero"]:hover::before {
+  height: 6px;
+}
+
+.vcard[data-variant="hero"] .vcard-icon {
+  font-size: 44px;
+  color: var(--vcard-accent);
+  line-height: 1;
+  user-select: none;
+}
+
+.vcard[data-variant="hero"] .vcard-title {
+  font-family: var(--font-display);
+  font-size: var(--font-size-2xl);
+  letter-spacing: var(--letter-spacing-tight);
+  color: var(--fg);
+  line-height: var(--line-height-tight);
+  margin: 0;
+}
+
+.vcard[data-variant="hero"] .vcard-subtitle {
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  color: var(--fg3);
+  margin: 0;
+}
+
+.vcard[data-variant="hero"] .vcard-recent-strip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin-top: auto;
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--fg4);
+  opacity: 0.85;
+  /* Reserve space for exactly 2 rows so the divider aligns across cards
+     regardless of how many recent items each collection has.
+     = 2 lines × 18px + 1 gap × 4px + padding-top 12px = 52px */
+  min-height: 52px;
+  box-sizing: border-box;
+}
+
+.vcard[data-variant="hero"] .vcard-recent-item {
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  color: var(--fg2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vcard[data-variant="hero"] .vcard-recent-empty {
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  color: var(--fg4);
+  font-style: italic;
+}
+
+/* ── Variant: content (note/wiki/project list item) ──────────── */
+/* Fixed height keeps rows aligned across the grid regardless of
+   title length — 2-line titles clip with ellipsis, shorter titles
+   center vertically inside the card. */
+.vcard[data-variant="content"] {
+  justify-content: center;
+  padding: var(--space-md) var(--space-lg);
+  gap: var(--space-xs);
+}
+
+.vcard[data-variant="content"] .vcard-title {
+  font-family: var(--font-body);
+  font-size: var(--font-size);
+  font-weight: 600;
+  color: var(--fg);
+  line-height: var(--line-height-tight);
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.vcard[data-variant="content"] .vcard-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-family: var(--font-body);
+  font-size: var(--font-size-xs);
+  color: var(--fg4);
+}
+
+/* ── Variant: project (metric line) ──────────────────────────── */
+.vcard[data-variant="project"] {
+  min-height: 130px;
+}
+
+.vcard[data-variant="project"] .vcard-title {
+  font-family: var(--font-body);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--fg);
+  line-height: var(--line-height-tight);
+  margin: 0;
+}
+
+.vcard[data-variant="project"] .vcard-metric {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--fg3);
+}
+
+.vcard[data-variant="project"] .vcard-metric-warn {
+  color: var(--orange-dim);
+}
+
+/* ── Variant: pivot (Project Hub / Library folder) ───────────── */
+/* Pivots are architectural, not content — centered, inverted surface,
+   larger, no accent top-border (uses inner glow instead). */
+.vcard[data-variant="pivot"] {
+  background: var(--bg-hard);
+  border-color: var(--fg4);
+  min-height: 200px;
+  padding: var(--space-2xl);
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: var(--space-md);
+}
+
+.vcard[data-variant="pivot"]::before {
+  display: none; /* no top bar on pivots */
+}
+
+.vcard[data-variant="pivot"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px var(--vcard-accent-border);
+  opacity: 0;
+  transition: opacity 180ms var(--ease-smooth);
+}
+
+.vcard[data-variant="pivot"]:hover::after {
+  opacity: 1;
+}
+
+.vcard[data-variant="pivot"] .vcard-icon {
+  font-size: 40px;
+  color: var(--vcard-accent);
+  line-height: 1;
+}
+
+.vcard[data-variant="pivot"] .vcard-title {
+  font-family: var(--font-display);
+  font-size: var(--font-size-xl);
+  letter-spacing: var(--letter-spacing-tight);
+  color: var(--fg);
+  margin: 0;
+}
+
+.vcard[data-variant="pivot"] .vcard-meta {
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  color: var(--fg3);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Collection view shell (L1: Notes / Library / Projects)
+ *
+ * Wrapper is a non-scrolling positioned container so the FAB stays
+ * pinned to the bottom-right regardless of inner scroll offset.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.vcolview-wrapper {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.vcolview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+  padding: var(--space-2xl) var(--space-2xl) var(--space-3xl);
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  box-sizing: border-box;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.vcolview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+
+.vcolview-header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  flex-wrap: wrap;
+}
+
+.vcolview-count {
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  color: var(--fg4);
+}
+
+.vcolview-empty {
+  font-family: var(--font-body);
+  font-size: var(--font-size);
+  color: var(--fg4);
+  font-style: italic;
+  padding: var(--space-3xl) var(--space-2xl);
+  text-align: center;
+  border: 1px dashed var(--fg4);
+  border-radius: var(--radius-l);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Chips — segmented control with sliding pill
+ * Reuses the signature sliding-pill motion from tab bar / breadcrumb.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.vchips {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: var(--bg-soft);
+  border: 1px solid var(--fg4);
+  border-radius: var(--radius-l);
+  width: fit-content;
+}
+
+.vchips-pill {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  background: var(--vchips-accent-bg, var(--accent-subtle));
+  border: 1px solid var(--vchips-accent-border, var(--accent-muted));
+  border-radius: calc(var(--radius-l) - 4px);
+  transition: transform 200ms var(--ease-bounce),
+              width 200ms var(--ease-bounce),
+              opacity 150ms var(--ease-smooth);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.vchip {
+  position: relative;
+  z-index: 1;
+  background: transparent;
+  border: none;
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--fg3);
+  padding: var(--space-xs) var(--space-md);
+  cursor: pointer;
+  border-radius: calc(var(--radius-l) - 4px);
+  transition: color 150ms var(--ease-smooth),
+              transform 150ms var(--ease-smooth);
+}
+
+.vchip:hover {
+  color: var(--fg);
+}
+
+.vchip:focus-visible {
+  outline: 2px solid var(--vchips-accent, var(--accent));
+  outline-offset: 2px;
+}
+
+.vchip:active {
+  transform: scale(0.97);
+}
+
+.vchip[aria-pressed="true"] {
+  color: var(--fg);
+}
+
+/* Collection-scoped accent wiring */
+[data-collection="projects"] .vchips {
+  --vchips-accent:        var(--color-collection-projects);
+  --vchips-accent-bg:     var(--color-collection-projects-bg);
+  --vchips-accent-border: var(--color-collection-projects-border);
+}
+[data-collection="library"] .vchips {
+  --vchips-accent:        var(--color-collection-library);
+  --vchips-accent-bg:     var(--color-collection-library-bg);
+  --vchips-accent-border: var(--color-collection-library-border);
+}
+[data-collection="notes"] .vchips {
+  --vchips-accent:        var(--color-collection-notes);
+  --vchips-accent-bg:     var(--color-collection-notes-bg);
+  --vchips-accent-border: var(--color-collection-notes-border);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * FAB — floating action button for context-aware creation
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.vfab {
+  position: absolute;
+  bottom: var(--space-2xl);
+  right: var(--space-2xl);
+  min-width: 48px;
+  height: 48px;
+  padding: 0 var(--space-md);
+  border-radius: 24px;
+  background: var(--bg-hard);
+  color: var(--vfab-accent, var(--accent));
+  border: 1px solid var(--vfab-accent-border, var(--fg4));
+  font-family: var(--font-body);
+  font-size: var(--font-size);
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.4),
+    0 8px 20px -4px rgba(0, 0, 0, 0.5);
+  transition: transform 180ms var(--ease-smooth),
+              border-color 180ms var(--ease-smooth),
+              box-shadow 180ms var(--ease-smooth);
+  z-index: 10;
+}
+
+.vfab-icon {
+  font-size: 22px;
+  line-height: 1;
+  user-select: none;
+}
+
+.vfab:hover {
+  transform: translateY(-2px);
+  border-color: var(--vfab-accent, var(--accent));
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.4),
+    0 12px 28px -4px rgba(0, 0, 0, 0.55);
+}
+
+.vfab:focus-visible {
+  outline: 2px solid var(--vfab-accent, var(--accent));
+  outline-offset: 3px;
+}
+
+.vfab:active {
+  transform: translateY(0);
+}
+
+[data-collection="projects"] .vfab {
+  --vfab-accent:        var(--color-collection-projects);
+  --vfab-accent-border: var(--color-collection-projects-border);
+}
+[data-collection="library"] .vfab {
+  --vfab-accent:        var(--color-collection-library);
+  --vfab-accent-border: var(--color-collection-library-border);
+}
+[data-collection="notes"] .vfab {
+  --vfab-accent:        var(--color-collection-notes);
+  --vfab-accent-border: var(--color-collection-notes-border);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Per-collection breadcrumb pill tinting
+ * ═══════════════════════════════════════════════════════════════════ */
+
+[data-collection="projects"] .vault-breadcrumb-pill {
+  background: var(--color-collection-projects-bg);
+  border: 1px solid var(--color-collection-projects-border);
+}
+[data-collection="library"] .vault-breadcrumb-pill {
+  background: var(--color-collection-library-bg);
+  border: 1px solid var(--color-collection-library-border);
+}
+[data-collection="notes"] .vault-breadcrumb-pill {
+  background: var(--color-collection-notes-bg);
+  border: 1px solid var(--color-collection-notes-border);
+}
+
+/* Active breadcrumb segment text picks up the collection accent so it
+   reads as part of the tinted pill instead of clashing with it. */
+[data-collection="projects"] .vault-breadcrumb-active {
+  color: var(--color-collection-projects);
+}
+[data-collection="library"] .vault-breadcrumb-active {
+  color: var(--color-collection-library);
+}
+[data-collection="notes"] .vault-breadcrumb-active {
+  color: var(--color-collection-notes);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Card ⋯ menu button (appears on card hover)
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.vcard-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.vcard-menu-btn {
+  position: absolute;
+  top: var(--space-sm);
+  right: var(--space-sm);
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-s);
+  background: var(--bg-hard);
+  border: 1px solid var(--fg4);
+  color: var(--fg2);
+  font-family: var(--font-body);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 150ms var(--ease-smooth),
+              transform 150ms var(--ease-smooth),
+              border-color 150ms var(--ease-smooth);
+  z-index: 5;
+}
+
+.vcard-wrapper:hover .vcard-menu-btn,
+.vcard-menu-btn:focus-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.vcard-menu-btn:hover {
+  border-color: var(--fg3);
+  color: var(--fg);
+}
+
+.vcard-menu-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Popover */
+.vcard-menu-popover {
+  position: absolute;
+  top: calc(var(--space-sm) + 32px);
+  right: var(--space-sm);
+  min-width: 140px;
+  background: var(--bg-hard);
+  border: 1px solid var(--fg4);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-floating);
+  padding: var(--space-xs);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vcard-menu-item {
+  background: transparent;
+  border: none;
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  color: var(--fg);
+  text-align: left;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  transition: background 120ms var(--ease-smooth),
+              color 120ms var(--ease-smooth);
+}
+
+.vcard-menu-item:hover {
+  background: var(--bg);
+}
+
+.vcard-menu-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.vcard-menu-item-danger {
+  color: var(--red);
+}
+
+.vcard-menu-item-danger:hover {
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Folder card — Library subfolders (content variant, reshaped)
+ *
+ * Folders are differentiated from files by orientation of the accent:
+ *   file  → horizontal top bar
+ *   folder → full-height left stripe
+ * Combined with a darker surface and a chevron on the right, folders
+ * read unmistakably as "drill into me" rather than "open me".
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.vcard[data-variant="content"][data-shape="folder"] {
+  background: var(--bg-hard);
+  padding-left: calc(var(--space-lg) + 8px);
+  padding-right: var(--space-2xl);
+}
+
+.vcard[data-variant="content"][data-shape="folder"]::before {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: auto;
+  width: 5px;
+  height: auto;
+}
+
+.vcard[data-variant="content"][data-shape="folder"]:hover::before {
+  width: 7px;
+  height: auto;
+}
+
+.vcard[data-variant="content"][data-shape="folder"]::after {
+  content: "›";
+  position: absolute;
+  top: 50%;
+  right: var(--space-md);
+  transform: translateY(-50%);
+  font-size: var(--font-size-xl);
+  color: var(--vcard-accent);
+  opacity: 0.55;
+  font-family: var(--font-body);
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Level transitions — directional slide+fade on view mount
+ *
+ * Forward  = drilling deeper (landing→collection, collection→hub, etc.)
+ * Backward = moving out via breadcrumb
+ * Editor   = slides up from below on entry, slides back down on exit
+ *
+ * Each view root declares its own entry keyframe, gated by a data-dir
+ * attribute on an ancestor (.vault-container). The attribute is set
+ * synchronously when a navigation helper fires, *before* the view mounts,
+ * so the CSS rule is in place the first time the browser paints the
+ * new element. Editor exit is driven by data-exiting on .vault-editor
+ * so the element stays mounted through its outbound animation.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+@keyframes view-forward-in {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes view-backward-in {
+  from { opacity: 0; transform: translateY(-14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes editor-in {
+  from { opacity: 0; transform: translateY(32px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes editor-out {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(32px); }
+}
+
+/* Forward — default direction: everything entering fades up from below. */
+.vlanding-shell,
+.vcolview-wrapper {
+  animation: view-forward-in 320ms var(--ease-smooth) both;
+}
+
+.vault-editor {
+  animation: editor-in 360ms var(--ease-smooth) both;
+}
+
+/* Backward — when the container is flagged, views enter from above instead. */
+[data-nav-dir="backward"] > .vlanding-shell,
+[data-nav-dir="backward"] > .vcolview-wrapper {
+  animation: view-backward-in 320ms var(--ease-smooth) both;
+}
+
+.vault-editor[data-exiting="true"] {
+  animation: editor-out 240ms var(--ease-smooth) both;
+  pointer-events: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Entry animation — staggered fade-in for grid children
+ *
+ * Runs once on mount; new cards added later animate individually.
+ * Capped at 6 staggered slots — items beyond share the final delay.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+@keyframes vcard-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.vgrid-hero > *,
+.vgrid-content > *,
+.vgrid-pivot > * {
+  animation: vcard-enter 220ms var(--ease-smooth) both;
+}
+
+.vgrid-hero > *:nth-child(1),
+.vgrid-content > *:nth-child(1),
+.vgrid-pivot > *:nth-child(1) { animation-delay: 0ms; }
+
+.vgrid-hero > *:nth-child(2),
+.vgrid-content > *:nth-child(2),
+.vgrid-pivot > *:nth-child(2) { animation-delay: 50ms; }
+
+.vgrid-hero > *:nth-child(3),
+.vgrid-content > *:nth-child(3),
+.vgrid-pivot > *:nth-child(3) { animation-delay: 100ms; }
+
+.vgrid-hero > *:nth-child(4),
+.vgrid-content > *:nth-child(4),
+.vgrid-pivot > *:nth-child(4) { animation-delay: 150ms; }
+
+.vgrid-hero > *:nth-child(5),
+.vgrid-content > *:nth-child(5),
+.vgrid-pivot > *:nth-child(5) { animation-delay: 200ms; }
+
+.vgrid-hero > *:nth-child(n+6),
+.vgrid-content > *:nth-child(n+6),
+.vgrid-pivot > *:nth-child(n+6) { animation-delay: 250ms; }
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Search — L0 grouped results dropdown + L1 inline filter input
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.vsearch-container {
+  position: relative;
+  width: 100%;
+  max-width: 560px;
+}
+
+.vsearch-container > .vsearch {
+  max-width: none;
+}
+
+.vsearch-results {
+  position: absolute;
+  top: calc(100% + var(--space-sm));
+  left: 0;
+  right: 0;
+  max-height: 400px;
+  overflow-y: auto;
+  background: var(--bg-hard);
+  border: 1px solid var(--fg4);
+  border-radius: var(--radius-l);
+  box-shadow:
+    0 4px 8px rgba(0, 0, 0, 0.4),
+    0 16px 32px -8px rgba(0, 0, 0, 0.5);
+  z-index: 30;
+  padding: var(--space-xs);
+  animation: vcard-enter 180ms var(--ease-smooth) both;
+}
+
+.vsearch-group {
+  padding: var(--space-xs) 0;
+}
+
+.vsearch-group + .vsearch-group {
+  border-top: 1px solid var(--bg1);
+  margin-top: var(--space-xs);
+  padding-top: var(--space-sm);
+}
+
+.vsearch-group-label {
+  padding: 2px var(--space-md);
+  font-family: var(--font-body);
+  font-size: var(--font-size-xs);
+  color: var(--fg4);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: var(--space-xs);
+}
+
+.vsearch-group[data-collection="projects"] .vsearch-group-label { color: var(--color-collection-projects); }
+.vsearch-group[data-collection="library"]  .vsearch-group-label { color: var(--color-collection-library); }
+.vsearch-group[data-collection="notes"]    .vsearch-group-label { color: var(--color-collection-notes); }
+
+.vsearch-result {
+  display: block;
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-s);
+  text-align: left;
+  font-family: var(--font-body);
+  font-size: var(--font-size);
+  color: var(--fg);
+  cursor: pointer;
+  transition: background 120ms var(--ease-smooth),
+              transform 120ms var(--ease-smooth);
+}
+
+.vsearch-result:hover {
+  background: var(--bg);
+}
+
+.vsearch-result[data-active="true"] {
+  background: var(--bg);
+}
+
+.vsearch-result:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.vsearch-result-name {
+  display: block;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vsearch-result-path {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--fg4);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vsearch-no-results {
+  padding: var(--space-md);
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  color: var(--fg4);
+  text-align: center;
+  font-style: italic;
+}
+
+/* Compact inline filter input used inside L1 views */
+.vfilter {
+  display: flex;
+  align-items: center;
+  background: var(--bg-soft);
+  border: 1px solid var(--fg4);
+  border-radius: var(--radius-m);
+  padding: var(--space-xs) var(--space-sm);
+  gap: var(--space-sm);
+  min-width: 200px;
+  transition: border-color 150ms var(--ease-smooth);
+}
+
+.vfilter:focus-within {
+  border-color: var(--vchips-accent, var(--accent));
+}
+
+.vfilter-icon {
+  color: var(--fg4);
+  font-size: var(--font-size);
+  user-select: none;
+}
+
+.vfilter-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  color: var(--fg);
+  min-width: 0;
+}
+
+.vfilter-input::placeholder { color: var(--fg4); }
+
+.vfilter-clear {
+  background: transparent;
+  border: none;
+  color: var(--fg4);
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  padding: 0 var(--space-xs);
+  opacity: 0;
+  transition: opacity 150ms var(--ease-smooth), color 150ms var(--ease-smooth);
+}
+
+.vfilter-input:not(:placeholder-shown) ~ .vfilter-clear {
+  opacity: 1;
+}
+
+.vfilter-clear:hover { color: var(--fg); }
+
+/* Reduced-motion guard intentionally omitted — animations play at full
+   duration regardless of the OS setting. Revisit before shipping to
+   multiple users so accessibility preferences are respected. */

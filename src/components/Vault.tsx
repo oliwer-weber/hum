@@ -6,7 +6,46 @@ import { createSharedExtensions } from "./editor-config";
 import { WikiLink, WikiEmbed, convertTextToWikiLinks } from "./wikilink";
 import type { VaultFileInfo } from "./wikilink";
 import { HashTag } from "./hashtag";
-import { VaultRail, type RailMode, type RecentEntry, buildPreview } from "./VaultRail";
+import VaultLanding, { type CollectionKey } from "./VaultLanding";
+import NotesView from "./NotesView";
+import LibraryView from "./LibraryView";
+import ProjectsView from "./ProjectsView";
+import ProjectHub from "./ProjectHub";
+import ProjectNotesView from "./ProjectNotesView";
+
+type VaultView =
+  | "landing"
+  | CollectionKey
+  | "project-hub"
+  | "project-notes"
+  | "editor";
+
+const COLLECTION_PATHS: Record<CollectionKey, string> = {
+  projects: "projects",
+  library: "wiki",
+  notes: "notes",
+};
+
+const COLLECTION_LABELS: Record<CollectionKey, string> = {
+  projects: "Projects",
+  library: "Library",
+  notes: "Notes",
+};
+
+// Folder name on disk → display label in the breadcrumb.
+// The vault still stores under "wiki/" but the UI reads "Library".
+const DIR_DISPLAY_LABELS: Record<string, string> = {
+  wiki: "Library",
+  notes: "Notes",
+  projects: "Projects",
+};
+
+function collectionForPath(firstSegment: string | undefined): CollectionKey | null {
+  if (firstSegment === "wiki") return "library";
+  if (firstSegment === "notes") return "notes";
+  if (firstSegment === "projects") return "projects";
+  return null;
+}
 
 /* ── Types ────────────────────────────────────────── */
 
@@ -156,8 +195,9 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
   // Context menu state
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string; entry: VaultEntry; colIndex: number } | null>(null);
 
-  // Move modal state
-  const [moveSource, setMoveSource] = useState<{ path: string; name: string } | null>(null);
+  // Move modal state — optional onDone fires after a successful move so card
+  // views can refresh their local entries without coupling to columns.
+  const [moveSource, setMoveSource] = useState<{ path: string; name: string; onDone?: () => void } | null>(null);
   const [moveBrowsePath, setMoveBrowsePath] = useState("");
   const [moveBrowseEntries, setMoveBrowseEntries] = useState<VaultEntry[]>([]);
   const [moveError, setMoveError] = useState("");
@@ -188,24 +228,57 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
   const breadcrumbRef = useRef<HTMLDivElement>(null);
   const [pillStyle, setPillStyle] = useState<React.CSSProperties>({ opacity: 0 });
 
-  // Backlinks state
-  const [backlinks, setBacklinks] = useState<Array<{ path: string; name: string; line_number: number; line_content: string }>>([]);
-
   // Explorer overlay (summoned miller grid)
   const [explorerOpen, setExplorerOpen] = useState(false);
 
-  // Rail state
-  const [railMode, setRailMode] = useState<RailMode>("trails");
-  const [recents, setRecents] = useState<RecentEntry[]>(() => {
-    try {
-      const raw = localStorage.getItem("vault-recents");
-      if (!raw) return [];
-      const parsed = JSON.parse(raw) as RecentEntry[];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
+  // View state — drives the new card-based navigation.
+  // 'landing' = L0 cards, 'editor' = file open, collection keys = L1 views.
+  const [vaultView, setVaultView] = useState<VaultView>("landing");
+
+  // Library sub-path for drilling into wiki subfolders (e.g. "Linux").
+  // Kept here so the main breadcrumb can reflect the drill depth.
+  const [libSubPath, setLibSubPath] = useState<string>("");
+
+  // Active project path when in project-hub or project-notes view
+  // (e.g. "projects/work/billsta"). Cleared on return to landing.
+  const [activeProjectPath, setActiveProjectPath] = useState<string>("");
+
+  // Level-transition state. `navDir` flips to "backward" on breadcrumb
+  // clicks so the entering view animates from above instead of below.
+  // `editorExiting` keeps the editor mounted while its outbound animation
+  // runs; the navigation action only fires after the slide-down completes.
+  const [navDir, setNavDir] = useState<"forward" | "backward">("forward");
+  const [editorExiting, setEditorExiting] = useState(false);
+
+  // Unified navigation wrapper: sets the nav direction synchronously so the
+  // target view mounts with data-nav-dir already on the container, then runs
+  // the action. Backward navigations leaving the editor defer the action
+  // until the editor's slide-down animation finishes.
+  const navigate = useCallback((dir: "forward" | "backward", action: () => void) => {
+    if (editorExiting) return;
+    setNavDir(dir);
+    if (dir === "backward" && vaultView === "editor") {
+      setEditorExiting(true);
+      window.setTimeout(() => {
+        setEditorExiting(false);
+        action();
+      }, 240);
+    } else {
+      action();
     }
-  });
+  }, [vaultView, editorExiting]);
+
+  // Reset any transient overlays/modes on view change so navigation doesn't
+  // leave a search panel / find bar / explorer stuck from a previous view.
+  useEffect(() => {
+    setSearchMode(null);
+    setSearchQuery("");
+    setFindOpen(false);
+    setShowReplace(false);
+    setExplorerOpen(false);
+    setShowCreateMenu(false);
+    setCtxMenu(null);
+  }, [vaultView]);
 
   // Vault file index
   const vaultFilesRef = useRef<VaultFileInfo[]>([]);
@@ -225,14 +298,19 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
     []
   );
 
-  // Push a file into the rail's Trails mode
-  const pushRecent = useCallback((entry: RecentEntry) => {
-    setRecents((prev) => {
-      const filtered = prev.filter((r) => r.path !== entry.path);
-      const next = [entry, ...filtered].slice(0, 30);
-      try { localStorage.setItem("vault-recents", JSON.stringify(next)); } catch { /* quota */ }
-      return next;
-    });
+  // Append to the recents list in localStorage — powers the landing's recent
+  // items strip. Kept as a fire-and-forget write; no React state needed.
+  const pushRecent = useCallback((path: string, name: string) => {
+    try {
+      const raw = localStorage.getItem("vault-recents");
+      const prev: Array<{ path: string; name: string; openedAt: number }> =
+        raw ? (JSON.parse(raw) ?? []) : [];
+      const filtered = Array.isArray(prev) ? prev.filter((r) => r.path !== path) : [];
+      const next = [{ path, name, openedAt: Date.now() }, ...filtered].slice(0, 30);
+      localStorage.setItem("vault-recents", JSON.stringify(next));
+    } catch {
+      /* quota or bad JSON — safe to ignore */
+    }
   }, []);
 
   const openFileInEditor = useCallback(
@@ -252,12 +330,8 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
         if (editorRef.current && entry.extension === "md") {
           loadIntoEditor(editorRef.current, body);
         }
-        pushRecent({
-          path,
-          name: entry.name,
-          openedAt: Date.now(),
-          preview: buildPreview(body),
-        });
+        pushRecent(path, entry.name);
+        setVaultView("editor");
       } catch (err) {
         console.error("Failed to open file:", err);
       }
@@ -368,18 +442,6 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
     navigateToPath(openPath).then(() => onOpenPathHandled?.());
   }, [openPath, navigateToPath, onOpenPathHandled]);
 
-  // Fetch backlinks when a markdown file is opened
-  useEffect(() => {
-    if (!openFile || openFile.entry.extension !== "md") {
-      setBacklinks([]);
-      return;
-    }
-    const stem = openFile.entry.name.replace(/\.md$/, "");
-    invoke<Array<{ path: string; name: string; line_number: number; line_content: string }>>(
-      "vault_get_backlinks", { targetStem: stem }
-    ).then(setBacklinks).catch(() => setBacklinks([]));
-  }, [openFile]);
-
   // Load a directory into a specific column index
   const loadDirectory = useCallback(async (path: string, colIndex: number) => {
     try {
@@ -423,8 +485,9 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
         } catch {
           setImageUrl(null);
         }
-        pushRecent({ path: entryPath, name: entry.name, openedAt: Date.now() });
+        pushRecent(entryPath, entry.name);
         setExplorerOpen(false);
+        setVaultView("editor");
       } else if (isEditableFile(entry)) {
         await openFileInEditor(entryPath, entry);
         setExplorerOpen(false);
@@ -513,9 +576,10 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
     }
   }, [columns, loadDirectory]);
 
-  // Open the move modal
-  const openMoveModal = useCallback(async (path: string, name: string) => {
-    setMoveSource({ path, name });
+  // Open the move modal. Optional onDone fires after a successful move so
+  // callers (e.g. card views) can refresh their local entries.
+  const openMoveModal = useCallback(async (path: string, name: string, onDone?: () => void) => {
+    setMoveSource({ path, name, onDone });
     setMoveBrowsePath("");
     setMoveError("");
     try {
@@ -555,6 +619,7 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
         setOpenFile(null);
         setImageUrl(null);
       }
+      moveSource.onDone?.();
     } catch (err) {
       setMoveError(err instanceof Error ? err.message : String(err));
     }
@@ -617,15 +682,6 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
           setExplorerOpen((v) => !v);
           return;
         }
-      }
-      // Ctrl+1/2/3 — switch rail mode (ignored when typing in input)
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
-        const target = e.target as HTMLElement | null;
-        const inField = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
-        if (inField) return;
-        if (e.key === "1") { e.preventDefault(); setRailMode("trails"); return; }
-        if (e.key === "2") { e.preventDefault(); setRailMode("links"); return; }
-        if (e.key === "3") { e.preventDefault(); setRailMode("query"); return; }
       }
     };
     document.addEventListener("keydown", handleKeyDown);
@@ -803,6 +859,17 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
     vaultStemsRef.current = new Set(files.map((f) => f.stem));
   }, [columns, loadDirectory]);
 
+  // Vault-index refresh for card views (which don't have a column to reload).
+  const refreshVaultIndex = useCallback(async () => {
+    try {
+      const files = await invoke<VaultFileInfo[]>("vault_all_files");
+      vaultFilesRef.current = files;
+      vaultStemsRef.current = new Set(files.map((f) => f.stem));
+    } catch {
+      /* best-effort */
+    }
+  }, []);
+
   // Get the directory path for the rightmost column
   const currentDir = columns.length > 0 ? columns[columns.length - 1].path : "";
   const currentColIndex = columns.length - 1;
@@ -876,36 +943,206 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
       width: activeRect.width,
       height: activeRect.height,
     });
-  }, [columns.length, columns[columns.length - 1]?.path]);
+  }, [columns.length, columns[columns.length - 1]?.path, vaultView]);
 
-  const breadcrumb = columns.map((col, i) => {
-    if (i === 0) return "vault";
-    const parts = col.path.split("/");
-    return parts[parts.length - 1];
-  });
+  const isCollectionView =
+    vaultView === "notes" ||
+    vaultView === "library" ||
+    vaultView === "projects" ||
+    vaultView === "project-hub" ||
+    vaultView === "project-notes";
+
+  // Which collection is currently "active" — drives data-collection on the
+  // container so breadcrumb pill, chips, and FAB pick up the right accent.
+  const activeCollection: CollectionKey | null = (() => {
+    if (vaultView === "notes") return "notes";
+    if (vaultView === "library") return "library";
+    if (
+      vaultView === "projects" ||
+      vaultView === "project-hub" ||
+      vaultView === "project-notes"
+    ) {
+      return "projects";
+    }
+    if (vaultView === "editor" && columns.length > 1) {
+      return collectionForPath(columns[1]?.path.split("/")[0]);
+    }
+    return null;
+  })();
+
+  const goToLanding = () => {
+    loadDirectory("", 0);
+    setVaultView("landing");
+    setLibSubPath("");
+    setActiveProjectPath("");
+    setOpenFile(null);
+    setImageUrl(null);
+  };
+
+  const goToCollection = (key: CollectionKey, subPath: string = "") => {
+    setVaultView(key);
+    setLibSubPath(key === "library" ? subPath : "");
+    const p = subPath ? `${COLLECTION_PATHS[key]}/${subPath}` : COLLECTION_PATHS[key];
+    loadDirectory(p, 0);
+    setOpenFile(null);
+    setImageUrl(null);
+  };
+
+  const goToProjectHub = (projectPath: string) => {
+    setVaultView("project-hub");
+    setActiveProjectPath(projectPath);
+    setOpenFile(null);
+    setImageUrl(null);
+    loadDirectory(projectPath, 0);
+  };
+
+  const goToProjectNotes = (projectPath: string) => {
+    setVaultView("project-notes");
+    setActiveProjectPath(projectPath);
+    setOpenFile(null);
+    setImageUrl(null);
+    loadDirectory(`${projectPath}/notes`, 0);
+  };
+
+  const openProjectTodos = async (projectPath: string) => {
+    const todosPath = `${projectPath}/todos.md`;
+    try {
+      // Ensure the file exists — older projects may not have one.
+      try {
+        await invoke<string>("vault_read_file", { relativePath: todosPath });
+      } catch {
+        await invoke("vault_create_file", { relativePath: todosPath, content: "" });
+        refreshVaultIndex();
+      }
+      await navigateToPath(todosPath);
+    } catch (err) {
+      console.error("open todos failed:", err);
+    }
+  };
+
+  // Build breadcrumb segments based on the current view.
+  type BreadcrumbSegment = { label: string; active?: boolean; onClick?: () => void };
+  const segments: BreadcrumbSegment[] = [];
+
+  if (vaultView === "editor" && columns.length > 0) {
+    // Columns-derived breadcrumb for editor view, with display-label swap for
+    // top-level collection dirs (wiki → Library, etc.).
+    columns.forEach((col, i) => {
+      if (i === 0) {
+        segments.push({ label: "Vault", onClick: goToLanding });
+        return;
+      }
+      const parts = col.path.split("/");
+      const topSeg = parts[0];
+      const rawName = parts[parts.length - 1];
+      const collection = collectionForPath(topSeg);
+      const label = i === 1 && DIR_DISPLAY_LABELS[topSeg] ? DIR_DISPLAY_LABELS[topSeg] : rawName;
+
+      let onClick: (() => void) | undefined;
+      if (collection === "library") {
+        const sub = parts.slice(1).join("/");
+        onClick = () => goToCollection("library", sub);
+      } else if (collection === "projects") {
+        // projects hierarchy: [0]=projects, [1]=scope, [2]=project-name, [3]=notes
+        if (i === 1 || i === 2) {
+          onClick = () => goToCollection("projects");
+        } else if (i === 3) {
+          onClick = () => goToProjectHub(col.path);
+        } else if (i === 4 && parts[3] === "notes") {
+          const projPath = parts.slice(0, 3).join("/");
+          onClick = () => goToProjectNotes(projPath);
+        } else {
+          onClick = () => {
+            loadDirectory(col.path, i);
+            setOpenFile(null);
+          };
+        }
+      } else if (collection && i === 1) {
+        onClick = () => goToCollection(collection);
+      } else {
+        onClick = () => {
+          loadDirectory(col.path, i);
+          setOpenFile(null);
+        };
+      }
+
+      segments.push({
+        label,
+        active: i === columns.length - 1 && !openFile,
+        onClick,
+      });
+    });
+    if (openFile) {
+      segments.push({
+        label: openFile.entry.name.replace(/\.md$/i, ""),
+        active: true,
+      });
+    }
+  } else if (isCollectionView) {
+    segments.push({ label: "Vault", onClick: goToLanding });
+    if (vaultView === "project-hub" || vaultView === "project-notes") {
+      segments.push({ label: "Projects", onClick: () => goToCollection("projects") });
+      const projectName = activeProjectPath.split("/").pop() || "Project";
+      if (vaultView === "project-hub") {
+        segments.push({ label: projectName, active: true });
+      } else {
+        segments.push({
+          label: projectName,
+          onClick: () => goToProjectHub(activeProjectPath),
+        });
+        segments.push({ label: "Notes", active: true });
+      }
+    } else {
+      const key = vaultView as CollectionKey;
+      const drilled = key === "library" && !!libSubPath;
+      segments.push({
+        label: COLLECTION_LABELS[key],
+        active: !drilled,
+        onClick: drilled ? () => goToCollection(key, "") : undefined,
+      });
+      if (drilled) {
+        const parts = libSubPath.split("/");
+        parts.forEach((part, i) => {
+          const isLast = i === parts.length - 1;
+          const target = parts.slice(0, i + 1).join("/");
+          segments.push({
+            label: part,
+            active: isLast,
+            onClick: isLast ? undefined : () => setLibSubPath(target),
+          });
+        });
+      }
+    }
+  }
 
   return (
-    <div className="vault-container">
+    <div
+      className="vault-container"
+      data-collection={activeCollection ?? undefined}
+      data-nav-dir={navDir}
+    >
+      {vaultView === "landing" ? (
+        <VaultLanding
+          refreshKey={refreshKey}
+          onOpenCollection={(key) => navigate("forward", () => {
+            setVaultView(key);
+            loadDirectory(COLLECTION_PATHS[key], 0);
+          })}
+          onOpenPath={(p) => navigate("forward", () => navigateToPath(p))}
+        />
+      ) : (
+        <>
       {/* Unified nav bar — spans full width */}
       <div className="vault-breadcrumb" ref={breadcrumbRef}>
         <div className="vault-breadcrumb-pill" style={pillStyle} />
-        {breadcrumb.map((part, i) => (
+        {segments.map((seg, i) => (
           <span key={i}>
             {i > 0 && <span className="vault-breadcrumb-sep">/</span>}
             <span
-              className={`vault-breadcrumb-part ${i === breadcrumb.length - 1 ? "vault-breadcrumb-active" : ""}`}
-              onClick={() => {
-                if (i === 0) {
-                  loadDirectory("", 0);
-                  setOpenFile(null);
-                } else {
-                  const targetPath = columns[i].path;
-                  loadDirectory(targetPath, i);
-                  setOpenFile(null);
-                }
-              }}
+              className={`vault-breadcrumb-part ${seg.active ? "vault-breadcrumb-active" : ""}`}
+              onClick={seg.onClick ? () => navigate("backward", seg.onClick!) : undefined}
             >
-              {part}
+              {seg.label}
             </span>
           </span>
         ))}
@@ -921,62 +1158,57 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
         </div>
       </div>
 
-      {/* Content area — rail + editor */}
-      <div className="vault-content">
-
-      {/* Rail — Trails / Links / Query */}
-      <VaultRail
-        mode={railMode}
-        onModeChange={setRailMode}
-        currentPath={openFile?.path ?? null}
-        currentFolder={currentDir}
-        recents={recents}
-        backlinks={backlinks}
-        onOpenFile={(path) => navigateToPath(path)}
-      />
-
-      {/* Editor pane */}
-      <div className="vault-editor">
+      {vaultView === "notes" ? (
+        <NotesView
+          refreshKey={refreshKey}
+          onOpenPath={(p) => navigate("forward", () => navigateToPath(p))}
+          onRequestMove={(path, name, onDone) => openMoveModal(path, name, onDone)}
+          onVaultChanged={refreshVaultIndex}
+        />
+      ) : vaultView === "library" ? (
+        <LibraryView
+          refreshKey={refreshKey}
+          subPath={libSubPath}
+          onSubPathChange={(p) => navigate("forward", () => setLibSubPath(p))}
+          onOpenPath={(p) => navigate("forward", () => navigateToPath(p))}
+          onRequestMove={(path, name, onDone) => openMoveModal(path, name, onDone)}
+          onVaultChanged={refreshVaultIndex}
+        />
+      ) : vaultView === "projects" ? (
+        <ProjectsView
+          refreshKey={refreshKey}
+          onOpenProject={(p) => navigate("forward", () => goToProjectHub(p))}
+          onRequestMove={(path, name, onDone) => openMoveModal(path, name, onDone)}
+          onVaultChanged={refreshVaultIndex}
+        />
+      ) : vaultView === "project-hub" ? (
+        <ProjectHub
+          refreshKey={refreshKey}
+          projectPath={activeProjectPath}
+          onOpenNotes={() => navigate("forward", () => goToProjectNotes(activeProjectPath))}
+          onOpenTodos={() => navigate("forward", () => openProjectTodos(activeProjectPath))}
+        />
+      ) : vaultView === "project-notes" ? (
+        <ProjectNotesView
+          refreshKey={refreshKey}
+          projectPath={activeProjectPath}
+          onOpenPath={(p) => navigate("forward", () => navigateToPath(p))}
+          onRequestMove={(path, name, onDone) => openMoveModal(path, name, onDone)}
+          onVaultChanged={refreshVaultIndex}
+        />
+      ) : (
+      <div
+        className="vault-editor"
+        data-exiting={editorExiting ? "true" : undefined}
+      >
 
         {!openFile && (
-          columns.length > 1 ? (
-            <div className="vault-editor-landing">
-              <div className="vault-editor-landing-title">
-                {breadcrumb[breadcrumb.length - 1]}
-              </div>
-              <div className="vault-editor-landing-meta">
-                {(() => {
-                  const tail = columns[columns.length - 1]?.entries ?? [];
-                  const notes = tail.filter((e) => !e.is_dir).length;
-                  const folders = tail.filter((e) => e.is_dir).length;
-                  return `${notes} note${notes !== 1 ? "s" : ""} · ${folders} folder${folders !== 1 ? "s" : ""}`;
-                })()}
-              </div>
-              <div className="vault-editor-landing-hint">
-                Pick a recent from Trails, search with Query, or press <kbd>Ctrl+E</kbd> to explore.
-              </div>
+          <div className="vault-editor-hero">
+            <div className="vault-editor-hero-title">Vault</div>
+            <div className="vault-editor-hero-hint">
+              <kbd>Ctrl+P</kbd> to find a note · <kbd>Ctrl+E</kbd> to explore
             </div>
-          ) : (
-            <div className="vault-editor-hero">
-              <div className="vault-editor-hero-title">Vault</div>
-              <div className="vault-editor-hero-hint">
-                <kbd>Ctrl+P</kbd> to find a note · <kbd>Ctrl+E</kbd> to explore
-              </div>
-              {recents.length > 0 && (
-                <div className="vault-editor-hero-recents">
-                  {recents.slice(0, 5).map((r) => (
-                    <button
-                      key={r.path}
-                      className="vault-editor-hero-recent"
-                      onClick={() => navigateToPath(r.path)}
-                    >
-                      {r.name.replace(/\.[^/.]+$/, "")}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )
+          </div>
         )}
 
         {openFile && imageUrl && (
@@ -1055,8 +1287,9 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled }: Vault
           </div>
         )}
       </div>
-
-      </div>{/* close vault-content */}
+      )}
+        </>
+      )}
 
       {/* ── Create dropdown (fixed, escapes overflow) ── */}
       {showCreateMenu && createBtnRef.current && (() => {
