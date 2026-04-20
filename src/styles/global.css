@@ -198,6 +198,10 @@ body {
 
 /* ── Shared input styles ─────────────────────────── */
 
+input, textarea, [contenteditable="true"] {
+  caret-color: var(--fg);
+}
+
 input, textarea {
   font-family: var(--font-mono);
   font-size: var(--font-size);
@@ -217,7 +221,7 @@ input:hover, textarea:hover {
 
 input:focus-visible, textarea:focus-visible {
   border-color: var(--aqua-dim);
-  box-shadow: 0 0 0 2px rgba(142, 192, 124, 0.15);
+  box-shadow: 0 0 0 2px var(--accent-muted);
 }
 
 textarea {

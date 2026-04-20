@@ -4,6 +4,7 @@ import Chat from "./components/Chat";
 import Dashboard from "./components/Dashboard";
 import Inbox from "./components/Inbox";
 import Vault from "./components/Vault";
+import SettingsModal from "./components/SettingsModal";
 
 type Tab = "inbox" | "dashboard" | "vault" | "hum";
 
@@ -11,6 +12,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("inbox");
   const [refreshKey, setRefreshKey] = useState(0);
   const [vaultOpenPath, setVaultOpenPath] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const appWindow = getCurrentWindow();
 
   const triggerVaultRefresh = useCallback(() => {
@@ -25,6 +27,18 @@ export default function App() {
   // Sliding tab pill — measures the active tab and slides into place
   const tabGroupRef = useRef<HTMLDivElement>(null);
   const [pillStyle, setPillStyle] = useState<React.CSSProperties>({ opacity: 0 });
+
+  // Cmd/Ctrl+, opens settings (standard "preferences" shortcut)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault();
+        setSettingsOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     const container = tabGroupRef.current;
@@ -73,6 +87,17 @@ export default function App() {
           </button>
         </div>
 
+        <div className="tab-bar-trailing">
+          <button
+            className="settings-cog"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Open settings"
+            data-tooltip="Settings (Ctrl+,)"
+          >
+            &#x2699;
+          </button>
+        </div>
+
         <div className="window-controls">
           <button
             className="window-btn window-btn-minimize"
@@ -109,6 +134,8 @@ export default function App() {
           <Chat onVaultChanged={triggerVaultRefresh} />
         </div>
       </main>
+
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }

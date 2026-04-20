@@ -90,16 +90,69 @@
   --radius-l:   14px;
   --radius-xl:  18px;
 
-  /* Layered shadows — tinted with bg-hard */
+  /* Shadow system — all shadows mix from --shadow-rgb so themes can
+     re-tint elevation holistically (e.g. light themes softer/warmer). */
+  --shadow-rgb:          0, 0, 0;
+  --inset-highlight-rgb: 255, 255, 255;
+
   --shadow-card:
-    0 1px 2px rgba(29, 32, 33, 0.3),
-    0 4px 8px rgba(29, 32, 33, 0.2);
+    0 1px 2px rgba(var(--shadow-rgb), 0.3),
+    0 4px 8px rgba(var(--shadow-rgb), 0.2);
   --shadow-elevated:
-    0 2px 4px rgba(29, 32, 33, 0.3),
-    0 8px 24px rgba(29, 32, 33, 0.25);
+    0 2px 4px rgba(var(--shadow-rgb), 0.3),
+    0 8px 24px rgba(var(--shadow-rgb), 0.25);
   --shadow-floating:
-    0 4px 8px rgba(29, 32, 33, 0.3),
-    0 16px 48px rgba(29, 32, 33, 0.3);
+    0 4px 8px rgba(var(--shadow-rgb), 0.3),
+    0 16px 48px rgba(var(--shadow-rgb), 0.3);
+
+  /* Menu/modal/popover — softer than the card stack */
+  --shadow-menu:
+    0 4px 6px rgba(var(--shadow-rgb), 0.15),
+    0 10px 15px rgba(var(--shadow-rgb), 0.1);
+  --shadow-popover:
+    0 2px 4px rgba(var(--shadow-rgb), 0.12),
+    0 8px 16px rgba(var(--shadow-rgb), 0.08);
+  --shadow-suggest:
+    0 2px 4px rgba(var(--shadow-rgb), 0.12),
+    0 8px 16px rgba(var(--shadow-rgb), 0.18),
+    0 20px 40px rgba(var(--shadow-rgb), 0.22);
+  --shadow-suggest-simple: 0 4px 16px rgba(var(--shadow-rgb), 0.4);
+  --shadow-tooltip:
+    0 2px 4px rgba(var(--shadow-rgb), 0.18),
+    0 4px 10px rgba(var(--shadow-rgb), 0.1);
+
+  /* Card hover + FAB — stronger, deeper shadow */
+  --shadow-card-hover:
+    0 1px 2px rgba(var(--shadow-rgb), 0.4),
+    0 8px 24px -8px rgba(var(--shadow-rgb), 0.5);
+  --shadow-fab:
+    0 1px 3px rgba(var(--shadow-rgb), 0.4),
+    0 8px 20px -4px rgba(var(--shadow-rgb), 0.5);
+  --shadow-fab-hover:
+    0 2px 6px rgba(var(--shadow-rgb), 0.4),
+    0 12px 28px -4px rgba(var(--shadow-rgb), 0.55);
+  --shadow-search-results:
+    0 4px 8px rgba(var(--shadow-rgb), 0.4),
+    0 16px 32px -8px rgba(var(--shadow-rgb), 0.5);
+
+  /* Raised-card top highlight (inset) */
+  --inset-highlight: inset 0 1px 0 rgba(var(--inset-highlight-rgb), 0.03);
+
+  /* Modal / search backdrop overlays */
+  --overlay-modal:   rgba(var(--shadow-rgb), 0.5);
+  --overlay-search:  rgba(var(--shadow-rgb), 0.4);
+
+  /* Semantic tint backgrounds — derive from accent/red/yellow/orange/green
+     via color-mix so they track theme overrides automatically. */
+  --tint-green-subtle:   color-mix(in srgb, var(--green)  6%, transparent);
+  --tint-green-border:   color-mix(in srgb, var(--green) 10%, transparent);
+  --tint-red-subtle:     color-mix(in srgb, var(--red)    6%, transparent);
+  --tint-red-tag:        color-mix(in srgb, var(--red)    8%, transparent);
+  --tint-red-danger:     color-mix(in srgb, var(--red-dim) 10%, transparent);
+  --tint-yellow-tag:     color-mix(in srgb, var(--yellow) 8%, transparent);
+  --tint-yellow-mark:    color-mix(in srgb, var(--yellow) 25%, transparent);
+  --tint-orange-tag:     color-mix(in srgb, var(--orange) 8%, transparent);
+  --tint-aqua-tag:       color-mix(in srgb, var(--aqua)  10%, transparent);
 
   /* Easing */
   --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
@@ -158,4 +211,223 @@
 
   /* Scrollbar */
   --scrollbar-width: 6px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Theme: dark
+ * Neutral professional charcoal. Desaturated slate surfaces, cool
+ * off-white foreground. Aqua-green accent preserved unchanged so the
+ * brand identity carries across themes. No warm/olive undertones.
+ * ═══════════════════════════════════════════════════════════════════ */
+[data-theme="dark"] {
+  /* Surfaces — deepest to floating. Cool, neutral charcoal ramp. */
+  --bg-hard:   #17181a;
+  --bg:        #1f2124;
+  --bg-soft:   #26282c;
+  --bg1:       #2d3035;
+  --bg2:       #3a3e44;
+  --bg3:       #4d525a;
+  --bg4:       #6b7078;
+
+  /* Foreground — cool off-white, no cream. */
+  --fg:        #e4e6eb;
+  --fg1:       #ccd0d6;
+  --fg2:       #b0b5bc;
+  --fg3:       #8d929a;
+  --fg4:       #6a6f78;
+
+  /* Accents — restrained, same perceptual weight as aqua. */
+  --red:       #e06c75;
+  --red-dim:   #c04c57;
+  --green:     #98c379;
+  --green-dim: #7aa35c;
+  --yellow:    #e5c07b;
+  --yellow-dim:#c9a35a;
+  --blue:      #7aa2cc;
+  --blue-dim:  #5a82ab;
+  --purple:    #c080b8;
+  --purple-dim:#a06498;
+  --aqua:      #8ec07c; /* unchanged — brand anchor */
+  --aqua-dim:  #6ea066;
+  --orange:    #e39b5d;
+  --orange-dim:#c27a3d;
+
+  /* Semantic */
+  --accent:         var(--aqua);
+  --accent-hover:   #a9d4a0;
+  --accent-subtle:  rgba(142, 192, 124, 0.08);
+  --accent-muted:   rgba(142, 192, 124, 0.15);
+  --link:           var(--blue);
+  --success:        var(--green);
+  --warning:        var(--yellow);
+  --error:          var(--red);
+
+  /* Shadow — pure black reads fine on cool charcoal. */
+  --shadow-rgb:          0, 0, 0;
+  --inset-highlight-rgb: 255, 255, 255;
+
+  /* Mention pills — default fallback matches aqua accent. */
+  --mention-fg:      var(--aqua);
+  --mention-bg:      rgba(142, 192, 124, 0.12);
+  --mention-border:  rgba(142, 192, 124, 0.30);
+
+  /* Per-type mention colors — derive bg/border from new accent hues. */
+  --color-type-work:        var(--blue);
+  --color-type-work-bg:     color-mix(in srgb, var(--blue) 14%, transparent);
+  --color-type-work-border: color-mix(in srgb, var(--blue) 32%, transparent);
+
+  --color-type-personal:        var(--green);
+  --color-type-personal-bg:     color-mix(in srgb, var(--green) 14%, transparent);
+  --color-type-personal-border: color-mix(in srgb, var(--green) 32%, transparent);
+
+  --color-type-notes:        var(--yellow);
+  --color-type-notes-bg:     color-mix(in srgb, var(--yellow) 14%, transparent);
+  --color-type-notes-border: color-mix(in srgb, var(--yellow) 32%, transparent);
+
+  --color-type-wiki:        var(--purple);
+  --color-type-wiki-bg:     color-mix(in srgb, var(--purple) 14%, transparent);
+  --color-type-wiki-border: color-mix(in srgb, var(--purple) 32%, transparent);
+
+  --color-type-pending:        var(--fg4);
+  --color-type-pending-bg:     color-mix(in srgb, var(--fg4) 10%, transparent);
+  --color-type-pending-border: color-mix(in srgb, var(--fg4) 48%, transparent);
+
+  /* Vault collection accents — derive via color-mix from new hues. */
+  --color-collection-projects:        var(--blue);
+  --color-collection-projects-bg:     color-mix(in srgb, var(--color-collection-projects) 14%, transparent);
+  --color-collection-projects-border: color-mix(in srgb, var(--color-collection-projects) 32%, transparent);
+  --color-collection-projects-tint:   color-mix(in srgb, var(--color-collection-projects)  7%, transparent);
+
+  --color-collection-library:         var(--purple);
+  --color-collection-library-bg:      color-mix(in srgb, var(--color-collection-library)  14%, transparent);
+  --color-collection-library-border:  color-mix(in srgb, var(--color-collection-library)  32%, transparent);
+  --color-collection-library-tint:    color-mix(in srgb, var(--color-collection-library)   7%, transparent);
+
+  --color-collection-notes:           var(--yellow);
+  --color-collection-notes-bg:        color-mix(in srgb, var(--color-collection-notes)    14%, transparent);
+  --color-collection-notes-border:    color-mix(in srgb, var(--color-collection-notes)    32%, transparent);
+  --color-collection-notes-tint:      color-mix(in srgb, var(--color-collection-notes)     7%, transparent);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Theme: light
+ * Warm paper-white. Soft notebook feel, not clinical. Aqua accent
+ * shifted darker (#4a9678) to hold contrast on light surfaces while
+ * remaining in the same aqua-green family. Shadows are warm dark-grey
+ * at reduced opacity so elevation reads as soft, not heavy.
+ * ═══════════════════════════════════════════════════════════════════ */
+[data-theme="light"] {
+  /* Surfaces — for light, hard = slightly recessed/deeper warm paper,
+     bg = paper base, soft = floating (brightest). bg1-4 ramp into
+     warmer greys for borders & muted chrome. */
+  --bg-hard:   #ebe7dd;
+  --bg:        #f4f1ea;
+  --bg-soft:   #fbf9f4;
+  --bg1:       #e2ded3;
+  --bg2:       #d0ccc0;
+  --bg3:       #b5b0a2;
+  --bg4:       #8a8478;
+
+  /* Foreground — warm off-black ramping to warm mid grey. --fg is
+     deliberately not pure near-black (~13:1 reads too stark on paper);
+     landing on ~9:1 is more comfortable for extended reading. */
+  --fg:        #3a3530;
+  --fg1:       #4a443e;
+  --fg2:       #5d564e;
+  --fg3:       #6e685f;
+  --fg4:       #8e877c;
+
+  /* Accents — darkened variants of each hue so they register on paper.
+     Dim variants go darker still for hover/press + pill borders. */
+  --red:       #c04a3e;
+  --red-dim:   #9c3a30;
+  --green:     #5c8a2a;
+  --green-dim: #486c20;
+  --yellow:    #a07218;
+  --yellow-dim:#7a571b;
+  --blue:      #3d7a96;
+  --blue-dim:  #2e6078;
+  --purple:    #9d4a78;
+  --purple-dim:#7b3a5d;
+  --aqua:      #4a9678; /* darker aqua-green — same family, reads on paper */
+  --aqua-dim:  #357057;
+  --orange:    #c56a18;
+  --orange-dim:#9c5312;
+
+  /* Semantic */
+  --accent:         var(--aqua);
+  --accent-hover:   #357057;
+  --accent-subtle:  rgba(74, 150, 120, 0.08);
+  --accent-muted:   rgba(74, 150, 120, 0.16);
+  --link:           var(--blue);
+  --success:        var(--green);
+  --warning:        var(--yellow);
+  --error:          var(--red);
+
+  /* Shadow — warm dark grey, lower opacities. Pure black is harsh on
+     paper. Light themes need softer, feathered elevation. The composite
+     shadow tokens inherit these RGB values automatically. */
+  --shadow-rgb:          50, 45, 40;
+
+  /* Inset top highlight — on light surfaces a white inset does nothing.
+     Drop it near-zero so .vcard etc. don't get a weird bright seam. */
+  --inset-highlight-rgb: 255, 255, 255;
+  --inset-highlight:     inset 0 1px 0 rgba(var(--inset-highlight-rgb), 0);
+
+  /* Mention pills — default fallback matches the new darker aqua. */
+  --mention-fg:      var(--aqua);
+  --mention-bg:      color-mix(in srgb, var(--aqua) 10%, transparent);
+  --mention-border:  color-mix(in srgb, var(--aqua) 32%, transparent);
+
+  /* Per-type mention colors — lower opacities on bg (light surfaces
+     get muddy fast) but slightly stronger borders for definition. */
+  --color-type-work:        var(--blue);
+  --color-type-work-bg:     color-mix(in srgb, var(--blue) 9%, transparent);
+  --color-type-work-border: color-mix(in srgb, var(--blue) 34%, transparent);
+
+  --color-type-personal:        var(--green);
+  --color-type-personal-bg:     color-mix(in srgb, var(--green) 9%, transparent);
+  --color-type-personal-border: color-mix(in srgb, var(--green) 34%, transparent);
+
+  --color-type-notes:        var(--yellow);
+  --color-type-notes-bg:     color-mix(in srgb, var(--yellow) 10%, transparent);
+  --color-type-notes-border: color-mix(in srgb, var(--yellow) 38%, transparent);
+
+  --color-type-wiki:        var(--purple);
+  --color-type-wiki-bg:     color-mix(in srgb, var(--purple) 9%, transparent);
+  --color-type-wiki-border: color-mix(in srgb, var(--purple) 34%, transparent);
+
+  --color-type-pending:        var(--fg3);
+  --color-type-pending-bg:     color-mix(in srgb, var(--fg3) 7%, transparent);
+  --color-type-pending-border: color-mix(in srgb, var(--fg3) 40%, transparent);
+
+  /* Vault collection accents — same color-mix pattern, opacities tuned
+     for light surfaces. */
+  --color-collection-projects:        var(--blue);
+  --color-collection-projects-bg:     color-mix(in srgb, var(--color-collection-projects) 10%, transparent);
+  --color-collection-projects-border: color-mix(in srgb, var(--color-collection-projects) 34%, transparent);
+  --color-collection-projects-tint:   color-mix(in srgb, var(--color-collection-projects)  5%, transparent);
+
+  --color-collection-library:         var(--purple);
+  --color-collection-library-bg:      color-mix(in srgb, var(--color-collection-library)  10%, transparent);
+  --color-collection-library-border:  color-mix(in srgb, var(--color-collection-library)  34%, transparent);
+  --color-collection-library-tint:    color-mix(in srgb, var(--color-collection-library)   5%, transparent);
+
+  --color-collection-notes:           var(--yellow);
+  --color-collection-notes-bg:        color-mix(in srgb, var(--color-collection-notes)    10%, transparent);
+  --color-collection-notes-border:    color-mix(in srgb, var(--color-collection-notes)    38%, transparent);
+  --color-collection-notes-tint:      color-mix(in srgb, var(--color-collection-notes)     5%, transparent);
+
+  /* Semantic tints — override with slightly lower opacities so they
+     don't look muddy on paper. These mirror the :root pattern but
+     tuned down since color-mix on light bg compounds fast. */
+  --tint-green-subtle:   color-mix(in srgb, var(--green)  5%, transparent);
+  --tint-green-border:   color-mix(in srgb, var(--green) 14%, transparent);
+  --tint-red-subtle:     color-mix(in srgb, var(--red)    5%, transparent);
+  --tint-red-tag:        color-mix(in srgb, var(--red)    7%, transparent);
+  --tint-red-danger:     color-mix(in srgb, var(--red-dim) 10%, transparent);
+  --tint-yellow-tag:     color-mix(in srgb, var(--yellow) 9%, transparent);
+  --tint-yellow-mark:    color-mix(in srgb, var(--yellow) 30%, transparent);
+  --tint-orange-tag:     color-mix(in srgb, var(--orange) 8%, transparent);
+  --tint-aqua-tag:       color-mix(in srgb, var(--aqua)  10%, transparent);
 }

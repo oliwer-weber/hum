@@ -215,7 +215,7 @@
   align-items: center;
   gap: var(--space-sm);
   padding: var(--space-sm) var(--space-lg);
-  background-color: rgba(184, 187, 38, 0.06);
+  background-color: var(--tint-green-subtle);
   border-left: 3px solid var(--green-dim);
   border-radius: 0 var(--radius-s) var(--radius-s) 0;
   max-width: 640px;
@@ -239,7 +239,7 @@
 
 .res-error {
   padding: var(--space-sm) var(--space-lg);
-  background-color: rgba(251, 73, 52, 0.06);
+  background-color: var(--tint-red-subtle);
   border-left: 3px solid var(--red-dim);
   border-radius: 0 var(--radius-s) var(--radius-s) 0;
   color: var(--red);
@@ -327,8 +327,8 @@
   align-items: center;
   gap: var(--space-sm);
   padding: var(--space-sm) var(--space-lg);
-  background-color: rgba(184, 187, 38, 0.05);
-  border: 1px solid rgba(184, 187, 38, 0.1);
+  background-color: var(--tint-green-subtle);
+  border: 1px solid var(--tint-green-border);
   border-radius: var(--radius-s);
   font-size: var(--font-size-xs);
 }
@@ -983,8 +983,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12),
-              0 8px 16px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-popover);
 }
 
 .focus-picker-header {
@@ -1277,12 +1276,12 @@
 
 .gravity-tag-blocked {
   color: var(--red-dim);
-  background-color: rgba(251, 73, 52, 0.08);
+  background-color: var(--tint-red-tag);
 }
 
 .gravity-tag-waiting {
   color: var(--yellow-dim, var(--yellow));
-  background-color: rgba(250, 189, 47, 0.08);
+  background-color: var(--tint-yellow-tag);
 }
 
 .gravity-more {
@@ -2113,7 +2112,7 @@
   background: var(--bg-soft);
   border: 1px solid var(--bg3);
   border-radius: var(--radius-m);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-suggest-simple);
   padding: var(--space-xs) 0;
 }
 
@@ -2164,10 +2163,7 @@
   background: var(--bg-soft);
   border: 1px solid var(--bg3);
   border-radius: var(--radius-l);
-  box-shadow:
-    0 2px 4px rgba(0, 0, 0, 0.12),
-    0 8px 16px rgba(0, 0, 0, 0.18),
-    0 20px 40px rgba(0, 0, 0, 0.22);
+  box-shadow: var(--shadow-suggest);
   padding: var(--space-xs) 0;
 }
 
@@ -2558,7 +2554,7 @@
 }
 
 .hub-result-row mark {
-  background: rgba(250, 189, 47, 0.25);
+  background: var(--tint-yellow-mark);
   color: var(--yellow);
   border-radius: 2px;
   padding: 0 1px;
@@ -2787,7 +2783,7 @@
   background: var(--bg);
   border: 1px solid var(--bg2);
   border-radius: var(--radius-m);
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15), 0 10px 15px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-menu);
   z-index: 300;
   min-width: 140px;
   padding: var(--space-xs) 0;
@@ -2814,7 +2810,7 @@
 .vault-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--overlay-modal);
   z-index: 200;
   display: flex;
   align-items: center;
@@ -2825,7 +2821,7 @@
   background: var(--bg);
   border: 1px solid var(--bg2);
   border-radius: var(--radius-m);
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15), 0 10px 15px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-menu);
   padding: var(--space-xl);
   min-width: 340px;
   max-width: 440px;
@@ -2931,7 +2927,7 @@
   background: var(--bg);
   border: 1px solid var(--bg2);
   border-radius: var(--radius-m);
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15), 0 10px 15px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-menu);
   z-index: 300;
   min-width: 170px;
   padding: var(--space-xs) 0;
@@ -2958,7 +2954,7 @@
 }
 
 .vault-context-item-danger:hover {
-  background-color: rgba(204, 36, 29, 0.1);
+  background-color: var(--tint-red-danger);
 }
 
 .vault-context-separator {
@@ -3042,7 +3038,7 @@
   padding: var(--space-xs) var(--space-md);
   font-size: var(--font-size-sm);
   color: var(--fg);
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15), 0 10px 15px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-menu);
   opacity: 0.9;
   pointer-events: none;
 }
@@ -3052,7 +3048,7 @@
 .vault-search-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--overlay-search);
   z-index: 250;
   display: flex;
   justify-content: center;
@@ -3063,7 +3059,7 @@
   background: var(--bg);
   border: 1px solid var(--bg2);
   border-radius: var(--radius-m);
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15), 0 10px 15px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-menu);
   width: 520px;
   max-height: 460px;
   display: flex;
@@ -3188,7 +3184,7 @@
 
 /* Search query highlight */
 .search-highlight {
-  background: rgba(250, 189, 47, 0.25);
+  background: var(--tint-yellow-mark);
   color: var(--yellow);
   border-radius: 2px;
   padding: 0 2px;
@@ -3328,7 +3324,7 @@
 .vault-explorer-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--overlay-modal);
   backdrop-filter: blur(2px);
   z-index: 150;
   display: flex;
@@ -3795,23 +3791,23 @@
 
 .vault-tag {
   color: var(--aqua);
-  background-color: rgba(142, 192, 124, 0.1);
-  border-radius: 6px;
+  background-color: var(--tint-aqua-tag);
+  border-radius: var(--radius-s);
   padding: 2px 6px;
   font-size: 0.88em;
   transition: all 0.15s ease;
 }
 .vault-tag-blocked {
   color: var(--red-dim);
-  background-color: rgba(251, 73, 52, 0.08);
+  background-color: var(--tint-red-tag);
 }
 .vault-tag-waiting {
   color: var(--yellow-dim, var(--yellow));
-  background-color: rgba(250, 189, 47, 0.08);
+  background-color: var(--tint-yellow-tag);
 }
 .vault-tag-onhold {
   color: var(--orange-dim, var(--orange));
-  background-color: rgba(254, 128, 25, 0.08);
+  background-color: var(--tint-orange-tag);
 }
 
 /* ── Tooltips ──────────────────────────────────── */
@@ -3839,8 +3835,7 @@
   pointer-events: none;
   opacity: 0;
   transform: translate(-50%, 4px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.18),
-              0 4px 10px rgba(0, 0, 0, 0.10);
+  box-shadow: var(--shadow-tooltip);
   z-index: 100;
   transition: opacity 120ms cubic-bezier(0.4, 0, 0.2, 1),
               transform 120ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -3869,3 +3864,285 @@
 .dash-project-actions-slide [data-tooltip]:focus-visible::after {
   transform: translate(0, 0);
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Settings — modal overlay reachable via cog icon or Ctrl+,
+ * Not a routed page; settings are peripheral, opened as a layer over
+ * the active tab content.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+/* Cog button sits in the tab bar just left of the window controls.
+   Muted until hover so it doesn't compete with the four main tabs. */
+/* Pushed to the right edge so the cog sits just before window controls
+   without disrupting the `.tab-bar` space-between layout. */
+.tab-bar-trailing {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  padding-right: var(--space-xs);
+}
+
+.settings-cog {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  color: var(--fg4);
+  font-size: 18px;
+  padding: 0;
+  cursor: pointer;
+  transition: color 150ms var(--ease-smooth),
+              background-color 150ms var(--ease-smooth),
+              border-color 150ms var(--ease-smooth);
+}
+
+.settings-cog:hover {
+  color: var(--fg1);
+  background-color: var(--bg1);
+}
+
+.settings-cog:focus-visible {
+  outline: none;
+  border-color: var(--accent-muted);
+  color: var(--fg1);
+}
+
+.settings-cog:active {
+  background-color: var(--bg2);
+}
+
+/* Backdrop — blur + overlay tint from tokens so light themes get
+   a proportional backdrop instead of a heavy black wash. */
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay-modal);
+  backdrop-filter: blur(3px);
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xl);
+  animation: settings-overlay-fade 140ms var(--ease-smooth);
+}
+
+@keyframes settings-overlay-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.settings-modal {
+  width: 560px;
+  max-width: 100%;
+  max-height: 80vh;
+  background: var(--bg-soft);
+  border: 1px solid var(--bg2);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-floating);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: settings-modal-enter 180ms var(--ease-bounce);
+}
+
+@keyframes settings-modal-enter {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-lg) var(--space-xl);
+  border-bottom: 1px solid var(--bg2);
+}
+
+.settings-title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--fg);
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+.settings-close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  color: var(--fg3);
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 150ms var(--ease-smooth),
+              background-color 150ms var(--ease-smooth);
+}
+
+.settings-close:hover {
+  color: var(--fg);
+  background-color: var(--bg1);
+}
+
+.settings-body {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  flex: 1;
+  min-height: 0;
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-md);
+  border-right: 1px solid var(--bg2);
+  background: var(--bg);
+}
+
+.settings-nav-item {
+  text-align: left;
+  padding: var(--space-xs) var(--space-md);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  color: var(--fg2);
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 150ms var(--ease-smooth),
+              background-color 150ms var(--ease-smooth);
+}
+
+.settings-nav-item:hover:not(:disabled) {
+  color: var(--fg);
+  background-color: var(--bg1);
+}
+
+.settings-nav-item-active {
+  color: var(--accent);
+  background-color: var(--accent-subtle);
+  border-color: var(--accent-muted);
+}
+
+.settings-nav-item-active:hover {
+  background-color: var(--accent-subtle);
+}
+
+.settings-nav-item-stub {
+  color: var(--fg4);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.settings-pane {
+  padding: var(--space-xl);
+  overflow-y: auto;
+}
+
+.settings-group + .settings-group {
+  margin-top: var(--space-2xl);
+}
+
+.settings-group-label {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--fg3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: var(--space-md);
+}
+
+/* Theme swatches — each card is an honest-to-god preview of the theme
+   it would apply. Background + accent dot use hardcoded-per-theme
+   colors (scoped via data-theme-preview) so inactive themes still
+   show their real look inside the active theme's UI. */
+.settings-swatches {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-md);
+}
+
+.settings-swatch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  background: transparent;
+  border: 1px solid var(--bg2);
+  border-radius: var(--radius-m);
+  cursor: pointer;
+  transition: border-color 150ms var(--ease-smooth),
+              transform 180ms var(--ease-smooth),
+              box-shadow 180ms var(--ease-smooth);
+}
+
+.settings-swatch:hover {
+  transform: translateY(-1px);
+  border-color: var(--bg3);
+  box-shadow: var(--shadow-card);
+}
+
+.settings-swatch-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), var(--shadow-card);
+}
+
+.settings-swatch-active:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), var(--shadow-card);
+}
+
+.settings-swatch-preview {
+  position: relative;
+  height: 64px;
+  border-radius: var(--radius-s);
+  overflow: hidden;
+}
+
+.settings-swatch-bg {
+  position: absolute;
+  inset: 0;
+}
+
+.settings-swatch-accent {
+  position: absolute;
+  left: var(--space-sm);
+  bottom: var(--space-sm);
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+}
+
+.settings-swatch-label {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--fg1);
+  text-align: center;
+}
+
+.settings-swatch-active .settings-swatch-label {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Per-theme preview colors. These are the ONLY hardcoded colors in
+   the settings UI and exist so inactive themes still render their
+   true colors — a preview must look like the theme it represents,
+   not like the active theme. Keep in sync with theme definitions. */
+[data-theme-preview="gruvbox"] .settings-swatch-bg     { background: #282828; }
+[data-theme-preview="gruvbox"] .settings-swatch-accent { background: #8ec07c; }
+
+[data-theme-preview="dark"] .settings-swatch-bg        { background: #1f2124; }
+[data-theme-preview="dark"] .settings-swatch-accent    { background: #8ec07c; }
+
+[data-theme-preview="light"] .settings-swatch-bg       { background: #f4f1ea; }
+[data-theme-preview="light"] .settings-swatch-accent   { background: #4a9678; }
