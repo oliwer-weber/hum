@@ -13,6 +13,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("write");
   const [refreshKey, setRefreshKey] = useState(0);
   const [vaultOpenPath, setVaultOpenPath] = useState<string | null>(null);
+  const [vaultOpenProjectHub, setVaultOpenProjectHub] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [vaultCollection, setVaultCollection] = useState<VaultCollection>(null);
   const appWindow = getCurrentWindow();
@@ -23,6 +24,11 @@ export default function App() {
 
   const navigateToVaultFile = useCallback((path: string) => {
     setVaultOpenPath(path);
+    setActiveTab("find");
+  }, []);
+
+  const navigateToProjectHub = useCallback((projectPath: string) => {
+    setVaultOpenProjectHub(projectPath);
     setActiveTab("find");
   }, []);
 
@@ -155,13 +161,15 @@ export default function App() {
           <Inbox refreshKey={refreshKey} onVaultChanged={triggerVaultRefresh} />
         </div>
         <div className={`tab-panel ${activeTab === "focus" ? "tab-panel-active" : ""}`}>
-          <Dashboard refreshKey={refreshKey} onNavigateToFile={navigateToVaultFile} />
+          <Dashboard refreshKey={refreshKey} onOpenProjectHub={navigateToProjectHub} />
         </div>
         <div className={`tab-panel ${activeTab === "find" ? "tab-panel-active" : ""}`}>
           <Vault
             refreshKey={refreshKey}
             openPath={vaultOpenPath}
             onOpenPathHandled={() => setVaultOpenPath(null)}
+            openProjectHub={vaultOpenProjectHub}
+            onOpenProjectHubHandled={() => setVaultOpenProjectHub(null)}
             onActiveCollectionChange={setVaultCollection}
           />
         </div>

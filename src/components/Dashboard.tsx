@@ -255,10 +255,10 @@ function ScheduleCard({ event }: { event: CalendarEvent }) {
 
 interface DashProps {
   refreshKey: number;
-  onNavigateToFile?: (path: string) => void;
+  onOpenProjectHub?: (projectPath: string) => void;
 }
 
-export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
+export default function Dashboard({ refreshKey, onOpenProjectHub }: DashProps) {
   const [projects, setProjects] = useState<ProjectGravity[]>([]);
   const [calendar, setCalendar] = useState<CalendarData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -470,11 +470,9 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
     }
   }, []);
 
-  const handleNavigateToProject = useCallback((name: string) => {
-    invoke<string>("vault_resolve_link", { target: name })
-      .then((path) => onNavigateToFile?.(path))
-      .catch((err) => console.error("Failed to resolve link:", err));
-  }, [onNavigateToFile]);
+  const handleOpenProjectHub = useCallback((projectPath: string) => {
+    onOpenProjectHub?.(projectPath);
+  }, [onOpenProjectHub]);
 
   const { ref: mainRef, edge: mainEdge } = useScrollFade([projects]);
 
@@ -664,7 +662,7 @@ export default function Dashboard({ refreshKey, onNavigateToFile }: DashProps) {
                       <span className="dash-project-count">{project.open_todos}</span>
                       <button
                         className="dash-project-hub-btn"
-                        onClick={(e) => { e.stopPropagation(); handleNavigateToProject(project.name); }}
+                        onClick={(e) => { e.stopPropagation(); handleOpenProjectHub(project.path); }}
                         data-tooltip={`Open ${project.name} hub`}
                         aria-label={`Open ${project.name} hub`}
                       >

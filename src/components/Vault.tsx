@@ -65,6 +65,8 @@ interface VaultProps {
   refreshKey: number;
   openPath?: string | null;
   onOpenPathHandled?: () => void;
+  openProjectHub?: string | null;
+  onOpenProjectHubHandled?: () => void;
   onActiveCollectionChange?: (collection: CollectionKey | null) => void;
 }
 
@@ -176,7 +178,7 @@ type ModalState =
 
 /* ── Vault Component ──────────────────────────────── */
 
-export default function Vault({ refreshKey, openPath, onOpenPathHandled, onActiveCollectionChange }: VaultProps) {
+export default function Vault({ refreshKey, openPath, onOpenPathHandled, openProjectHub, onOpenProjectHubHandled, onActiveCollectionChange }: VaultProps) {
   const [columns, setColumns] = useState<ColumnState[]>([]);
   const [openFile, setOpenFile] = useState<{ path: string; entry: VaultEntry } | null>(null);
   const [fileContent, setFileContent] = useState("");
@@ -456,6 +458,20 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled, onActiv
       console.error("Failed to load directory:", err);
     }
   }, []);
+
+  // Navigate to an externally requested project hub (e.g. the folder icon
+  // on the Focus tab). Mirrors goToProjectHub — inlined so the effect only
+  // depends on stable identities. Must live below loadDirectory's
+  // declaration to avoid a TDZ ReferenceError on the const binding.
+  useEffect(() => {
+    if (!openProjectHub) return;
+    setVaultView("project-hub");
+    setActiveProjectPath(openProjectHub);
+    setOpenFile(null);
+    setImageUrl(null);
+    loadDirectory(openProjectHub, 0);
+    onOpenProjectHubHandled?.();
+  }, [openProjectHub, loadDirectory, onOpenProjectHubHandled]);
 
   // Handle clicking an entry
   const handleEntryClick = useCallback(
