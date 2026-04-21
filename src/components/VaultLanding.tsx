@@ -160,8 +160,8 @@ export default function VaultLanding({ refreshKey, onOpenCollection, onOpenPath 
   return (
     <div className="vlanding-shell">
       <div className="vlanding-header">
-        <h1 className="vlanding-title">Your vault</h1>
-        <p className="vlanding-tagline">Where your work, notes, and knowledge live.</p>
+        <h1 className="vlanding-title">Everything</h1>
+        <p className="vlanding-tagline">Your work, notes, and knowledge, all in one place.</p>
       </div>
 
       <div className="vsearch-container">
