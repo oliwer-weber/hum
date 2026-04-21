@@ -882,6 +882,44 @@
 
 .dash-error { color: var(--red); }
 
+/* ── Entry animation (frame → content bands) ─────
+ * Two-layer reveal, matching Find tab's idiom:
+ *   1. Frame fade — `.dash` opacity eases in.
+ *   2. Content bands rise — focus strip, left-column tiers,
+ *      right sidebar stagger in with a ~50ms gap, so the
+ *      eye reads left→right, top→bottom on arrival.
+ *
+ * Reduced-motion guard intentionally omitted — animations
+ * play at full duration regardless of the Win11 "reduce
+ * animations" setting. Same rationale as vault-cards.css.
+ * ─────────────────────────────────────────────── */
+
+@keyframes dash-frame-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes dash-band-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.dash {
+  animation: dash-frame-in 150ms var(--ease-smooth) both;
+}
+
+.dash .focus-strip {
+  animation: dash-band-in 280ms var(--ease-smooth) 80ms both;
+}
+
+.dash .dash-main .dash-tier {
+  animation: dash-band-in 280ms var(--ease-smooth) 130ms both;
+}
+
+.dash .dash-sidebar {
+  animation: dash-band-in 280ms var(--ease-smooth) 180ms both;
+}
+
 /* ── Focus strip ────────────────────────────────── */
 
 .focus-strip {
