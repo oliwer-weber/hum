@@ -250,6 +250,23 @@ fn toggle_dashboard_todo(project: String, todo_text: String, checked: bool) -> R
     Ok(())
 }
 
+/// Read and parse the todos.md file for a single project. Returns parsed
+/// blocks (checkbox + any continuation body) so the client can render a
+/// polished view without duplicating the parser. Empty file / missing file
+/// returns an empty vec instead of an error so the view can render the
+/// "no todos yet" state cleanly.
+#[tauri::command]
+fn read_project_todos(project_rel_path: String) -> Result<Vec<todo_parser::TodoBlock>, String> {
+    let vault = vault_path();
+    let todos_path = vault.join(&project_rel_path).join("todos.md");
+    let content = match fs::read_to_string(&todos_path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("Failed to read todos.md: {}", e)),
+    };
+    Ok(todo_parser::parse_todo_blocks(&content))
+}
+
 /// File info returned by vault_all_files — used for wikilink suggestions and existence checks.
 #[derive(serde::Serialize, Clone)]
 struct VaultFileInfo {
@@ -1829,6 +1846,7 @@ pub fn run() {
             set_focus,
             snooze_project,
             unsnooze_project,
+            read_project_todos,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

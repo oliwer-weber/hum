@@ -4315,3 +4315,513 @@
 [data-font-preview="editorial"] .settings-font-sample {
   font-family: var(--font-serif-display);
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Project Todos — polished per-project todo view
+ *
+ * Reached via ProjectHub → Todos. Reads todos.md as source of truth,
+ * renders a gravity-sorted Open list + three-bucket Completed rail
+ * (Today / This Week / Earlier, Monday reset).
+ *
+ * Checkbox uses the shared .todo-checkbox treatment. Status tags reuse
+ * .vault-tag-* pills. Everything else lives under .ptodos-*.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.ptodos {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: var(--space-3xl) var(--space-2xl) var(--space-2xl);
+  overflow-y: auto;
+  animation: view-forward-in 320ms var(--ease-smooth) both;
+}
+
+[data-nav-dir="backward"] .ptodos {
+  animation: view-backward-in 320ms var(--ease-smooth) both;
+}
+
+.ptodos-head {
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto var(--space-2xl);
+}
+
+.ptodos-head-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.ptodos-back {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm) var(--space-xs) 4px;
+  margin-left: -4px;
+  background: transparent;
+  border: 0;
+  color: var(--fg3);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  transition: color 160ms var(--ease-smooth),
+              transform 200ms var(--ease-smooth);
+}
+
+.ptodos-back:hover {
+  color: var(--fg1);
+  transform: translateX(-2px);
+}
+
+.ptodos-back:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  color: var(--fg1);
+}
+
+.ptodos-back:active {
+  transform: translateX(-3px);
+}
+
+.ptodos-overflow-wrap {
+  position: relative;
+}
+
+.ptodos-overflow {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--fg3);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  transition: color 160ms var(--ease-smooth),
+              background-color 160ms var(--ease-smooth);
+}
+
+.ptodos-overflow:hover {
+  color: var(--fg1);
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+
+.ptodos-overflow:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  color: var(--fg1);
+}
+
+.ptodos-overflow:active {
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+}
+
+.ptodos-overflow-menu {
+  position: absolute;
+  top: calc(100% + var(--space-xs));
+  right: 0;
+  min-width: 180px;
+  background: var(--bg-soft);
+  border: 1px solid var(--bg1);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-menu);
+  padding: var(--space-xs);
+  z-index: 10;
+  animation: overflow-menu-in 160ms var(--ease-smooth) both;
+}
+
+@keyframes overflow-menu-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.ptodos-overflow-item {
+  appearance: none;
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: var(--fg1);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  transition: background-color 140ms var(--ease-smooth),
+              color 140ms var(--ease-smooth);
+}
+
+.ptodos-overflow-item:hover {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg);
+}
+
+.ptodos-overflow-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.ptodos-title-row {
+  margin-top: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.ptodos-title {
+  font-family: var(--font-display);
+  font-size: var(--font-size-3xl);
+  font-weight: 500;
+  letter-spacing: var(--letter-spacing-tight);
+  line-height: 1;
+  margin: 0;
+  color: var(--fg);
+}
+
+[data-font="mono"] .ptodos-title { font-weight: 600; }
+
+.ptodos-subtitle {
+  margin: 0;
+  color: var(--fg3);
+  font-size: var(--font-size-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.ptodos-subtitle strong {
+  color: var(--fg1);
+  font-weight: 600;
+}
+
+.ptodos-sep { color: var(--fg4); }
+
+.ptodos-grid {
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1px minmax(240px, 320px);
+  gap: var(--space-2xl);
+  align-items: start;
+}
+
+.ptodos-divider {
+  align-self: stretch;
+  width: 1px;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    var(--bg1) 8%,
+    var(--bg1) 92%,
+    transparent 100%
+  );
+}
+
+.ptodos-col-open { min-width: 0; }
+.ptodos-col-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+  min-width: 0;
+}
+
+.ptodos-col-label-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  padding: 0 var(--space-xs);
+  margin-bottom: var(--space-md);
+}
+
+.ptodos-col-label {
+  font-family: var(--font-display);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg3);
+  margin: 0;
+}
+
+.ptodos-col-count {
+  font-size: var(--font-size-xs);
+  color: var(--fg4);
+  font-variant-numeric: tabular-nums;
+}
+
+.ptodos-add {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px dashed var(--bg2);
+  border-radius: var(--radius-m);
+  margin-bottom: var(--space-sm);
+  background: transparent;
+  transition: border-color 180ms var(--ease-smooth),
+              background-color 180ms var(--ease-smooth);
+}
+
+.ptodos-add:hover {
+  border-color: var(--bg3);
+  background: color-mix(in srgb, var(--accent) 3%, transparent);
+}
+
+.ptodos-add:focus-within {
+  border-style: solid;
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.ptodos-add-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: var(--fg4);
+  transition: color 180ms var(--ease-smooth),
+              transform 200ms var(--ease-bounce);
+}
+
+.ptodos-add:hover .ptodos-add-glyph { color: var(--accent); }
+.ptodos-add:focus-within .ptodos-add-glyph {
+  color: var(--accent);
+  transform: rotate(90deg);
+}
+
+.ptodos-add-input {
+  flex: 1;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--font-size);
+  padding: 2px 0;
+}
+
+.ptodos-add-input::placeholder { color: var(--fg4); }
+
+.ptodos-empty-list {
+  padding: var(--space-md);
+  color: var(--fg4);
+  font-size: var(--font-size-sm);
+  font-style: italic;
+  margin: 0;
+}
+
+.ptodos-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ptodos-row {
+  position: relative;
+  display: grid;
+  grid-template-columns:
+    [check] 20px
+    [text] 1fr
+    [tag] auto
+    [age] 44px
+    [delete] 20px;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-m);
+  transition: background-color 140ms var(--ease-smooth);
+}
+
+.ptodos-row:hover {
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+}
+
+.ptodos-row > .todo-checkbox { grid-column: check; margin-top: 0; }
+.ptodos-row > .ptodos-text   { grid-column: text; min-width: 0; }
+.ptodos-row > .vault-tag     { grid-column: tag; justify-self: end; }
+.ptodos-row > .ptodos-age    { grid-column: age; }
+.ptodos-row > .ptodos-delete { grid-column: delete; }
+
+/* Nested indent — guide line tinted with accent. */
+.ptodos-row-nested {
+  padding-left: calc(var(--space-md) + var(--ptodos-nest-indent, 20px));
+}
+
+.ptodos-row-depth-1 { --ptodos-nest-indent: 20px; }
+.ptodos-row-depth-2 { --ptodos-nest-indent: 40px; }
+.ptodos-row-depth-3 { --ptodos-nest-indent: 60px; }
+
+.ptodos-row-nested::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: calc(var(--space-md) + (var(--ptodos-nest-indent, 20px) - 12px));
+  width: 1px;
+  background: color-mix(in srgb, var(--accent) 28%, var(--bg3));
+  border-radius: 1px;
+}
+
+/* Stuck rows — dashed left accent, mirrors .gravity-todo-stuck. */
+.ptodos-row-stuck {
+  border-left: 2px dashed var(--bg3);
+  padding-left: calc(var(--space-md) - 2px);
+  border-radius: 0 var(--radius-m) var(--radius-m) 0;
+}
+
+.ptodos-text {
+  color: var(--fg);
+  font-size: var(--font-size);
+  line-height: 1.55;
+}
+
+.ptodos-age {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--fg4);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ptodos-age-warm { color: var(--orange); }
+
+.ptodos-delete {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--fg4);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: var(--radius-s);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 180ms var(--ease-smooth),
+              color 180ms var(--ease-smooth),
+              transform 200ms var(--ease-bounce);
+}
+
+.ptodos-row:hover .ptodos-delete {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.ptodos-delete:hover { color: var(--red); }
+
+.ptodos-delete:focus-visible {
+  opacity: 1;
+  transform: scale(1);
+  outline: 2px solid var(--red);
+  outline-offset: 2px;
+}
+
+/* ─── Rail ────────────────────────────────────── */
+
+.ptodos-rail-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.ptodos-rail-label-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  padding: 0 var(--space-xs);
+  margin-bottom: 2px;
+}
+
+.ptodos-rail-label {
+  font-family: var(--font-display);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg3);
+  margin: 0;
+}
+
+.ptodos-rail-count {
+  font-size: var(--font-size-xs);
+  color: var(--fg4);
+  font-variant-numeric: tabular-nums;
+}
+
+.ptodos-rail-empty {
+  padding: var(--space-xs) var(--space-md) var(--space-xs) var(--space-xs);
+  color: var(--fg4);
+  font-size: var(--font-size-sm);
+  font-style: italic;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.ptodos-done-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ptodos-done {
+  display: grid;
+  grid-template-columns: 15px 1fr auto;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-md) var(--space-xs) var(--space-xs);
+  border-radius: var(--radius-s);
+  transition: background-color 140ms var(--ease-smooth);
+}
+
+.ptodos-done:hover {
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+}
+
+.ptodos-done-text {
+  font-size: var(--font-size-sm);
+  color: var(--fg3);
+  text-decoration: line-through;
+  text-decoration-color: var(--fg4);
+  text-decoration-thickness: 1px;
+  line-height: 1.5;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ptodos-done-date {
+  font-size: var(--font-size-xs);
+  color: var(--fg4);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Narrow viewports — stack rail below open list */
+@media (max-width: 860px) {
+  .ptodos-grid {
+    grid-template-columns: 1fr;
+    gap: var(--space-xl);
+  }
+  .ptodos-divider { display: none; }
+  .ptodos-col-rail {
+    border-top: 1px solid var(--bg1);
+    padding-top: var(--space-xl);
+  }
+}

@@ -12,12 +12,14 @@ import LibraryView from "./LibraryView";
 import ProjectsView from "./ProjectsView";
 import ProjectHub from "./ProjectHub";
 import ProjectNotesView from "./ProjectNotesView";
+import ProjectTodos from "./ProjectTodos";
 
 type VaultView =
   | "landing"
   | CollectionKey
   | "project-hub"
   | "project-notes"
+  | "project-todos"
   | "editor";
 
 const COLLECTION_PATHS: Record<CollectionKey, string> = {
@@ -967,7 +969,8 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled, openPro
     vaultView === "library" ||
     vaultView === "projects" ||
     vaultView === "project-hub" ||
-    vaultView === "project-notes";
+    vaultView === "project-notes" ||
+    vaultView === "project-todos";
 
   // Which collection is currently "active" — drives data-collection on the
   // container so breadcrumb pill, chips, and FAB pick up the right accent.
@@ -977,7 +980,8 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled, openPro
     if (
       vaultView === "projects" ||
       vaultView === "project-hub" ||
-      vaultView === "project-notes"
+      vaultView === "project-notes" ||
+      vaultView === "project-todos"
     ) {
       return "projects";
     }
@@ -1027,19 +1031,36 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled, openPro
     loadDirectory(`${projectPath}/notes`, 0);
   };
 
+  // Route the "Todos" card to the polished ProjectTodos view. Creates the
+  // file on first visit so the view has somewhere to write back. The raw-
+  // markdown escape hatch lives on the view's overflow menu and calls
+  // openProjectTodosRaw below.
   const openProjectTodos = async (projectPath: string) => {
     const todosPath = `${projectPath}/todos.md`;
     try {
-      // Ensure the file exists — older projects may not have one.
       try {
         await invoke<string>("vault_read_file", { relativePath: todosPath });
       } catch {
         await invoke("vault_create_file", { relativePath: todosPath, content: "" });
         refreshVaultIndex();
       }
-      await navigateToPath(todosPath);
+      setActiveProjectPath(projectPath);
+      setOpenFile(null);
+      setImageUrl(null);
+      setVaultView("project-todos");
     } catch (err) {
       console.error("open todos failed:", err);
+    }
+  };
+
+  // Raw-markdown fallback for the polished view's overflow menu — opens
+  // todos.md directly in the TipTap editor for free-form editing.
+  const openProjectTodosRaw = async (projectPath: string) => {
+    const todosPath = `${projectPath}/todos.md`;
+    try {
+      await navigateToPath(todosPath);
+    } catch (err) {
+      console.error("open raw todos failed:", err);
     }
   };
 
@@ -1103,7 +1124,11 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled, openPro
     }
   } else if (isCollectionView) {
     segments.push({ label: "Find", onClick: goToLanding });
-    if (vaultView === "project-hub" || vaultView === "project-notes") {
+    if (
+      vaultView === "project-hub" ||
+      vaultView === "project-notes" ||
+      vaultView === "project-todos"
+    ) {
       segments.push({ label: "Projects", onClick: () => goToCollection("projects") });
       const projectName = activeProjectPath.split("/").pop() || "Project";
       if (vaultView === "project-hub") {
@@ -1113,7 +1138,10 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled, openPro
           label: projectName,
           onClick: () => goToProjectHub(activeProjectPath),
         });
-        segments.push({ label: "Notes", active: true });
+        segments.push({
+          label: vaultView === "project-notes" ? "Notes" : "Todos",
+          active: true,
+        });
       }
     } else {
       const key = vaultView as CollectionKey;
@@ -1218,6 +1246,13 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled, openPro
           onOpenPath={(p) => navigate("forward", () => navigateToPath(p))}
           onRequestMove={(path, name, onDone) => openMoveModal(path, name, onDone)}
           onVaultChanged={refreshVaultIndex}
+        />
+      ) : vaultView === "project-todos" ? (
+        <ProjectTodos
+          refreshKey={refreshKey}
+          projectPath={activeProjectPath}
+          onBack={() => navigate("backward", () => goToProjectHub(activeProjectPath))}
+          onOpenRaw={() => navigate("forward", () => openProjectTodosRaw(activeProjectPath))}
         />
       ) : (
       <div
