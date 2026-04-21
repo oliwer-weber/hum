@@ -38,6 +38,38 @@ interface ChatProps {
   onVaultChanged: () => void;
 }
 
+// Flip to true to re-enable AI features. When false, Chat renders a resting
+// placeholder and the claude CLI dependency is never invoked, so testers
+// without the CLI installed can still run the rest of the app safely.
+const HUM_ENABLED = false;
+
+function HumResting() {
+  return (
+    <div className="cmd-surface">
+      <div className="cmd-canvas">
+        <div className="cmd-empty cmd-resting">
+          <div className="cmd-empty-icon cmd-resting-icon">&#x223F;</div>
+          <p className="cmd-empty-text cmd-resting-title">Hum is resting.</p>
+          <p className="cmd-resting-subtle">AI features return in a later build.</p>
+        </div>
+      </div>
+      <div className="cmd-bar">
+        <div className="cmd-bar-row">
+          <div className="cmd-bar-input">
+            <span className="cmd-bar-prompt">&#x276F;</span>
+            <textarea
+              placeholder="Hum is resting"
+              rows={1}
+              disabled
+              readOnly
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Hum personality (appended to system prompt) ──── */
 
 const HUM_PERSONALITY = `You are Hum — a personal assistant integrated into the user's productivity app.
@@ -196,6 +228,12 @@ function ThinkingIndicator({ activity, startedAt }: { activity: string; startedA
 /* ── Command Surface ──────────────────────────────── */
 
 export default function Chat({ onVaultChanged }: ChatProps) {
+  if (!HUM_ENABLED) {
+    void onVaultChanged;
+    return <HumResting />;
+  }
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   const [interactions, setInteractions] = useState<Interaction[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);

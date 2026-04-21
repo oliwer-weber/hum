@@ -9,6 +9,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::todo_parser;
+use crate::vault_manifest::VaultManifest;
 
 const INDEX_FILENAME: &str = ".todo-index.json";
 
@@ -67,29 +68,22 @@ pub fn generate_id() -> String {
 }
 
 /// Build the full index by scanning all project todos.md files.
-/// Active projects come from claude-config.md; archived projects are scanned
+/// Active projects come from vault.json; archived projects are scanned
 /// from the archive directory but marked as archived.
 pub fn build_index(vault: &Path) -> Result<TodoIndex, String> {
-    let config_path = vault.join(".app").join("claude-config.md");
-    let config = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config: {}", e))?;
+    let manifest = VaultManifest::read_in(vault)?;
 
     let mut index = TodoIndex::new();
 
-    // Active projects from config
-    for line in config.lines() {
-        let trimmed = line.trim();
-        if !trimmed.starts_with("- projects/") {
-            continue;
-        }
-        let rel_path = trimmed.trim_start_matches("- ").to_string();
+    // Active projects from manifest
+    for rel_path in manifest.project_paths() {
         let project_name = rel_path
             .rsplit('/')
             .next()
-            .unwrap_or(&rel_path)
+            .unwrap_or(rel_path)
             .to_string();
 
-        scan_project_todos(vault, &rel_path, &project_name, false, &mut index)?;
+        scan_project_todos(vault, rel_path, &project_name, false, &mut index)?;
     }
 
     // Archived projects
@@ -223,18 +217,11 @@ pub fn stamp_uuids(vault: &Path, rel_path: &str) -> Result<usize, String> {
 
 /// Stamp UUIDs across all active projects. Returns total count stamped.
 pub fn stamp_all_active(vault: &Path) -> Result<usize, String> {
-    let config_path = vault.join(".app").join("claude-config.md");
-    let config = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config: {}", e))?;
+    let manifest = VaultManifest::read_in(vault)?;
 
     let mut total = 0usize;
-
-    for line in config.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("- projects/") {
-            let rel_path = trimmed.trim_start_matches("- ").to_string();
-            total += stamp_uuids(vault, &rel_path)?;
-        }
+    for rel_path in manifest.project_paths() {
+        total += stamp_uuids(vault, rel_path)?;
     }
 
     Ok(total)

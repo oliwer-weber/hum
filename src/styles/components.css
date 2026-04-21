@@ -67,6 +67,31 @@
   border-color: var(--bg3);
 }
 
+/* ── Resting state (Hum disabled) ────────────────── */
+
+.cmd-resting {
+  gap: var(--space-md);
+}
+
+.cmd-resting-icon {
+  font-size: var(--font-size-3xl);
+  color: var(--bg4);
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+.cmd-resting-title {
+  color: var(--fg2);
+  font-size: var(--font-size-lg);
+  font-family: var(--font-display);
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+.cmd-resting-subtle {
+  color: var(--fg4);
+  font-size: var(--font-size-xs);
+  margin-top: calc(var(--space-sm) * -1);
+}
+
 /* ── Interaction block ───────────────────────────── */
 
 .cmd-interaction {
@@ -4316,6 +4341,95 @@
   font-family: var(--font-serif-display);
 }
 
+/* Settings — General tab: labeled input + segmented control.
+   Uses the same border/accent vocabulary as the nav and font cards so
+   the whole modal speaks one visual language. */
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.settings-field-label {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--fg2);
+}
+
+.settings-field-input {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg);
+  border: 1px solid var(--bg2);
+  border-radius: var(--radius-s);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  transition: border-color 150ms var(--ease-smooth),
+              background-color 150ms var(--ease-smooth);
+}
+
+.settings-field-input::placeholder {
+  color: var(--fg4);
+}
+
+.settings-field-input:hover {
+  border-color: var(--bg3);
+}
+
+.settings-field-input:focus-visible {
+  outline: none;
+  border-color: var(--accent-muted);
+  background: var(--bg1);
+}
+
+.settings-field-help {
+  font-size: var(--font-size-xs);
+  color: var(--fg3);
+  line-height: 1.5;
+}
+
+.settings-segmented {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg);
+  border: 1px solid var(--bg2);
+  border-radius: var(--radius-m);
+}
+
+.settings-segmented-item {
+  padding: var(--space-xs) var(--space-md);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  color: var(--fg2);
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 150ms var(--ease-smooth),
+              background-color 150ms var(--ease-smooth),
+              border-color 150ms var(--ease-smooth);
+}
+
+.settings-segmented-item:hover {
+  color: var(--fg);
+  background-color: var(--bg1);
+}
+
+.settings-segmented-item:focus-visible {
+  outline: none;
+  border-color: var(--accent-muted);
+}
+
+.settings-segmented-item-active,
+.settings-segmented-item-active:hover {
+  color: var(--accent);
+  background-color: var(--accent-subtle);
+  border-color: var(--accent-muted);
+}
+
 /* ═══════════════════════════════════════════════════════════════════
  * Project Todos — polished per-project todo view
  *
@@ -4824,4 +4938,94 @@
     border-top: 1px solid var(--bg1);
     padding-top: var(--space-xl);
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Welcome screen — shown once on a freshly scaffolded vault.
+ * Full-screen overlay above all app chrome. Dismissed via Get started.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.welcome-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-hard);
+  background-image:
+    radial-gradient(ellipse 80% 60% at 50% 20%,
+      color-mix(in srgb, var(--aqua) 7%, transparent),
+      transparent 70%),
+    radial-gradient(ellipse 60% 50% at 50% 110%,
+      color-mix(in srgb, var(--aqua) 4%, transparent),
+      transparent 70%);
+  animation: welcome-fade-in 420ms var(--ease-smooth) both;
+}
+
+.welcome-dismissing {
+  animation: welcome-fade-out 300ms var(--ease-smooth) both;
+  pointer-events: none;
+}
+
+@keyframes welcome-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes welcome-fade-out {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(-6px); }
+}
+
+.welcome-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-lg);
+  max-width: 480px;
+  padding: var(--space-3xl) var(--space-2xl);
+  text-align: center;
+}
+
+.welcome-mark {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--fg4);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.welcome-title {
+  font-family: var(--font-display);
+  font-size: var(--font-size-3xl);
+  font-weight: 600;
+  color: var(--fg);
+  letter-spacing: -0.03em;
+  line-height: 1;
+  margin: 0;
+}
+
+.welcome-body {
+  font-family: var(--font-body);
+  font-size: var(--font-size-lg);
+  color: var(--fg2);
+  line-height: 1.6;
+  max-width: 400px;
+  margin: 0;
+}
+
+.welcome-cta {
+  margin-top: var(--space-md);
+  padding: var(--space-md) var(--space-2xl) !important;
+  font-size: var(--font-size) !important;
+  min-width: 180px;
+  box-shadow: var(--shadow-elevated);
+}
+
+.welcome-footnote {
+  font-family: var(--font-body);
+  font-size: var(--font-size-xs);
+  color: var(--fg4);
+  margin-top: var(--space-xs);
 }

@@ -11,6 +11,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter};
 
+use crate::calendar;
+use crate::prefs;
+
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
 const MODEL: &str = "claude-haiku-4-5-20251001";
 const MAX_TOKENS: u32 = 8192;
@@ -51,7 +54,7 @@ You are Hum, a personal assistant operating on a markdown vault. You have tools 
 - `wiki/` — knowledge base / reference material
 - `.app/` — app plumbing (dashboard, config, memory, assets). Hidden from the user; read only when needed.
   - `.app/dashboard.md` — static overview (regenerated deterministically)
-  - `.app/claude-config.md` — active projects list, processing state
+  - `.app/vault.json` — active projects list, processing state, vault settings
   - `.app/memory.md` — persistent memory across sessions
   - `.app/metadata/Assets/` — pasted/embedded images
 
@@ -278,7 +281,7 @@ fn safe_resolve(vault: &Path, relative: &str) -> Option<PathBuf> {
     }
 }
 
-fn execute_tool(vault: &Path, name: &str, input: &Value) -> String {
+async fn execute_tool(vault: &Path, name: &str, input: &Value) -> String {
     match name {
         "read_file" => {
             let path = input.get("path").and_then(|p| p.as_str()).unwrap_or("");
@@ -385,38 +388,11 @@ fn execute_tool(vault: &Path, name: &str, input: &Value) -> String {
             }
         }
         "fetch_calendar" => {
-            let skill_dir = vault.join(".app").join("skills").join("check-calendar");
-            let script = skill_dir.join("fetch_calendar.py");
-            let py_win = skill_dir.join(".venv").join("Scripts").join("python.exe");
-            let py_unix = skill_dir.join(".venv").join("bin").join("python");
-
-            let python = if py_win.exists() {
-                py_win
-            } else if py_unix.exists() {
-                py_unix
-            } else {
-                return "Calendar venv not found.".to_string();
-            };
-
-            #[cfg(target_os = "windows")]
-            let output = {
-                use std::os::windows::process::CommandExt;
-                const CREATE_NO_WINDOW: u32 = 0x08000000;
-                std::process::Command::new(&python)
-                    .arg(&script)
-                    .creation_flags(CREATE_NO_WINDOW)
-                    .output()
-            };
-
-            #[cfg(not(target_os = "windows"))]
-            let output = std::process::Command::new(&python).arg(&script).output();
-
-            match output {
-                Ok(o) if o.status.success() => {
-                    String::from_utf8_lossy(&o.stdout).to_string()
-                }
-                Ok(o) => format!("Calendar script failed: {}", String::from_utf8_lossy(&o.stderr)),
-                Err(e) => format!("Failed to run calendar script: {}", e),
+            let url = prefs::read().ics_url;
+            match calendar::fetch_ics(&url).await {
+                Ok(data) => serde_json::to_string(&data)
+                    .unwrap_or_else(|e| format!("Failed to serialize calendar: {}", e)),
+                Err(e) => format!("Failed to fetch calendar: {}", e),
             }
         }
         _ => format!("Unknown tool: {}", name),
@@ -698,7 +674,7 @@ pub async fn hum_send(
                 };
                 let _ = app.emit("hum:activity", activity_msg);
 
-                let result = execute_tool(&vault, tool_name, tool_input);
+                let result = execute_tool(&vault, tool_name, tool_input).await;
 
                 tool_results.push(json!({
                     "type": "tool_result",

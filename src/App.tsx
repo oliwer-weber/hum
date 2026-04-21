@@ -5,26 +5,23 @@ import Dashboard from "./components/Dashboard";
 import Inbox from "./components/Inbox";
 import Vault from "./components/Vault";
 import SettingsModal from "./components/SettingsModal";
+import Welcome from "./components/Welcome";
+import { getPrefs, type TabId } from "./prefs/prefs";
 
-type Tab = "write" | "focus" | "find" | "hum";
 type VaultCollection = "projects" | "library" | "notes" | null;
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<Tab>("write");
+  const [activeTab, setActiveTab] = useState<TabId>(() => getPrefs().starting_tab);
   const [refreshKey, setRefreshKey] = useState(0);
   const [vaultOpenPath, setVaultOpenPath] = useState<string | null>(null);
   const [vaultOpenProjectHub, setVaultOpenProjectHub] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [vaultCollection, setVaultCollection] = useState<VaultCollection>(null);
+  const [showWelcome, setShowWelcome] = useState(() => !getPrefs().first_run_completed);
   const appWindow = getCurrentWindow();
 
   const triggerVaultRefresh = useCallback(() => {
     setRefreshKey((k) => k + 1);
-  }, []);
-
-  const navigateToVaultFile = useCallback((path: string) => {
-    setVaultOpenPath(path);
-    setActiveTab("find");
   }, []);
 
   const navigateToProjectHub = useCallback((projectPath: string) => {
@@ -179,6 +176,7 @@ export default function App() {
       </main>
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {showWelcome && <Welcome onDismiss={() => setShowWelcome(false)} />}
     </div>
   );
 }

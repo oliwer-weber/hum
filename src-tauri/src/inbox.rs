@@ -9,6 +9,7 @@ use serde::Serialize;
 
 use crate::todo_index;
 use crate::todo_parser;
+use crate::vault_manifest::VaultManifest;
 use crate::vault_path;
 
 // ── Types ────────────────────────────────────────────
@@ -46,26 +47,22 @@ struct KnownProject {
 }
 
 fn load_known_projects(vault: &Path) -> Vec<KnownProject> {
-    let config_path = vault.join(".app").join("claude-config.md");
-    let content = match fs::read_to_string(&config_path) {
-        Ok(c) => c,
+    let manifest = match VaultManifest::read_in(vault) {
+        Ok(m) => m,
         Err(_) => return Vec::new(),
     };
 
-    let mut projects = Vec::new();
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("- projects/") {
-            let rel = trimmed.trim_start_matches("- ").to_string();
-            let display = rel.rsplit('/').next().unwrap_or(&rel).to_string();
-            projects.push(KnownProject {
+    manifest
+        .project_paths()
+        .map(|rel| {
+            let display = rel.rsplit('/').next().unwrap_or(rel).to_string();
+            KnownProject {
                 name: display.to_lowercase(),
                 display,
-                rel_path: rel,
-            });
-        }
-    }
-    projects
+                rel_path: rel.to_string(),
+            }
+        })
+        .collect()
 }
 
 /// Normalize for matching: strip non-alphanumeric, lowercase. So `song-tips`,
@@ -401,28 +398,10 @@ fn bump_updated_field(frontmatter: &str, date_str: &str) -> String {
 
 // ── Inbox remainder / config timestamp ───────────────
 
-fn update_config_timestamp(vault: &Path, timestamp: &str) -> Result<(), String> {
-    let config_path = vault.join(".app").join("claude-config.md");
-    let content = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config: {}", e))?;
-
-    let updated = if content.contains("last_inbox_processing:") {
-        let mut result = String::new();
-        for line in content.lines() {
-            if line.starts_with("last_inbox_processing:") {
-                result.push_str(&format!("last_inbox_processing: {}", timestamp));
-            } else {
-                result.push_str(line);
-            }
-            result.push('\n');
-        }
-        result
-    } else {
-        content
-    };
-
-    fs::write(&config_path, updated)
-        .map_err(|e| format!("Failed to update config: {}", e))
+fn update_manifest_timestamp(vault: &Path, timestamp: &str) -> Result<(), String> {
+    let mut manifest = VaultManifest::read_in(vault)?;
+    manifest.set_last_inbox_processing(timestamp);
+    manifest.write_in(vault)
 }
 
 fn write_inbox_remainder(vault: &Path, untagged_lines: &[String]) -> Result<(), String> {
@@ -579,7 +558,7 @@ pub fn process(vault_override: Option<PathBuf>) -> Result<ProcessResult, String>
     }
 
     write_inbox_remainder(&vault, &all_untagged)?;
-    update_config_timestamp(&vault, &timestamp)?;
+    update_manifest_timestamp(&vault, &timestamp)?;
 
     if let Err(e) = todo_index::rebuild_and_persist(&vault) {
         eprintln!("Warning: todo index rebuild failed: {}", e);

@@ -1,7 +1,6 @@
 // Project Assistant — Tauri backend
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::collections::HashSet;
 use std::sync::Mutex;
 use std::time::Instant;
@@ -29,10 +28,13 @@ static BINARY_EXTS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
      "zip", "tar", "gz", "exe", "dll", "woff", "woff2", "ttf", "otf"].iter().copied().collect()
 });
 
+mod calendar;
 mod hum;
 mod inbox;
+mod prefs;
 mod todo_index;
 mod todo_parser;
+mod vault_manifest;
 
 use chrono::{Datelike, Local};
 use std::collections::HashMap;
@@ -40,22 +42,17 @@ use std::collections::HashMap;
 /// Number of project pip colors (excludes red which signals errors).
 const NUM_PROJECT_COLORS: usize = 6;
 
-/// Build a deterministic project-name → color_index map from claude-config.md.
-/// Colors are assigned in config order, cycling after all 6 are used.
+/// Build a deterministic project-name → color_index map from the vault manifest.
+/// Colors are assigned in manifest order, cycling after all 6 are used.
 /// The palette order (matching the frontend): aqua=0, green=1, yellow=2, blue=3, purple=4, orange=5.
 /// Red (index 6) is intentionally excluded.
-fn build_project_color_map(config: &str) -> HashMap<String, usize> {
+fn build_project_color_map(manifest: &vault_manifest::VaultManifest) -> HashMap<String, usize> {
     let mut map = HashMap::new();
     let mut idx = 0usize;
-    for line in config.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("- projects/") {
-            let rel = trimmed.trim_start_matches("- ");
-            let name = rel.rsplit('/').next().unwrap_or(rel).to_string();
-            if !map.contains_key(&name) {
-                map.insert(name, idx % NUM_PROJECT_COLORS);
-                idx += 1;
-            }
+    for name in manifest.project_names() {
+        if !map.contains_key(name) {
+            map.insert(name.to_string(), idx % NUM_PROJECT_COLORS);
+            idx += 1;
         }
     }
     map
@@ -93,14 +90,43 @@ struct GravityTodo {
 }
 
 fn vault_path() -> PathBuf {
-    if cfg!(target_os = "windows") {
-        PathBuf::from(r"C:\Users\oliwer.weber\Documents\Hum")
-    } else {
-        dirs::home_dir()
-            .unwrap_or_default()
-            .join("Documents")
-            .join("Hum")
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join("Documents")
+        .join("Hum")
+}
+
+/// Ensure the vault directory tree exists. Returns true if the vault was freshly
+/// created (dir did not exist before). Idempotent: safe to call on every launch.
+fn ensure_vault_scaffold(vault: &Path) -> Result<bool, String> {
+    let is_fresh = !vault.exists();
+
+    let required_dirs = [
+        vault.join(".app").join("metadata").join("Assets"),
+        vault.join("inbox"),
+        vault.join("projects"),
+    ];
+    for dir in &required_dirs {
+        fs::create_dir_all(dir)
+            .map_err(|e| format!("Failed to create {}: {}", dir.display(), e))?;
     }
+
+    let inbox_path = vault.join("inbox").join("inbox.md");
+    if !inbox_path.exists() {
+        fs::write(&inbox_path, "")
+            .map_err(|e| format!("Failed to create inbox.md: {}", e))?;
+    }
+
+    // Only write a default vault.json if neither it nor the legacy markdown exists.
+    // If the legacy file is present, migration (run immediately after this)
+    // produces the manifest from real data.
+    let manifest_path = vault_manifest::VaultManifest::path_in(vault);
+    let legacy_path = vault.join(".app").join("claude-config.md");
+    if !manifest_path.exists() && !legacy_path.exists() {
+        vault_manifest::VaultManifest::default().write_in(vault)?;
+    }
+
+    Ok(is_fresh)
 }
 
 #[tauri::command]
@@ -143,22 +169,14 @@ fn get_vault_path() -> String {
 #[tauri::command]
 fn toggle_dashboard_todo(project: String, todo_text: String, checked: bool) -> Result<(), String> {
     let vault = vault_path();
-
-    // Find the project's todos.md by scanning config for matching project name
-    let config_path = vault.join(".app").join("claude-config.md");
-    let config = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config: {}", e))?;
+    let manifest = vault_manifest::VaultManifest::read_in(&vault)?;
 
     let mut project_rel: Option<String> = None;
-    for line in config.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("- projects/") {
-            let rel = trimmed.trim_start_matches("- ").to_string();
-            let name = rel.rsplit('/').next().unwrap_or(&rel);
-            if name.eq_ignore_ascii_case(&project) {
-                project_rel = Some(rel);
-                break;
-            }
+    for rel in manifest.project_paths() {
+        let name = rel.rsplit('/').next().unwrap_or(rel);
+        if name.eq_ignore_ascii_case(&project) {
+            project_rel = Some(rel.to_string());
+            break;
         }
     }
 
@@ -1133,53 +1151,17 @@ fn vault_get_backlinks(target_stem: String) -> Result<Vec<BacklinkResult>, Strin
 }
 
 #[tauri::command]
-fn fetch_calendar() -> Result<String, String> {
-    let skill_dir = vault_path().join(".app").join("skills").join("check-calendar");
-    let script = skill_dir.join("fetch_calendar.py");
-
-    let py_win = skill_dir.join(".venv").join("Scripts").join("python.exe");
-    let py_unix = skill_dir.join(".venv").join("bin").join("python");
-
-    let python = if py_win.exists() {
-        py_win
-    } else if py_unix.exists() {
-        py_unix
-    } else {
-        return Err("Calendar venv not found. Run the check-calendar skill once to bootstrap it.".to_string());
-    };
-
-    #[cfg(target_os = "windows")]
-    let output = {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        Command::new(&python)
-            .arg(&script)
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .map_err(|e| format!("Failed to run calendar script: {}", e))?
-    };
-
-    #[cfg(not(target_os = "windows"))]
-    let output = Command::new(&python)
-        .arg(&script)
-        .output()
-        .map_err(|e| format!("Failed to run calendar script: {}", e))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Calendar script failed: {}", stderr));
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+async fn fetch_calendar() -> Result<String, String> {
+    let url = prefs::read().ics_url;
+    let data = calendar::fetch_ics(&url).await?;
+    serde_json::to_string(&data).map_err(|e| format!("Failed to serialize calendar: {}", e))
 }
 
 /// Deterministic dashboard rebuild — scans all project todos and regenerates
 /// the Open Todos section of dashboard.md, preserving Blocked and Activity sections.
 fn regenerate_dashboard() -> Result<(), String> {
     let vault = vault_path();
-    let config_path = vault.join(".app").join("claude-config.md");
-    let config = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read claude-config.md: {}", e))?;
+    let manifest = vault_manifest::VaultManifest::read_in(&vault)?;
 
     let dashboard_path = vault.join(".app").join("dashboard.md");
     let existing = fs::read_to_string(&dashboard_path).unwrap_or_default();
@@ -1218,20 +1200,15 @@ fn regenerate_dashboard() -> Result<(), String> {
 
     let mut projects: Vec<ProjectTodos> = Vec::new();
 
-    for line in config.lines() {
-        let trimmed = line.trim();
-        if !trimmed.starts_with("- projects/") {
-            continue;
-        }
-        let rel_path = trimmed.trim_start_matches("- ").to_string();
+    for rel_path in manifest.project_paths() {
         let display = rel_path
             .trim_end_matches('/')
             .rsplit('/')
             .next()
-            .unwrap_or(&rel_path)
+            .unwrap_or(rel_path)
             .to_string();
 
-        let todos_path = vault.join(&rel_path).join("todos.md");
+        let todos_path = vault.join(rel_path).join("todos.md");
         let content = match fs::read_to_string(&todos_path) {
             Ok(c) => c,
             Err(_) => continue,
@@ -1310,19 +1287,15 @@ struct ProjectInfo {
 #[tauri::command]
 fn list_projects() -> Result<Vec<ProjectInfo>, String> {
     let vault = vault_path();
-    let config_path = vault.join(".app").join("claude-config.md");
-    let content = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read claude-config.md: {}", e))?;
+    let manifest = vault_manifest::VaultManifest::read_in(&vault)?;
 
-    let mut projects = Vec::new();
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("- projects/") {
-            let rel = trimmed.trim_start_matches("- ").to_string();
-            let name = rel.rsplit('/').next().unwrap_or(&rel).to_string();
-            projects.push(ProjectInfo { name, path: rel });
-        }
-    }
+    let projects = manifest
+        .project_paths()
+        .map(|rel| ProjectInfo {
+            name: rel.rsplit('/').next().unwrap_or(rel).to_string(),
+            path: rel.to_string(),
+        })
+        .collect();
     Ok(projects)
 }
 
@@ -1341,20 +1314,14 @@ fn list_mentionables() -> Result<Vec<MentionableItem>, String> {
     let vault = vault_path();
     let mut items: Vec<MentionableItem> = Vec::new();
 
-    // Projects from config
-    let config_path = vault.join(".app").join("claude-config.md");
-    if let Ok(content) = fs::read_to_string(&config_path) {
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with("- projects/") {
-                let rel = trimmed.trim_start_matches("- ").to_string();
-                let name = rel.rsplit('/').next().unwrap_or(&rel).to_string();
-                items.push(MentionableItem {
-                    name,
-                    path: rel,
-                    kind: "project".into(),
-                });
-            }
+    // Projects from manifest (tolerate missing file: empty mentionables fall back to notes/wiki scan below)
+    if let Ok(manifest) = vault_manifest::VaultManifest::read_in(&vault) {
+        for rel in manifest.project_paths() {
+            items.push(MentionableItem {
+                name: rel.rsplit('/').next().unwrap_or(rel).to_string(),
+                path: rel.to_string(),
+                kind: "project".into(),
+            });
         }
     }
 
@@ -1406,20 +1373,14 @@ fn process_inbox() -> Result<inbox::ProcessResult, String> {
 #[tauri::command]
 fn get_project_gravity() -> Result<Vec<ProjectGravity>, String> {
     let vault = vault_path();
-    let config_path = vault.join(".app").join("claude-config.md");
-    let config = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read claude-config.md: {}", e))?;
+    let manifest = vault_manifest::VaultManifest::read_in(&vault)?;
 
     let today = chrono::Local::now().date_naive();
-    let color_map = build_project_color_map(&config);
+    let color_map = build_project_color_map(&manifest);
     let mut results = Vec::new();
 
-    for line in config.lines() {
-        let trimmed = line.trim();
-        if !trimmed.starts_with("- projects/") {
-            continue;
-        }
-        let rel = trimmed.trim_start_matches("- ").to_string();
+    for rel_ref in manifest.project_paths() {
+        let rel = rel_ref.to_string();
         let name = rel.rsplit('/').next().unwrap_or(&rel).to_string();
 
         let color_index = color_map.get(&name).copied().unwrap_or(0);
@@ -1677,9 +1638,7 @@ struct WeeklySummary {
 #[tauri::command]
 fn get_weekly_summary(week_offset: i32) -> Result<WeeklySummary, String> {
     let vault = vault_path();
-    let config_path = vault.join(".app").join("claude-config.md");
-    let config = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config: {}", e))?;
+    let manifest = vault_manifest::VaultManifest::read_in(&vault)?;
 
     // Calculate week boundaries (Mon-Sun)
     let today = chrono::Local::now().date_naive();
@@ -1691,16 +1650,13 @@ fn get_weekly_summary(week_offset: i32) -> Result<WeeklySummary, String> {
     let weekday_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
     // Collect project paths
-    let color_map = build_project_color_map(&config);
+    let color_map = build_project_color_map(&manifest);
     let mut project_entries: Vec<(String, String, usize)> = Vec::new(); // (name, rel_path, color_index)
-    for line in config.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("- projects/") {
-            let rel = trimmed.trim_start_matches("- ").to_string();
-            let name = rel.rsplit('/').next().unwrap_or(&rel).to_string();
-            let color_index = color_map.get(&name).copied().unwrap_or(0);
-            project_entries.push((name, rel, color_index));
-        }
+    for rel_ref in manifest.project_paths() {
+        let rel = rel_ref.to_string();
+        let name = rel.rsplit('/').next().unwrap_or(&rel).to_string();
+        let color_index = color_map.get(&name).copied().unwrap_or(0);
+        project_entries.push((name, rel, color_index));
     }
 
     // For each day in the week, collect data per project
@@ -1796,9 +1752,29 @@ pub fn run() {
                 )?;
             }
 
+            let vault = vault_path();
+
+            // Scaffold vault tree if missing, then flag welcome as pending
+            match ensure_vault_scaffold(&vault) {
+                Ok(true) => {
+                    if let Err(e) = prefs::mark_first_run_pending() {
+                        eprintln!("Warning: could not flag first run: {}", e);
+                    }
+                    eprintln!("Fresh vault scaffolded at {}", vault.display());
+                }
+                Ok(false) => {}
+                Err(e) => eprintln!("Warning: vault scaffold failed: {}", e),
+            }
+
+            // Migrate legacy claude-config.md → vault.json if needed (one-shot)
+            match vault_manifest::migrate_from_legacy_if_needed(&vault) {
+                Ok(true) => eprintln!("Migrated legacy claude-config.md → vault.json"),
+                Ok(false) => {}
+                Err(e) => eprintln!("Warning: manifest migration failed: {}", e),
+            }
+
             // Rebuild todo index on app launch (stamps UUIDs on unstamped todos,
             // builds .todo-index.json from authoritative markdown files)
-            let vault = vault_path();
             match todo_index::rebuild_and_persist(&vault) {
                 Ok(index) => {
                     let open = index.entries.values().filter(|e| e.status == "open" && !e.archived).count();
@@ -1847,6 +1823,8 @@ pub fn run() {
             snooze_project,
             unsnooze_project,
             read_project_todos,
+            prefs::get_prefs,
+            prefs::set_prefs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

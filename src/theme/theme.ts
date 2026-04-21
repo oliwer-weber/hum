@@ -16,8 +16,8 @@ export const FONTS: { id: FontId; label: string; description: string }[] = [
 
 const THEME_KEY = "pa.theme";
 const FONT_KEY = "pa.font";
-const DEFAULT_THEME: ThemeId = "gruvbox";
-const DEFAULT_FONT: FontId = "mono";
+const DEFAULT_THEME: ThemeId = "light";
+const DEFAULT_FONT: FontId = "modern";
 
 export function getStoredTheme(): ThemeId {
   const raw = typeof localStorage !== "undefined" ? localStorage.getItem(THEME_KEY) : null;

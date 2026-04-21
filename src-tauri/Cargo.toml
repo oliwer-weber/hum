@@ -1,10 +1,8 @@
 [package]
-name = "app"
+name = "project-assistant"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
-license = ""
-repository = ""
+description = "Personal productivity desktop app"
+authors = ["Oliwer Weber"]
 edition = "2021"
 rust-version = "1.77.2"
 
@@ -30,6 +28,7 @@ tokio = { version = "1", features = ["full"] }
 futures = "0.3"
 dotenvy = "0.15"
 chrono = "0.4"
+chrono-tz = "0.9"
 uuid = { version = "1", features = ["v4"] }
 regex = "1"
 once_cell = "1"
