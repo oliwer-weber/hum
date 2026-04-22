@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Project Assistant",
+  "productName": "Hum",
   "version": "0.1.0",
-  "identifier": "com.oliwer.project-assistant",
+  "identifier": "com.oliwer.hum",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Project Assistant",
+        "title": "Hum",
         "width": 1200,
         "height": 800,
         "minWidth": 800,

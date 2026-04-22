@@ -1,5 +1,5 @@
 [package]
-name = "project-assistant"
+name = "hum"
 version = "0.1.0"
 description = "Personal productivity desktop app"
 authors = ["Oliwer Weber"]

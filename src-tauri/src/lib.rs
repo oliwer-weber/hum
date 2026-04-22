@@ -1,4 +1,4 @@
-// Project Assistant — Tauri backend
+// Hum — Tauri backend
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::collections::HashSet;

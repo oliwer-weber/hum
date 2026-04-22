@@ -24,7 +24,7 @@ export default function Welcome({ onDismiss }: WelcomeProps) {
   return (
     <div className={`welcome-overlay ${dismissing ? "welcome-dismissing" : ""}`}>
       <div className="welcome-panel">
-        <div className="welcome-mark">Project Assistant</div>
+        <div className="welcome-mark">Hum</div>
         <h1 className="welcome-title">Welcome.</h1>
         <p className="welcome-body">
           Your workspace is ready. Capture whatever&apos;s on your mind in Write,
