@@ -20,6 +20,20 @@ fn invalidate_vault_cache() {
     }
 }
 
+/// Run after any mutation that moves, renames, or deletes files/folders in the
+/// vault. Reconciles the project manifest with the filesystem (prune + sync)
+/// and rebuilds the todo index. Cheap enough to call per-operation for
+/// interactive actions; keeps Focus/Find/Write aligned without waiting for
+/// inbox processing to heal stale state.
+fn refresh_vault_state(vault: &Path) {
+    if let Err(e) = reconcile_projects_with_filesystem(vault) {
+        eprintln!("Warning: manifest reconcile after mutation: {}", e);
+    }
+    if let Err(e) = todo_index::rebuild_and_persist(vault) {
+        eprintln!("Warning: todo index rebuild after mutation: {}", e);
+    }
+}
+
 static SKIP_DIRS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     [".git", ".obsidian", ".trash", ".claude", ".app", "node_modules"].iter().copied().collect()
 });
@@ -608,6 +622,7 @@ fn vault_rename(relative_path: String, new_name: String) -> Result<String, Strin
         .to_string_lossy()
         .replace('\\', "/");
     invalidate_vault_cache();
+    refresh_vault_state(&base);
     Ok(new_relative)
 }
 
@@ -630,6 +645,7 @@ fn vault_delete(relative_path: String) -> Result<(), String> {
         fs::remove_file(&resolved).map_err(|e| format!("Failed to delete file: {}", e))?;
     }
     invalidate_vault_cache();
+    refresh_vault_state(&base);
     Ok(())
 }
 
@@ -667,6 +683,7 @@ fn vault_move(source: String, dest_dir: String) -> Result<String, String> {
         .to_string_lossy()
         .replace('\\', "/");
     invalidate_vault_cache();
+    refresh_vault_state(&base);
     Ok(new_relative)
 }
 
