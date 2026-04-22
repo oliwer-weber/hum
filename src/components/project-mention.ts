@@ -24,6 +24,8 @@ export interface ProjectItem {
 
 export type MentionKind = "project" | "note" | "wiki";
 
+export type CreateKind = "work-project" | "personal-project" | "wiki" | "note";
+
 export interface MentionableItem {
   name: string;
   path: string;
@@ -33,7 +35,9 @@ export interface MentionableItem {
 interface RenderItem {
   item: MentionableItem | null;
   isCreate: boolean;
+  createKind: CreateKind | null;
   createName: string;
+  isDefault: boolean;
 }
 
 /* ── Fuzzy filter ─────────────────────────────────── */
@@ -52,10 +56,10 @@ function fuzzyMatch(query: string, name: string): boolean {
   return n.includes(q);
 }
 
-function hasExactMatch(query: string, items: MentionableItem[]): boolean {
+function hasAnyMatch(query: string, items: MentionableItem[]): boolean {
   const q = normalize(query);
   if (!q) return false;
-  return items.some((it) => normalize(it.name) === q);
+  return items.some((it) => fuzzyMatch(query, it.name));
 }
 
 /* ── Popup DOM ────────────────────────────────────── */
@@ -107,15 +111,17 @@ function renderPopup() {
       (item.isCreate ? " pm-suggest-create" : "");
     if (!item.isCreate && item.item) {
       row.setAttribute("data-mention-kind", displayKindOf(item.item));
-    } else if (item.isCreate) {
-      row.setAttribute("data-mention-kind", "pending");
+    } else if (item.isCreate && item.createKind) {
+      row.setAttribute("data-mention-kind", createKindTokenOf(item.createKind));
     }
 
     const name = document.createElement("span");
     name.className = "pm-suggest-name";
-    name.textContent = item.isCreate
-      ? `new note: ${item.createName}`
-      : item.item!.name;
+    if (item.isCreate && item.createKind) {
+      name.textContent = `${createKindLabel(item.createKind)} "${item.createName}"`;
+    } else {
+      name.textContent = item.item!.name;
+    }
     row.appendChild(name);
 
     if (!item.isCreate && item.item) {
@@ -183,11 +189,14 @@ function showPopup(rect: DOMRect, renderItems: RenderItem[], selectFn: (item: Re
     renderItems.some((r, i) => {
       const prev = items[i];
       if (r.isCreate !== prev?.isCreate) return true;
-      if (r.isCreate) return r.createName !== prev.createName;
+      if (r.isCreate) return r.createKind !== prev.createKind || r.createName !== prev.createName;
       return r.item?.path !== prev?.item?.path;
     });
   items = renderItems;
-  if (changed) selectedIndex = 0;
+  if (changed) {
+    const defaultIdx = renderItems.findIndex((r) => r.isDefault);
+    selectedIndex = defaultIdx >= 0 ? defaultIdx : 0;
+  }
   if (selectedIndex >= items.length) selectedIndex = Math.max(0, items.length - 1);
   onSelect = selectFn;
   popup.style.left = `${rect.left}px`;
@@ -227,8 +236,10 @@ function detectMention(editor: Editor): MentionMatch | null {
   // Get text of the current block node from start to cursor
   const textBefore = $from.parent.textBetween(0, $from.parentOffset);
 
-  // Check if the line starts with @ (possibly with leading whitespace)
-  const match = textBefore.match(/^(\s*)@([^\s]*)$/);
+  // Mention lives on its own line. Spaces inside the query are allowed — the
+  // mention ends on Enter (which splits the block) or Escape. This lets users
+  // name things naturally ("@Project Alpha", "@Meeting with John").
+  const match = textBefore.match(/^(\s*)@(.*)$/);
   if (!match) return null;
 
   const whitespace = match[1];
@@ -259,6 +270,26 @@ function mentionLabel(item: MentionableItem): string {
   return displayKindOf(item);
 }
 
+/** Human-readable prefix shown in the zero-match create rows. */
+function createKindLabel(kind: CreateKind): string {
+  switch (kind) {
+    case "work-project": return "Create work project";
+    case "personal-project": return "Create personal project";
+    case "wiki": return "Create wiki entry";
+    case "note": return "Create new note";
+  }
+}
+
+/** Token used for data-mention-kind on create rows — drives pill coloring. */
+function createKindTokenOf(kind: CreateKind): string {
+  switch (kind) {
+    case "work-project": return "work";
+    case "personal-project": return "personal";
+    case "wiki": return "wiki";
+    case "note": return "note";
+  }
+}
+
 // Sort order within the popup: existing items (projects > notes > wiki) first,
 // alphabetical within each kind.
 const KIND_ORDER: Record<MentionKind, number> = { project: 0, note: 1, wiki: 2 };
@@ -275,29 +306,37 @@ function buildItems(query: string, items: MentionableItem[]): RenderItem[] {
     return items.slice().sort(compareItems).slice(0, 12).map((it) => ({
       item: it,
       isCreate: false,
+      createKind: null,
       createName: "",
+      isDefault: false,
     }));
   }
 
-  const matched: RenderItem[] = items
-    .filter((it) => fuzzyMatch(q, it.name))
-    .sort(compareItems)
-    .slice(0, 10)
-    .map((it) => ({
-      item: it,
-      isCreate: false,
-      createName: "",
-    }));
-
-  if (q.length > 0 && !hasExactMatch(q, items)) {
-    matched.push({
-      item: null,
-      isCreate: true,
-      createName: q,
-    });
+  // Any match on the typed query → show existing items only, no create actions.
+  if (hasAnyMatch(q, items)) {
+    return items
+      .filter((it) => fuzzyMatch(q, it.name))
+      .sort(compareItems)
+      .slice(0, 10)
+      .map((it) => ({
+        item: it,
+        isCreate: false,
+        createKind: null,
+        createName: "",
+        isDefault: false,
+      }));
   }
 
-  return matched;
+  // Zero matches → offer the four create actions. Default-highlight is
+  // "Create new note" so bare-Enter matches the legacy fallback behavior.
+  const createKinds: CreateKind[] = ["work-project", "personal-project", "wiki", "note"];
+  return createKinds.map((kind) => ({
+    item: null,
+    isCreate: true,
+    createKind: kind,
+    createName: q,
+    isDefault: kind === "note",
+  }));
 }
 
 /* ── Get cursor coordinates for popup positioning ─── */
@@ -315,22 +354,24 @@ function getCursorRect(editor: Editor): DOMRect | null {
 
 /* ── Main attach function ─────────────────────────── */
 
+export interface AutocompleteOptions {
+  onCreate?: (kind: CreateKind, name: string) => Promise<void>;
+}
+
 export function attachProjectAutocomplete(
   editor: Editor,
   getMentionables: () => MentionableItem[],
+  opts: AutocompleteOptions = {},
 ): () => void {
   editorRef = editor;
   mentionablesGetter = getMentionables;
   let active = false;
   let currentMatch: MentionMatch | null = null;
+  let committing = false;
 
-  function confirmSelection(item: RenderItem) {
-    if (!currentMatch) return;
-    const name = item.isCreate ? item.createName : item.item!.name;
-    const { from, to } = currentMatch;
-
-    // Single transaction: delete @query, insert @ProjectName, split block.
-    // Using one transaction avoids position-mapping issues between chained commands.
+  function insertMention(name: string, from: number, to: number) {
+    // Single transaction: delete @query, insert @Name, split block. One
+    // transaction avoids position-mapping issues between chained commands.
     editor.chain().focus().command(({ tr, dispatch }) => {
       if (!dispatch) return false;
       const tagText = `@${name}`;
@@ -338,6 +379,30 @@ export function attachProjectAutocomplete(
       tr.split(from + tagText.length);
       return true;
     }).run();
+  }
+
+  async function confirmSelection(item: RenderItem) {
+    if (!currentMatch || committing) return;
+    const { from, to } = currentMatch;
+
+    if (item.isCreate && item.createKind) {
+      // Run the backend creation first. If it fails, leave the @query in place
+      // so the user can edit and retry without losing their input.
+      committing = true;
+      try {
+        if (opts.onCreate) {
+          await opts.onCreate(item.createKind, item.createName);
+        }
+      } catch (err) {
+        console.error("create mention failed:", err);
+        committing = false;
+        return;
+      }
+      committing = false;
+      insertMention(item.createName, from, to);
+    } else if (item.item) {
+      insertMention(item.item.name, from, to);
+    }
 
     hidePopup();
     active = false;

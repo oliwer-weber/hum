@@ -98,13 +98,23 @@ export default function ProjectsView({
       n += 1;
       candidate = `new-project-${n}`;
     }
-    const base = `${scopePath(scope)}/${candidate}`;
     try {
-      await invoke("vault_create_dir", { relativePath: base });
-      await invoke("vault_create_dir", { relativePath: `${base}/notes` });
-      await invoke("vault_create_file", { relativePath: `${base}/todos.md`, content: "" });
+      let relPath: string;
+      if (scope === "archive") {
+        // Archived projects aren't registered in the manifest (not @-mentionable).
+        const base = `${scopePath(scope)}/${candidate}`;
+        await invoke("vault_create_dir", { relativePath: base });
+        await invoke("vault_create_dir", { relativePath: `${base}/notes` });
+        await invoke("vault_create_file", { relativePath: `${base}/todos.md`, content: "" });
+        relPath = base;
+      } else {
+        relPath = await invoke<string>("register_project", {
+          name: candidate,
+          bucket: scope,
+        });
+      }
       onVaultChanged();
-      onOpenProject(base);
+      onOpenProject(relPath);
     } catch (err) {
       console.error("create project failed:", err);
     }

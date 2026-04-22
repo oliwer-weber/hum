@@ -6,7 +6,7 @@ import { createSharedExtensions, PAIRS, CLOSE_CHARS } from "./editor-config";
 import { WikiLink, WikiEmbed, convertTextToWikiLinks } from "./wikilink";
 import { HashTag } from "./hashtag";
 import { attachProjectAutocomplete, ProjectMentionKeymap, ProjectTagStyle } from "./project-mention";
-import type { MentionableItem } from "./project-mention";
+import type { MentionableItem, CreateKind } from "./project-mention";
 import type { VaultFileInfo } from "./wikilink";
 
 const FRONTMATTER = "---\ncssclasses:\n  - home-title\n---";
@@ -179,7 +179,27 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
   // ── Attach @ autocomplete once editor is ready ──
   useEffect(() => {
     if (!editor || !editorReady) return;
-    const cleanup = attachProjectAutocomplete(editor, () => mentionablesRef.current);
+    const onCreate = async (kind: CreateKind, name: string) => {
+      if (kind === "work-project" || kind === "personal-project") {
+        const bucket = kind === "work-project" ? "work" : "personal";
+        await invoke("register_project", { name, bucket });
+      } else if (kind === "wiki") {
+        await invoke("create_wiki_entry", { name });
+      } else if (kind === "note") {
+        await invoke("create_note", { name });
+      }
+      // New file/project is now on disk. Refresh the mentionables so this
+      // mention resolves as a known kind, and bump vault-wide state so the
+      // Find tab picks it up too.
+      await new Promise<void>((resolve) => {
+        invoke<MentionableItem[]>("list_mentionables").then((items) => {
+          mentionablesRef.current = items;
+          resolve();
+        }).catch(() => resolve());
+      });
+      onVaultChanged?.();
+    };
+    const cleanup = attachProjectAutocomplete(editor, () => mentionablesRef.current, { onCreate });
     // Refresh the mentionables list whenever the editor gains focus — catches
     // files created externally (Vault view, filesystem) since component mount.
     const onFocus = () => reloadMentionables();
@@ -188,7 +208,7 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
       cleanup();
       editor.off("focus", onFocus);
     };
-  }, [editor, editorReady, reloadMentionables]);
+  }, [editor, editorReady, reloadMentionables, onVaultChanged]);
 
   // ── Switchover: when editor is ready, transfer content ──
   useEffect(() => {

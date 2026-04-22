@@ -1314,6 +1314,13 @@ fn list_mentionables() -> Result<Vec<MentionableItem>, String> {
     let vault = vault_path();
     let mut items: Vec<MentionableItem> = Vec::new();
 
+    // Self-heal on every call so deletes/renames/moves via the Find tab
+    // reflect in autocomplete on the next refresh without explicit touch-ups
+    // at each call site. Cheap: one dir scan per bucket, no write unless drift.
+    if let Err(e) = reconcile_projects_with_filesystem(&vault) {
+        eprintln!("Warning: manifest reconcile during list_mentionables: {}", e);
+    }
+
     // Projects from manifest (tolerate missing file: empty mentionables fall back to notes/wiki scan below)
     if let Ok(manifest) = vault_manifest::VaultManifest::read_in(&vault) {
         for rel in manifest.project_paths() {
@@ -1358,6 +1365,140 @@ fn list_mentionables() -> Result<Vec<MentionableItem>, String> {
     }
 
     Ok(items)
+}
+
+/// Sanitize a user-typed name for use as a filesystem path segment AND as a
+/// re-enterable `@tag` in the inbox. Restricts to the inbox parser's char set
+/// (alphanumeric, space, hyphen, underscore) so anything the user creates
+/// can always be typed back as a tag. Collapses internal whitespace.
+fn sanitize_name(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("Name cannot be empty".to_string());
+    }
+    if !trimmed.chars().all(|c| c.is_alphanumeric() || c == ' ' || c == '-' || c == '_') {
+        return Err(
+            "Name can only contain letters, numbers, spaces, hyphens, or underscores".to_string(),
+        );
+    }
+    let collapsed: String = trimmed.split_whitespace().collect::<Vec<_>>().join(" ");
+    Ok(collapsed)
+}
+
+/// Create a project folder with subfolders + empty todos.md AND register its
+/// rel_path in the vault manifest. This is the single creation path: both the
+/// Find-tab button and the Write-tab autocomplete create-action call it, so
+/// `vault.json` never drifts from the filesystem.
+#[tauri::command]
+fn register_project(name: String, bucket: String) -> Result<String, String> {
+    let name = sanitize_name(&name)?;
+    let bucket = bucket.trim();
+    if bucket != "work" && bucket != "personal" {
+        return Err(format!("Invalid bucket: {}", bucket));
+    }
+
+    let vault = vault_path();
+    let rel_path = format!("projects/{}/{}", bucket, name);
+    let project_dir = vault.join(&rel_path);
+
+    if project_dir.exists() {
+        return Err(format!("A project named \"{}\" already exists in {}", name, bucket));
+    }
+
+    fs::create_dir_all(&project_dir)
+        .map_err(|e| format!("Failed to create project dir: {}", e))?;
+    fs::create_dir_all(project_dir.join("notes"))
+        .map_err(|e| format!("Failed to create notes subdir: {}", e))?;
+    fs::write(project_dir.join("todos.md"), "")
+        .map_err(|e| format!("Failed to create todos.md: {}", e))?;
+
+    // Update manifest. Use default if missing so first-run vaults still register.
+    let mut manifest = vault_manifest::VaultManifest::read_in(&vault)
+        .unwrap_or_default();
+    if !manifest.projects.iter().any(|p| p == &rel_path) {
+        manifest.projects.push(rel_path.clone());
+        manifest.write_in(&vault)?;
+    }
+
+    invalidate_vault_cache();
+    Ok(rel_path)
+}
+
+/// Create an empty wiki entry file with standard frontmatter. No manifest
+/// change — wiki/notes are discovered by filesystem scan, not registry.
+#[tauri::command]
+fn create_wiki_entry(name: String) -> Result<String, String> {
+    create_collection_entry(&name, "wiki")
+}
+
+/// Create an empty loose note file with standard frontmatter.
+#[tauri::command]
+fn create_note(name: String) -> Result<String, String> {
+    create_collection_entry(&name, "notes")
+}
+
+fn create_collection_entry(name: &str, collection: &str) -> Result<String, String> {
+    let name = sanitize_name(name)?;
+    let vault = vault_path();
+    let dir = vault.join(collection);
+    fs::create_dir_all(&dir)
+        .map_err(|e| format!("Failed to create {} dir: {}", collection, e))?;
+
+    let rel_path = format!("{}/{}.md", collection, name);
+    let full_path = vault.join(&rel_path);
+    if full_path.exists() {
+        return Err(format!("A {} entry named \"{}\" already exists", collection, name));
+    }
+
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let kind = if collection == "wiki" { "wiki" } else { "note" };
+    let content = format!(
+        "---\ntype: {}\nstatus: active\ncreated: {}\nupdated: {}\n---\n",
+        kind, today, today
+    );
+    fs::write(&full_path, content)
+        .map_err(|e| format!("Failed to create {} file: {}", collection, e))?;
+
+    invalidate_vault_cache();
+    Ok(rel_path)
+}
+
+/// Reconcile the vault manifest with the filesystem: prune entries whose
+/// folders no longer exist (covers delete/rename/move drift) and append new
+/// subfolders under projects/{work,personal} that aren't yet registered.
+/// Archive is intentionally excluded — archived projects aren't @-mentionable.
+/// Returns (pruned, added). Writes the manifest only if something changed.
+fn reconcile_projects_with_filesystem(vault: &Path) -> Result<(usize, usize), String> {
+    let mut manifest = vault_manifest::VaultManifest::read_in(vault).unwrap_or_default();
+    let before = manifest.projects.len();
+
+    // Prune: drop entries whose folders are gone.
+    manifest.projects.retain(|rel| vault.join(rel).is_dir());
+    let pruned = before - manifest.projects.len();
+
+    // Sync: append any filesystem folders missing from the manifest.
+    let mut added = 0usize;
+    for bucket in &["work", "personal"] {
+        let bucket_dir = vault.join("projects").join(bucket);
+        let Ok(entries) = fs::read_dir(&bucket_dir) else { continue };
+        for entry in entries.flatten() {
+            if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let Some(name) = entry.file_name().to_str().map(String::from) else { continue };
+            if name.starts_with('.') { continue; }
+            let rel = format!("projects/{}/{}", bucket, name);
+            if !manifest.projects.iter().any(|p| p == &rel) {
+                manifest.projects.push(rel);
+                added += 1;
+            }
+        }
+    }
+
+    if pruned > 0 || added > 0 {
+        manifest.write_in(vault)?;
+    }
+    Ok((pruned, added))
 }
 
 #[tauri::command]
@@ -1773,6 +1914,17 @@ pub fn run() {
                 Err(e) => eprintln!("Warning: manifest migration failed: {}", e),
             }
 
+            // Heal drift: prune manifest entries whose folders vanished
+            // (delete/rename/move drift) and register any project folders not yet
+            // in the manifest. Runs on every launch as a safety net.
+            match reconcile_projects_with_filesystem(&vault) {
+                Ok((pruned, added)) if pruned > 0 || added > 0 => {
+                    eprintln!("Manifest reconciled: pruned {}, added {}", pruned, added)
+                }
+                Ok(_) => {}
+                Err(e) => eprintln!("Warning: project manifest reconcile failed: {}", e),
+            }
+
             // Rebuild todo index on app launch (stamps UUIDs on unstamped todos,
             // builds .todo-index.json from authoritative markdown files)
             match todo_index::rebuild_and_persist(&vault) {
@@ -1813,6 +1965,9 @@ pub fn run() {
             hum::hum_send,
             list_projects,
             list_mentionables,
+            register_project,
+            create_wiki_entry,
+            create_note,
             process_inbox,
             get_project_gravity,
             get_weekly_summary,
