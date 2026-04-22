@@ -1,6 +1,6 @@
 [package]
 name = "hum"
-version = "0.1.0-beta.2"
+version = "0.1.0-2"
 description = "Personal productivity desktop app"
 authors = ["Oliwer Weber"]
 edition = "2021"
