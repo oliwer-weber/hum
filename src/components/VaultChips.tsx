@@ -1,5 +1,3 @@
-import { useEffect, useRef, useState } from "react";
-
 export interface ChipOption<T extends string> {
   key: T;
   label: string;
@@ -18,34 +16,8 @@ export default function VaultChips<T extends string>({
   onChange,
   ariaLabel,
 }: VaultChipsProps<T>) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [pillStyle, setPillStyle] = useState<React.CSSProperties>({ opacity: 0 });
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const active = container.querySelector<HTMLElement>('.vchip[aria-pressed="true"]');
-    if (!active) {
-      setPillStyle({ opacity: 0 });
-      return;
-    }
-    const containerRect = container.getBoundingClientRect();
-    const activeRect = active.getBoundingClientRect();
-    setPillStyle({
-      opacity: 1,
-      transform: `translateX(${activeRect.left - containerRect.left - 3}px)`,
-      width: activeRect.width,
-    });
-  }, [value, options]);
-
   return (
-    <div
-      className="vchips"
-      role="tablist"
-      aria-label={ariaLabel}
-      ref={containerRef}
-    >
-      <div className="vchips-pill" style={pillStyle} aria-hidden="true" />
+    <div className="vchips" role="tablist" aria-label={ariaLabel}>
       {options.map((opt) => (
         <button
           key={opt.key}

@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import type { FuseOptionKey } from "fuse.js";
 import VaultCard from "./VaultCard";
-import type { VaultFileInfo } from "./wikilink";
+import { useFuseFilter } from "../hooks/useFuseFilter";
 
 export type CollectionKey = "projects" | "library" | "notes";
 
@@ -17,11 +18,39 @@ interface RecentEntry {
   openedAt: number;
 }
 
-const COLLECTION_LABELS: Record<CollectionKey, string> = {
-  projects: "Projects",
-  library: "Library",
-  notes: "Notes",
+interface FindItem {
+  kind: "project" | "wiki" | "note" | "project_note";
+  path: string;
+  title: string;
+  excerpt: string;
+  body: string;
+  tags: string[];
+  pinned: boolean;
+  updated: string;
+  project: string | null;
+}
+
+const KIND_ICON: Record<FindItem["kind"], string> = {
+  project: "◆",
+  wiki: "❑",
+  note: "✎",
+  project_note: "→",
 };
+
+const KIND_LABEL: Record<FindItem["kind"], string> = {
+  project: "Project",
+  wiki: "Library",
+  note: "Note",
+  project_note: "Project note",
+};
+
+const FIND_KEYS: FuseOptionKey<FindItem>[] = [
+  { name: "title", weight: 2 },
+  { name: "path", weight: 1 },
+  { name: "tags", weight: 1 },
+  { name: "excerpt", weight: 1 },
+  { name: "body", weight: 0.5 },
+];
 
 function loadRecents(): RecentEntry[] {
   try {
@@ -41,121 +70,98 @@ function recentTitlesFor(prefix: string, recents: RecentEntry[]): string[] {
     .map((r) => r.name.replace(/\.md$/i, ""));
 }
 
-function countWhere(files: VaultFileInfo[], predicate: (path: string) => boolean): number {
-  let n = 0;
-  for (const f of files) if (predicate(f.path)) n++;
-  return n;
-}
-
 function pluralize(n: number, singular: string, plural?: string): string {
   return `${n} ${n === 1 ? singular : (plural ?? `${singular}s`)}`;
 }
 
-function collectionForPath(path: string): CollectionKey | "other" {
-  if (path.startsWith("projects/")) return "projects";
-  if (path.startsWith("wiki/")) return "library";
-  if (path.startsWith("notes/")) return "notes";
-  return "other";
-}
-
-function displayPath(path: string): string {
-  // Show a friendly path: strip the on-disk collection prefix and .md ext.
-  let p = path.replace(/^wiki\//, "Library / ");
-  p = p.replace(/^notes\//, "Notes / ");
-  p = p.replace(/^projects\//, "Projects / ");
-  p = p.replace(/\/notes\//, " / Notes / ");
-  p = p.replace(/\.md$/i, "");
-  return p;
+function resultSubtitle(item: FindItem): string {
+  switch (item.kind) {
+    case "project":
+      return `${KIND_LABEL[item.kind]} · ${item.path}`;
+    case "project_note":
+      return item.project
+        ? `${KIND_LABEL[item.kind]} · ${item.project}`
+        : KIND_LABEL[item.kind];
+    default: {
+      // Strip collection prefix for cleaner display.
+      const cleaned = item.path
+        .replace(/^wiki\//, "")
+        .replace(/^notes\//, "")
+        .replace(/\.md$/i, "");
+      return `${KIND_LABEL[item.kind]} · ${cleaned}`;
+    }
+  }
 }
 
 export default function VaultLanding({ refreshKey, onOpenCollection, onOpenPath }: VaultLandingProps) {
-  const [files, setFiles] = useState<VaultFileInfo[]>([]);
+  const [corpus, setCorpus] = useState<FindItem[]>([]);
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<VaultFileInfo[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
-  const debounceRef = useRef<number | null>(null);
 
   const recents = loadRecents();
 
   useEffect(() => {
-    invoke<VaultFileInfo[]>("vault_all_files").then(setFiles).catch(() => setFiles([]));
+    invoke<FindItem[]>("list_all_findables")
+      .then(setCorpus)
+      .catch(() => setCorpus([]));
   }, [refreshKey]);
 
+  const matched = useFuseFilter(corpus, FIND_KEYS, query);
+
   useEffect(() => {
-    const trimmed = query.trim();
-    if (!trimmed) {
-      setResults([]);
+    if (query.trim()) {
+      setShowResults(true);
+      setActiveIdx(0);
+    } else {
       setShowResults(false);
-      return;
     }
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = window.setTimeout(async () => {
-      try {
-        const rs = await invoke<VaultFileInfo[]>("vault_search_files", { query: trimmed });
-        setResults(rs);
-        setShowResults(true);
-        setActiveIdx(0);
-      } catch {
-        setResults([]);
-      }
-    }, 180);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [query]);
 
-  // Group results by collection, preserving match order inside each group.
-  const grouped = useMemo(() => {
-    const g: Record<"projects" | "library" | "notes" | "other", VaultFileInfo[]> = {
-      projects: [], library: [], notes: [], other: [],
-    };
-    for (const r of results) g[collectionForPath(r.path)].push(r);
-    return g;
-  }, [results]);
-
-  // Flat array of visible results in render order (for keyboard nav).
-  const flatResults = useMemo(
-    () => [...grouped.projects, ...grouped.library, ...grouped.notes, ...grouped.other],
-    [grouped]
-  );
-
-  const handleOpenResult = (path: string) => {
+  const handleOpenResult = (item: FindItem) => {
     setShowResults(false);
     setQuery("");
-    onOpenPath(path);
+    if (item.kind === "project") {
+      // Projects route through the project-hub flow, not the editor.
+      onOpenPath(item.path);
+    } else {
+      onOpenPath(item.path);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActiveIdx((i) => Math.min(i + 1, Math.max(0, flatResults.length - 1)));
+      setActiveIdx((i) => Math.min(i + 1, Math.max(0, matched.length - 1)));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActiveIdx((i) => Math.max(0, i - 1));
-    } else if (e.key === "Enter" && flatResults[activeIdx]) {
+    } else if (e.key === "Enter" && matched[activeIdx]) {
       e.preventDefault();
-      handleOpenResult(flatResults[activeIdx].path);
+      handleOpenResult(matched[activeIdx]);
     } else if (e.key === "Escape") {
       setShowResults(false);
       setQuery("");
     }
   };
 
-  const projectSet = new Set<string>();
-  for (const f of files) {
-    if (!f.path.startsWith("projects/")) continue;
-    if (f.path.startsWith("projects/archive/")) continue;
-    const parts = f.path.split("/");
-    if (parts.length >= 3) projectSet.add(`${parts[0]}/${parts[1]}/${parts[2]}`);
-  }
-  const projectCount = projectSet.size;
-  const libraryCount = countWhere(files, (p) => p.startsWith("wiki/"));
-  const notesCount = countWhere(files, (p) => p.startsWith("notes/") && !p.startsWith("notes/archive/"));
+  // Derive counts from the corpus so the hero cards stay in sync without
+  // a second roundtrip to the backend.
+  const counts = useMemo(() => {
+    let projects = 0;
+    let library = 0;
+    let notes = 0;
+    for (const item of corpus) {
+      if (item.kind === "project") projects++;
+      else if (item.kind === "wiki") library++;
+      else if (item.kind === "note") notes++;
+    }
+    return { projects, library, notes };
+  }, [corpus]);
 
   const projectRecents = recentTitlesFor("projects/", recents);
   const libraryRecents = recentTitlesFor("wiki/", recents);
   const notesRecents = recentTitlesFor("notes/", recents);
-
-  const orderedCollections: Array<"projects" | "library" | "notes"> = ["projects", "library", "notes"];
 
   return (
     <div className="vlanding-shell">
@@ -170,67 +176,41 @@ export default function VaultLanding({ refreshKey, onOpenCollection, onOpenPath 
           <input
             className="vsearch-input"
             type="text"
-            placeholder="Search your notes…"
+            placeholder="Search titles, tags, or content…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onFocus={() => { if (results.length > 0) setShowResults(true); }}
+            onFocus={() => { if (query.trim()) setShowResults(true); }}
             onKeyDown={handleKeyDown}
-            aria-label="Search your notes"
+            aria-label="Search your vault"
           />
           <span className="vsearch-kbd">↵</span>
         </div>
 
         {showResults && query.trim() && (
           <div className="vsearch-results" role="listbox">
-            {flatResults.length === 0 ? (
+            {matched.length === 0 ? (
               <div className="vsearch-no-results">No matches for "{query.trim()}"</div>
             ) : (
-              orderedCollections.map((key) => {
-                const group = grouped[key];
-                if (group.length === 0) return null;
-                return (
-                  <div key={key} className="vsearch-group" data-collection={key}>
-                    <div className="vsearch-group-label">{COLLECTION_LABELS[key]}</div>
-                    {group.map((r) => {
-                      const flatIdx = flatResults.indexOf(r);
-                      return (
-                        <button
-                          key={r.path}
-                          type="button"
-                          className="vsearch-result"
-                          role="option"
-                          data-active={flatIdx === activeIdx}
-                          onClick={() => handleOpenResult(r.path)}
-                        >
-                          <span className="vsearch-result-name">{r.name}</span>
-                          <span className="vsearch-result-path">{displayPath(r.path)}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                );
-              })
-            )}
-            {grouped.other.length > 0 && flatResults.length > 0 && (
-              <div className="vsearch-group">
-                <div className="vsearch-group-label">Other</div>
-                {grouped.other.map((r) => {
-                  const flatIdx = flatResults.indexOf(r);
-                  return (
-                    <button
-                      key={r.path}
-                      type="button"
-                      className="vsearch-result"
-                      role="option"
-                      data-active={flatIdx === activeIdx}
-                      onClick={() => handleOpenResult(r.path)}
-                    >
-                      <span className="vsearch-result-name">{r.name}</span>
-                      <span className="vsearch-result-path">{displayPath(r.path)}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              matched.slice(0, 30).map((item, i) => (
+                <button
+                  key={item.path}
+                  type="button"
+                  className="vsearch-result"
+                  role="option"
+                  data-active={i === activeIdx}
+                  data-kind={item.kind}
+                  onClick={() => handleOpenResult(item)}
+                  onMouseEnter={() => setActiveIdx(i)}
+                >
+                  <span className="vsearch-result-icon" aria-hidden="true">
+                    {KIND_ICON[item.kind]}
+                  </span>
+                  <span className="vsearch-result-main">
+                    <span className="vsearch-result-name">{item.title || item.path}</span>
+                    <span className="vsearch-result-path">{resultSubtitle(item)}</span>
+                  </span>
+                </button>
+              ))
             )}
           </div>
         )}
@@ -241,7 +221,7 @@ export default function VaultLanding({ refreshKey, onOpenCollection, onOpenPath 
           variant="hero"
           collection="projects"
           title="Projects"
-          subtitle={pluralize(projectCount, "project")}
+          subtitle={pluralize(counts.projects, "project")}
           icon="◆"
           recentItems={projectRecents}
           onClick={() => onOpenCollection("projects")}
@@ -250,7 +230,7 @@ export default function VaultLanding({ refreshKey, onOpenCollection, onOpenPath 
           variant="hero"
           collection="library"
           title="Library"
-          subtitle={pluralize(libraryCount, "entry", "entries")}
+          subtitle={pluralize(counts.library, "entry", "entries")}
           icon="❑"
           recentItems={libraryRecents}
           onClick={() => onOpenCollection("library")}
@@ -259,7 +239,7 @@ export default function VaultLanding({ refreshKey, onOpenCollection, onOpenPath 
           variant="hero"
           collection="notes"
           title="Notes"
-          subtitle={pluralize(notesCount, "note")}
+          subtitle={pluralize(counts.notes, "note")}
           icon="✎"
           recentItems={notesRecents}
           onClick={() => onOpenCollection("notes")}

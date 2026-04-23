@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import Fuse from "fuse.js";
+import type { FuseOptionKey } from "fuse.js";
+import { useFuseFilter } from "../hooks/useFuseFilter";
+import { useScrollFade } from "../hooks/useScrollFade";
 import VaultFAB from "./VaultFAB";
+import RightClickHint from "./RightClickHint";
 
 type Bucket =
   | { kind: "this_week" }
@@ -13,12 +16,20 @@ interface NoteSummary {
   path: string;
   title: string;
   excerpt: string;
+  body: string;
   tags: string[];
   created: string;
   updated: string;
   pinned: boolean;
   bucket: Bucket;
 }
+
+const NOTE_FUSE_KEYS: FuseOptionKey<NoteSummary>[] = [
+  { name: "title", weight: 2 },
+  { name: "excerpt", weight: 1 },
+  { name: "tags", weight: 1 },
+  { name: "body", weight: 0.5 },
+];
 
 interface ProjectNotesViewProps {
   refreshKey: number;
@@ -102,11 +113,12 @@ export default function ProjectNotesView({
   const [notes, setNotes] = useState<NoteSummary[]>([]);
   const [query, setQuery] = useState("");
   const [activeTags, setActiveTags] = useState<Set<string>>(new Set());
-  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null);
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [pendingInput, setPendingInput] = useState("");
   const [pendingError, setPendingError] = useState("");
   const findRef = useRef<HTMLInputElement>(null);
+  const { ref: scrollRef, edge: fadeEdge } = useScrollFade<HTMLElement>([notes, query, activeTags]);
 
   const loadNotes = useCallback(async () => {
     try {
@@ -121,16 +133,19 @@ export default function ProjectNotesView({
   useEffect(() => { loadNotes(); }, [loadNotes, refreshKey]);
 
   useEffect(() => {
-    if (!menuFor) return;
-    const onClick = () => setMenuFor(null);
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMenuFor(null); };
+    if (!menu) return;
+    const onClick = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMenu(null); };
+    const onScroll = () => setMenu(null);
     document.addEventListener("click", onClick);
     document.addEventListener("keydown", onKey);
+    document.addEventListener("scroll", onScroll, true);
     return () => {
       document.removeEventListener("click", onClick);
       document.removeEventListener("keydown", onKey);
+      document.removeEventListener("scroll", onScroll, true);
     };
-  }, [menuFor]);
+  }, [menu]);
 
   // `/` focuses Find when no other input is active.
   useEffect(() => {
@@ -154,28 +169,15 @@ export default function ProjectNotesView({
     return Array.from(set.values()).sort((a, b) => a.localeCompare(b));
   }, [notes]);
 
-  const fuse = useMemo(() => new Fuse(notes, {
-    keys: [
-      { name: "title", weight: 2 },
-      { name: "excerpt", weight: 1 },
-      { name: "tags", weight: 1 },
-    ],
-    threshold: 0.35,
-    ignoreLocation: true,
-  }), [notes]);
+  const fuseMatched = useFuseFilter(notes, NOTE_FUSE_KEYS, query);
 
   const filtered = useMemo(() => {
-    let out = notes;
+    let out = query.trim() ? fuseMatched : notes;
     if (activeTags.size > 0) {
       out = out.filter((n) => n.tags.some((t) => activeTags.has(t.toLowerCase())));
     }
-    const q = query.trim();
-    if (q) {
-      const matched = new Set(fuse.search(q).map((r) => r.item.path));
-      out = out.filter((n) => matched.has(n.path));
-    }
     return out;
-  }, [notes, query, activeTags, fuse]);
+  }, [notes, query, activeTags, fuseMatched]);
 
   const groups = useMemo(() => {
     const pinned = filtered.filter((n) => n.pinned);
@@ -256,103 +258,46 @@ export default function ProjectNotesView({
   const isEmpty = notes.length === 0;
   const hasFilter = query.trim().length > 0 || activeTags.size > 0;
 
-  const renderRow = (note: NoteSummary) => {
-    const isOpen = menuFor === note.path;
-    return (
-      <div key={note.path} className="pcard-wrapper">
-        <button
-          className="pcard"
-          type="button"
-          data-pinned={note.pinned || undefined}
-          onClick={() => onOpenPath(note.path)}
-        >
-          <div className="pcard-main">
-            <div className="pcard-title-line">
-              <span className="pcard-title">{note.title || fileName(note.path)}</span>
-            </div>
-            <div className="pcard-excerpt-line">
-              <span className="pcard-excerpt">{note.excerpt}</span>
-              {note.tags.length > 0 && (
-                <span className="pcard-tags">
-                  {note.tags.map((tag) => (
-                    <span key={tag} className="pcard-tag">
-                      <span className="pcard-tag-hash">#</span>{tag}
-                    </span>
-                  ))}
-                </span>
-              )}
-            </div>
+  const renderRow = (note: NoteSummary) => (
+    <div
+      key={note.path}
+      className="pcard-wrapper"
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenu({ path: note.path, x: e.clientX, y: e.clientY });
+      }}
+    >
+      <button
+        className="pcard"
+        type="button"
+        data-pinned={note.pinned || undefined}
+        onClick={() => onOpenPath(note.path)}
+      >
+        <div className="pcard-main">
+          <div className="pcard-title-line">
+            <span className="pcard-title">{note.title || fileName(note.path)}</span>
           </div>
-          <time className="pcard-date">{formatDate(note.created, now)}</time>
-        </button>
-        <button
-          type="button"
-          className="pcard-menu-btn"
-          aria-label={`Actions for ${note.title || fileName(note.path)}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            setMenuFor(isOpen ? null : note.path);
-          }}
-        >
-          ⋯
-        </button>
-        {isOpen && (
-          <div
-            className="vcard-menu-popover"
-            role="menu"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              className="vcard-menu-item"
-              role="menuitem"
-              onClick={() => { setMenuFor(null); handlePinToggle(note.path, note.pinned); }}
-            >
-              {note.pinned ? "Unpin" : "Pin"}
-            </button>
-            <button
-              type="button"
-              className="vcard-menu-item"
-              role="menuitem"
-              onClick={() => {
-                setMenuFor(null);
-                const fn = fileName(note.path);
-                setPending({ kind: "rename", path: note.path, name: fn });
-                setPendingInput(fn);
-                setPendingError("");
-              }}
-            >Rename</button>
-            <button
-              type="button"
-              className="vcard-menu-item"
-              role="menuitem"
-              onClick={() => {
-                setMenuFor(null);
-                onRequestMove(note.path, fileName(note.path), () => {
-                  onVaultChanged();
-                  loadNotes();
-                });
-              }}
-            >Move</button>
-            <button
-              type="button"
-              className="vcard-menu-item vcard-menu-item-danger"
-              role="menuitem"
-              onClick={() => {
-                setMenuFor(null);
-                setPending({ kind: "delete", path: note.path, name: fileName(note.path) });
-                setPendingError("");
-              }}
-            >Delete</button>
+          <div className="pcard-excerpt-line">
+            <span className="pcard-excerpt">{note.excerpt}</span>
+            {note.tags.length > 0 && (
+              <span className="pcard-tags">
+                {note.tags.map((tag) => (
+                  <span key={tag} className="pcard-tag">
+                    <span className="pcard-tag-hash">#</span>{tag}
+                  </span>
+                ))}
+              </span>
+            )}
           </div>
-        )}
-      </div>
-    );
-  };
+        </div>
+        <time className="pcard-date">{formatDate(note.created, now)}</time>
+      </button>
+    </div>
+  );
 
   return (
     <div className="plist-wrapper">
-      <main className="plist">
+      <main className="plist" ref={scrollRef} data-fade={fadeEdge} data-collection="projects">
         <section className="plist-header">
           <div className="plist-kicker">
             <span className="plist-kicker-dot" aria-hidden="true"></span>
@@ -364,19 +309,21 @@ export default function ProjectNotesView({
           </p>
         </section>
 
-        <label className="plist-find">
-          <span className="plist-find-icon" aria-hidden="true">⌕</span>
-          <input
-            ref={findRef}
-            className="plist-find-input"
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Find in this project"
-            aria-label="Find in this project"
-          />
-          <span className="plist-find-kbd">/</span>
-        </label>
+        <div className="plist-toolbar plist-toolbar-single">
+          <label className="plist-find">
+            <span className="plist-find-icon" aria-hidden="true">⌕</span>
+            <input
+              ref={findRef}
+              className="plist-find-input"
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Find..."
+              aria-label="Find"
+            />
+            <span className="plist-find-kbd">/</span>
+          </label>
+        </div>
 
         {allTags.length > 0 && (
           <div className="plist-filters" role="group" aria-label="Filter by tag">
@@ -394,6 +341,8 @@ export default function ProjectNotesView({
             ))}
           </div>
         )}
+
+        <RightClickHint />
 
         {isEmpty ? (
           <div className="plist-empty">
@@ -432,6 +381,62 @@ export default function ProjectNotesView({
           </div>
         )}
       </main>
+
+      {menu && (() => {
+        const note = notes.find((n) => n.path === menu.path);
+        if (!note) return null;
+        return (
+          <div
+            className="vcard-menu-popover rc-popover"
+            role="menu"
+            style={{ left: menu.x, top: menu.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="vcard-menu-item"
+              role="menuitem"
+              onClick={() => { setMenu(null); handlePinToggle(note.path, note.pinned); }}
+            >
+              {note.pinned ? "Unpin" : "Pin"}
+            </button>
+            <button
+              type="button"
+              className="vcard-menu-item"
+              role="menuitem"
+              onClick={() => {
+                setMenu(null);
+                const fn = fileName(note.path);
+                setPending({ kind: "rename", path: note.path, name: fn });
+                setPendingInput(fn);
+                setPendingError("");
+              }}
+            >Rename</button>
+            <button
+              type="button"
+              className="vcard-menu-item"
+              role="menuitem"
+              onClick={() => {
+                setMenu(null);
+                onRequestMove(note.path, fileName(note.path), () => {
+                  onVaultChanged();
+                  loadNotes();
+                });
+              }}
+            >Move</button>
+            <button
+              type="button"
+              className="vcard-menu-item vcard-menu-item-danger"
+              role="menuitem"
+              onClick={() => {
+                setMenu(null);
+                setPending({ kind: "delete", path: note.path, name: fileName(note.path) });
+                setPendingError("");
+              }}
+            >Delete</button>
+          </div>
+        );
+      })()}
 
       <VaultFAB label="New note" onClick={handleCreate} />
 

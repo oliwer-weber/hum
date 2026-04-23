@@ -1436,8 +1436,8 @@ fn register_project(name: String, bucket: String) -> Result<String, String> {
     // Update manifest. Use default if missing so first-run vaults still register.
     let mut manifest = vault_manifest::VaultManifest::read_in(&vault)
         .unwrap_or_default();
-    if !manifest.projects.iter().any(|p| p == &rel_path) {
-        manifest.projects.push(rel_path.clone());
+    if !manifest.has_project(&rel_path) {
+        manifest.projects.push(vault_manifest::ProjectEntry::new(rel_path.clone()));
         manifest.write_in(&vault)?;
     }
 
@@ -1494,7 +1494,7 @@ fn reconcile_projects_with_filesystem(vault: &Path) -> Result<(usize, usize), St
     let before = manifest.projects.len();
 
     // Prune: drop entries whose folders are gone.
-    manifest.projects.retain(|rel| vault.join(rel).is_dir());
+    manifest.projects.retain(|p| vault.join(&p.path).is_dir());
     let pruned = before - manifest.projects.len();
 
     // Sync: append any filesystem folders missing from the manifest.
@@ -1509,8 +1509,8 @@ fn reconcile_projects_with_filesystem(vault: &Path) -> Result<(usize, usize), St
             let Some(name) = entry.file_name().to_str().map(String::from) else { continue };
             if name.starts_with('.') { continue; }
             let rel = format!("projects/{}/{}", bucket, name);
-            if !manifest.projects.iter().any(|p| p == &rel) {
-                manifest.projects.push(rel);
+            if !manifest.has_project(&rel) {
+                manifest.projects.push(vault_manifest::ProjectEntry::new(rel));
                 added += 1;
             }
         }
@@ -1752,6 +1752,270 @@ fn unsnooze_project(project: String) -> Result<FocusState, String> {
     Ok(state)
 }
 
+/* ── Global find corpus (L0 + L1 search) ──────────── */
+
+#[derive(serde::Serialize)]
+struct FindItem {
+    kind: String,                // "project" | "wiki" | "note" | "project_note"
+    path: String,                // vault-relative
+    title: String,
+    excerpt: String,
+    body: String,                // truncated for .md items, empty for projects
+    tags: Vec<String>,
+    pinned: bool,
+    updated: String,             // "YYYY-MM-DDTHH:MM"
+    project: Option<String>,     // last segment of parent project, only for project_note
+}
+
+/// Everything a user might search for from L0 or L1: projects, wiki pages,
+/// standalone notes, and per-project capture notes. One corpus that the
+/// frontend fuse-indexes for all levels of Find.
+#[tauri::command]
+fn list_all_findables() -> Result<Vec<FindItem>, String> {
+    let vault = vault_path();
+    let mut out: Vec<FindItem> = Vec::new();
+
+    // Projects (from manifest). `body` is an aggregated blob of the
+    // project's todos.md plus the titles and body text of all its notes,
+    // so a phrase search from L1 Projects can surface a project via
+    // content, not just its folder name.
+    let manifest = vault_manifest::VaultManifest::read_in(&vault).unwrap_or_default();
+    for entry in &manifest.projects {
+        let title = entry
+            .path
+            .rsplit('/')
+            .next()
+            .unwrap_or(&entry.path)
+            .to_string();
+        let updated = project_last_activity_string(&vault, &entry.path);
+        let body = aggregate_project_content(&vault, &entry.path);
+        out.push(FindItem {
+            kind: "project".to_string(),
+            path: entry.path.clone(),
+            title,
+            excerpt: String::new(),
+            body,
+            tags: Vec::new(),
+            pinned: entry.pinned,
+            updated,
+            project: None,
+        });
+    }
+
+    // Wiki entries (recurse into subfolders so nested entries are findable)
+    collect_md_findables(&vault, "wiki", "wiki", None, true, &mut out);
+    // Standalone notes (recurse)
+    collect_md_findables(&vault, "notes", "note", None, true, &mut out);
+    // Per-project capture notes (flat under each project's notes/)
+    for entry in &manifest.projects {
+        let notes_dir_rel = format!("{}/notes", entry.path);
+        let project_name = entry
+            .path
+            .rsplit('/')
+            .next()
+            .unwrap_or(&entry.path)
+            .to_string();
+        collect_md_findables(
+            &vault,
+            &notes_dir_rel,
+            "project_note",
+            Some(project_name),
+            false,
+            &mut out,
+        );
+    }
+
+    Ok(out)
+}
+
+/// Walk a directory for `.md` files and push them into `out` as FindItems of
+/// the given `kind`. When `recurse` is true, descends into subdirectories
+/// (used for wiki/ and notes/ which can nest). Project notes directories
+/// are flat and pass `recurse: false`.
+fn collect_md_findables(
+    vault: &Path,
+    rel_dir: &str,
+    kind: &str,
+    project: Option<String>,
+    recurse: bool,
+    out: &mut Vec<FindItem>,
+) {
+    let dir = vault.join(rel_dir);
+    if !dir.is_dir() {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(&dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if recurse {
+                if let Some(sub) = path.strip_prefix(vault).ok()
+                    .and_then(|p| p.to_str())
+                {
+                    let sub_rel = sub.replace('\\', "/");
+                    collect_md_findables(vault, &sub_rel, kind, project.clone(), true, out);
+                }
+            }
+            continue;
+        }
+        if path.extension().and_then(|e| e.to_str()) != Some("md") {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
+        let content = match fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let (fm, body) = inbox::split_frontmatter(&content);
+
+        let created_fallback = date_from_stem(stem)
+            .map(|d| format!("{}T00:00", d.format("%Y-%m-%d")))
+            .unwrap_or_else(|| "0000-00-00T00:00".to_string());
+        let updated = fm_field(&fm, "updated")
+            .or_else(|| fm_field(&fm, "created"))
+            .unwrap_or(created_fallback);
+        let pinned = fm_field(&fm, "pinned")
+            .map(|v| v.trim() == "true")
+            .unwrap_or(false);
+
+        let title_raw = note_meta::derive_title(&body);
+        let title = if title_raw.is_empty() {
+            stem.to_string()
+        } else {
+            title_raw
+        };
+        let excerpt = note_meta::derive_excerpt(&body);
+        let tags = note_meta::extract_tags(&body);
+        let body_trunc = truncate_body(&body, 2000);
+
+        let rel = path
+            .strip_prefix(vault)
+            .map(|r| r.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| path.to_string_lossy().to_string());
+
+        out.push(FindItem {
+            kind: kind.to_string(),
+            path: rel,
+            title,
+            excerpt,
+            body: body_trunc,
+            tags,
+            pinned,
+            updated,
+            project: project.clone(),
+        });
+    }
+}
+
+/// Concatenate a project's searchable content: its todos.md, plus the
+/// title + excerpt + first chunk of body for each of its notes. Returns
+/// a single blob capped at ~8k so fuse has phrase-level signal without
+/// bloating the client corpus. Used only for the "project" FindItem.body
+/// field, which fuels L1 Projects content search.
+fn aggregate_project_content(vault: &Path, project_rel: &str) -> String {
+    const CAP: usize = 8000;
+    let mut blob = String::new();
+    let project_dir = vault.join(project_rel);
+
+    if let Ok(todos) = fs::read_to_string(project_dir.join("todos.md")) {
+        blob.push_str(&todos);
+        blob.push('\n');
+    }
+
+    let notes_dir = project_dir.join("notes");
+    if let Ok(entries) = fs::read_dir(&notes_dir) {
+        for entry in entries.flatten() {
+            if blob.len() >= CAP {
+                break;
+            }
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("md") {
+                continue;
+            }
+            let Ok(content) = fs::read_to_string(&path) else { continue };
+            let (_fm, body) = inbox::split_frontmatter(&content);
+            let title = note_meta::derive_title(&body);
+            if !title.is_empty() {
+                blob.push_str(&title);
+                blob.push('\n');
+            }
+            let excerpt = note_meta::derive_excerpt(&body);
+            if !excerpt.is_empty() {
+                blob.push_str(&excerpt);
+                blob.push('\n');
+            }
+            // Include a generous chunk of body so phrase searches land.
+            let chunk = truncate_body(&body, 600);
+            blob.push_str(&chunk);
+            blob.push('\n');
+        }
+    }
+
+    truncate_body(&blob, CAP)
+}
+
+/// Last-activity timestamp for a project: max of its todos.md mtime, any
+/// frontmatter `updated` across notes/*.md, and the project dir's mtime.
+/// Returned as `"YYYY-MM-DDTHH:MM"`. Falls back to `"0000-00-00T00:00"`
+/// if nothing exists (shouldn't happen for a registered project).
+fn project_last_activity_string(vault: &Path, project_rel: &str) -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let project_dir = vault.join(project_rel);
+    let mut newest: Option<chrono::NaiveDateTime> = None;
+
+    fn bump(slot: &mut Option<chrono::NaiveDateTime>, dt: chrono::NaiveDateTime) {
+        *slot = Some(slot.map_or(dt, |prev| prev.max(dt)));
+    }
+
+    fn mtime_naive(path: &Path) -> Option<chrono::NaiveDateTime> {
+        let meta = fs::metadata(path).ok()?;
+        let st = meta.modified().ok()?;
+        let dur = st.duration_since(UNIX_EPOCH).ok()?;
+        chrono::DateTime::<chrono::Utc>::from_timestamp(dur.as_secs() as i64, 0)
+            .map(|dt| dt.with_timezone(&chrono::Local).naive_local())
+    }
+
+    if let Some(dt) = mtime_naive(&project_dir) {
+        bump(&mut newest, dt);
+    }
+    let todos = project_dir.join("todos.md");
+    if let Some(dt) = mtime_naive(&todos) {
+        bump(&mut newest, dt);
+    }
+
+    let notes_dir = project_dir.join("notes");
+    if let Ok(entries) = fs::read_dir(&notes_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("md") {
+                continue;
+            }
+            if let Ok(content) = fs::read_to_string(&path) {
+                let (fm, _) = inbox::split_frontmatter(&content);
+                if let Some(raw) = fm_field(&fm, "updated").or_else(|| fm_field(&fm, "created")) {
+                    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&raw, "%Y-%m-%dT%H:%M") {
+                        bump(&mut newest, dt);
+                        continue;
+                    }
+                    if let Ok(d) = chrono::NaiveDate::parse_from_str(&raw, "%Y-%m-%d") {
+                        if let Some(dt) = d.and_hms_opt(0, 0, 0) {
+                            bump(&mut newest, dt);
+                            continue;
+                        }
+                    }
+                }
+            }
+            if let Some(dt) = mtime_naive(&path) {
+                bump(&mut newest, dt);
+            }
+        }
+    }
+
+    newest
+        .map(|dt| dt.format("%Y-%m-%dT%H:%M").to_string())
+        .unwrap_or_else(|| "0000-00-00T00:00".to_string())
+}
+
 /* ── Project notes: pin/unpin + structured listing ─ */
 
 #[derive(serde::Serialize)]
@@ -1759,11 +2023,26 @@ struct NoteSummary {
     path: String,
     title: String,
     excerpt: String,
+    body: String,               // first ~2000 chars, for content phrase search
     tags: Vec<String>,
     created: String,            // "YYYY-MM-DDTHH:MM" (frontmatter or filename fallback)
     updated: String,
     pinned: bool,
     bucket: note_meta::Bucket,
+}
+
+/// Truncate a UTF-8 string to at most `max_bytes` bytes without splitting a
+/// char boundary. Safe for feeding into a fuse corpus where we don't care
+/// about preserving trailing whitespace.
+fn truncate_body(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s[..end].to_string()
 }
 
 #[tauri::command]
@@ -1803,6 +2082,7 @@ fn list_project_notes(project_path: String) -> Result<Vec<NoteSummary>, String> 
         let title = note_meta::derive_title(&body);
         let excerpt = note_meta::derive_excerpt(&body);
         let tags = note_meta::extract_tags(&body);
+        let body_trunc = truncate_body(&body, 2000);
 
         let created_date = created
             .get(..10)
@@ -1819,6 +2099,7 @@ fn list_project_notes(project_path: String) -> Result<Vec<NoteSummary>, String> 
             path: rel,
             title,
             excerpt,
+            body: body_trunc,
             tags,
             created,
             updated,
@@ -1830,6 +2111,18 @@ fn list_project_notes(project_path: String) -> Result<Vec<NoteSummary>, String> 
     // Newest first within each future group.
     out.sort_by(|a, b| b.created.cmp(&a.created));
     Ok(out)
+}
+
+/// Flip a project's `pinned` flag in the manifest. The project must exist
+/// in the manifest (reconcile first if needed).
+#[tauri::command]
+fn set_project_pinned(project_path: String, pinned: bool) -> Result<(), String> {
+    let vault = vault_path();
+    let mut manifest = vault_manifest::VaultManifest::read_in(&vault)?;
+    if !manifest.set_project_pinned(&project_path, pinned) {
+        return Err(format!("Project not in manifest: {}", project_path));
+    }
+    manifest.write_in(&vault)
 }
 
 /// Flip the `pinned` field in a note's frontmatter. Injects a minimal
@@ -2185,7 +2478,9 @@ pub fn run() {
             unsnooze_project,
             read_project_todos,
             list_project_notes,
+            list_all_findables,
             set_note_pinned,
+            set_project_pinned,
             prefs::get_prefs,
             prefs::set_prefs,
         ])

@@ -1229,7 +1229,7 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled, openPro
         <ProjectsView
           refreshKey={refreshKey}
           onOpenProject={(p) => navigate("forward", () => goToProjectHub(p))}
-          onRequestMove={(path, name, onDone) => openMoveModal(path, name, onDone)}
+          onOpenPath={(p) => navigate("forward", () => navigateToPath(p))}
           onVaultChanged={refreshVaultIndex}
         />
       ) : vaultView === "project-hub" ? (

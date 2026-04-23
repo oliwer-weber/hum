@@ -9,7 +9,7 @@ use std::fs;
 use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
-pub const CURRENT_VERSION: u32 = 1;
+pub const CURRENT_VERSION: u32 = 2;
 pub const MANIFEST_FILENAME: &str = "vault.json";
 
 fn default_version() -> u32 {
@@ -20,17 +20,61 @@ fn default_attachment_location() -> String {
     ".app/metadata/Assets".to_string()
 }
 
+/// One project row in the manifest. `path` is the vault-relative folder path
+/// (e.g. "projects/work/Hum"). `pinned` floats the project to the top of L1
+/// Projects view; defaults to false so legacy manifests roll forward cleanly.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VaultManifest {
+pub struct ProjectEntry {
+    pub path: String,
+    #[serde(default)]
+    pub pinned: bool,
+}
+
+impl ProjectEntry {
+    pub fn new(path: impl Into<String>) -> Self {
+        Self { path: path.into(), pinned: false }
+    }
+}
+
+/// Tolerant form used only for deserialization. Accepts the legacy
+/// `["projects/foo", …]` shape and the modern `[{path, pinned}, …]` shape,
+/// so bumping CURRENT_VERSION from 1 to 2 never breaks existing vaults.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum ProjectItem {
+    Legacy(String),
+    Modern(ProjectEntry),
+}
+
+impl From<ProjectItem> for ProjectEntry {
+    fn from(item: ProjectItem) -> Self {
+        match item {
+            ProjectItem::Legacy(path) => ProjectEntry::new(path),
+            ProjectItem::Modern(entry) => entry,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct RawManifest {
     #[serde(default = "default_version")]
-    pub version: u32,
+    version: u32,
     #[serde(default)]
-    pub projects: Vec<String>,
+    projects: Vec<ProjectItem>,
     #[serde(default)]
-    pub excluded_directories: Vec<String>,
+    excluded_directories: Vec<String>,
     #[serde(default = "default_attachment_location")]
-    pub attachment_location: String,
+    attachment_location: String,
     #[serde(default)]
+    last_inbox_processing: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct VaultManifest {
+    pub version: u32,
+    pub projects: Vec<ProjectEntry>,
+    pub excluded_directories: Vec<String>,
+    pub attachment_location: String,
     pub last_inbox_processing: String,
 }
 
@@ -55,8 +99,15 @@ impl VaultManifest {
         let path = Self::path_in(vault);
         let content = fs::read_to_string(&path)
             .map_err(|e| format!("Failed to read vault manifest: {}", e))?;
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse vault manifest: {}", e))
+        let raw: RawManifest = serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse vault manifest: {}", e))?;
+        Ok(VaultManifest {
+            version: CURRENT_VERSION,
+            projects: raw.projects.into_iter().map(ProjectEntry::from).collect(),
+            excluded_directories: raw.excluded_directories,
+            attachment_location: raw.attachment_location,
+            last_inbox_processing: raw.last_inbox_processing,
+        })
     }
 
     pub fn write_in(&self, vault: &std::path::Path) -> Result<(), String> {
@@ -74,14 +125,36 @@ impl VaultManifest {
     /// Iterate project rel_paths. Preserves insertion order, which callers
     /// (e.g. color assignment) depend on for deterministic output.
     pub fn project_paths(&self) -> impl Iterator<Item = &str> {
-        self.projects.iter().map(String::as_str)
+        self.projects.iter().map(|p| p.path.as_str())
     }
 
     /// Last path segment of each project rel_path, in order.
     pub fn project_names(&self) -> impl Iterator<Item = &str> {
         self.projects.iter().map(|p| {
-            p.rsplit('/').next().unwrap_or(p.as_str())
+            p.path.rsplit('/').next().unwrap_or(p.path.as_str())
         })
+    }
+
+    /// True if the given project path exists in the manifest.
+    pub fn has_project(&self, rel_path: &str) -> bool {
+        self.projects.iter().any(|p| p.path == rel_path)
+    }
+
+    /// True if the project is marked pinned. False if not pinned or missing.
+    pub fn is_project_pinned(&self, rel_path: &str) -> bool {
+        self.projects.iter().any(|p| p.path == rel_path && p.pinned)
+    }
+
+    /// Flip a project's pinned flag. No-op if the project isn't in the
+    /// manifest (caller should have reconciled first).
+    pub fn set_project_pinned(&mut self, rel_path: &str, pinned: bool) -> bool {
+        for entry in &mut self.projects {
+            if entry.path == rel_path {
+                entry.pinned = pinned;
+                return true;
+            }
+        }
+        false
     }
 
     pub fn set_last_inbox_processing(&mut self, timestamp: &str) {
@@ -149,7 +222,7 @@ fn parse_legacy_markdown(content: &str) -> VaultManifest {
             Some("projects") => {
                 if let Some(entry) = line.strip_prefix("- projects/") {
                     let path = format!("projects/{}", entry.trim());
-                    manifest.projects.push(path);
+                    manifest.projects.push(ProjectEntry::new(path));
                 }
             }
             Some("excluded") => {
@@ -176,6 +249,42 @@ fn parse_legacy_markdown(content: &str) -> VaultManifest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_legacy_v1_string_array_projects() {
+        let json = r#"{
+            "version": 1,
+            "projects": ["projects/work/foo", "projects/personal/bar"],
+            "excluded_directories": [],
+            "attachment_location": ".app/metadata/Assets",
+            "last_inbox_processing": ""
+        }"#;
+        let raw: RawManifest = serde_json::from_str(json).expect("parses");
+        let projects: Vec<ProjectEntry> = raw.projects.into_iter().map(ProjectEntry::from).collect();
+        assert_eq!(projects.len(), 2);
+        assert_eq!(projects[0].path, "projects/work/foo");
+        assert!(!projects[0].pinned);
+        assert_eq!(projects[1].path, "projects/personal/bar");
+    }
+
+    #[test]
+    fn reads_modern_v2_object_projects_with_pinned() {
+        let json = r#"{
+            "version": 2,
+            "projects": [
+                {"path": "projects/work/foo", "pinned": true},
+                {"path": "projects/personal/bar"}
+            ],
+            "excluded_directories": [],
+            "attachment_location": ".app/metadata/Assets",
+            "last_inbox_processing": ""
+        }"#;
+        let raw: RawManifest = serde_json::from_str(json).expect("parses");
+        let projects: Vec<ProjectEntry> = raw.projects.into_iter().map(ProjectEntry::from).collect();
+        assert_eq!(projects.len(), 2);
+        assert!(projects[0].pinned);
+        assert!(!projects[1].pinned);
+    }
 
     #[test]
     fn parses_sample_legacy_file() {
@@ -214,11 +323,13 @@ last_inbox_processing: 2026-04-21T14:09
 ```
 "#;
         let m = parse_legacy_markdown(sample);
-        assert_eq!(m.projects, vec![
+        let paths: Vec<&str> = m.projects.iter().map(|p| p.path.as_str()).collect();
+        assert_eq!(paths, vec![
             "projects/work/air validator",
             "projects/work/Kalkyl-X",
             "projects/personal/QUIP",
         ]);
+        assert!(m.projects.iter().all(|p| !p.pinned));
         assert_eq!(m.excluded_directories, vec![
             "projects/archive",
             "notes",

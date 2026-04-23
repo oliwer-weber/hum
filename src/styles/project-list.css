@@ -11,10 +11,24 @@
  * generous vertical rhythm between groups.
  * ═══════════════════════════════════════════════════════════════════ */
 
+/* Non-scrolling container so the FAB stays pinned and only the content
+   column below scrolls. Mirrors the .vcolview-wrapper pattern used by
+   the older vault views. */
+.plist-wrapper {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .plist {
   --plist-col-max: 680px;
+  --plist-fade: 32px;
 
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -23,6 +37,45 @@
   padding: var(--space-2xl) var(--space-xl) var(--space-3xl);
   gap: var(--space-xl);
   animation: plist-view-in 320ms var(--ease-smooth) both;
+
+  /* Hide native scrollbars, lean on the mask-based edge fade below. */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.plist::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+/* Edge fades are driven by data-fade="top|bottom|both" set by useScrollFade.
+   "none" means content fits — no mask applied. */
+.plist[data-fade="bottom"] {
+  -webkit-mask-image: linear-gradient(to bottom, black 0, black calc(100% - var(--plist-fade)), transparent 100%);
+          mask-image: linear-gradient(to bottom, black 0, black calc(100% - var(--plist-fade)), transparent 100%);
+}
+
+.plist[data-fade="top"] {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, black var(--plist-fade), black 100%);
+          mask-image: linear-gradient(to bottom, transparent 0, black var(--plist-fade), black 100%);
+}
+
+.plist[data-fade="both"] {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    black var(--plist-fade),
+    black calc(100% - var(--plist-fade)),
+    transparent 100%
+  );
+          mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    black var(--plist-fade),
+    black calc(100% - var(--plist-fade)),
+    transparent 100%
+  );
 }
 
 /* ─── Header ─────────────────────────────────────────── */
@@ -53,6 +106,16 @@
   opacity: 0.7;
 }
 
+/* Kicker inherits its collection color from the plist ancestor's
+   data-collection attribute, so the "Collection" text and the dot
+   stay consistent with the theming engine. */
+.plist[data-collection="library"] .plist-kicker { color: var(--color-collection-library); }
+.plist[data-collection="library"] .plist-kicker-dot { background: var(--color-collection-library); }
+.plist[data-collection="notes"] .plist-kicker { color: var(--color-collection-notes); }
+.plist[data-collection="notes"] .plist-kicker-dot { background: var(--color-collection-notes); }
+.plist[data-collection="projects"] .plist-kicker { color: var(--color-collection-projects); }
+.plist[data-collection="projects"] .plist-kicker-dot { background: var(--color-collection-projects); }
+
 .plist-title {
   font-family: var(--font-display);
   font-size: var(--font-size-3xl);
@@ -78,7 +141,8 @@
   display: flex;
   align-items: center;
   gap: var(--space-md);
-  padding: var(--space-sm) var(--space-md);
+  padding: 0 var(--space-md);
+  height: var(--plist-toolbar-h);
   background: var(--bg-soft);
   border: 1px solid var(--bg2);
   border-radius: var(--radius-m);
@@ -197,6 +261,123 @@
   opacity: 0.7;
 }
 
+/* ─── Toolbar: Find input + (optional) scope chips ────── */
+
+.plist {
+  --plist-toolbar-h: 40px;
+}
+
+.plist-toolbar {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: var(--space-lg);
+  align-items: stretch;
+}
+
+.plist-toolbar-single {
+  grid-template-columns: 1fr;
+}
+
+.plist-scope {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+}
+
+/* ─── Breadcrumb nav (Library subfolder traversal) ────── */
+
+.plist-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  color: var(--fg3);
+}
+
+.plist-breadcrumb-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.plist-breadcrumb-sep {
+  color: var(--fg4);
+  user-select: none;
+}
+
+.plist-breadcrumb-current {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.plist-breadcrumb-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--color-collection-library);
+  cursor: pointer;
+  border-radius: var(--radius-s);
+}
+
+.plist-breadcrumb-btn:hover {
+  text-decoration: underline;
+}
+
+.plist-breadcrumb-btn:focus-visible {
+  outline: 2px solid var(--color-collection-library);
+  outline-offset: 2px;
+}
+
+/* ─── Folder rows (Library) ──────────────────────────── */
+
+.pcard-folder-icon {
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+  color: var(--color-collection-library);
+  font-family: var(--font-mono);
+  font-size: var(--font-size);
+}
+
+.pcard-folder:hover .pcard-title {
+  color: var(--color-collection-library);
+}
+
+/* ─── Collection tint overrides on the kicker dot ───── */
+
+/* ─── Search result row (shown when query is active in L1/L2 views) ─
+
+   Flat list of matches across all item kinds (project / wiki / note /
+   project_note), each prefixed with a collection-tinted icon. Mirrors
+   the L0 landing dropdown's row shape for a consistent feel. */
+
+.pcard-search {
+  grid-template-columns: auto 1fr !important;
+  align-items: center;
+  padding: var(--space-md) var(--space-lg);
+}
+
+.pcard-kind-icon {
+  flex-shrink: 0;
+  width: 24px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-lg);
+  color: var(--fg4);
+  line-height: 1;
+}
+
+.pcard-search:has(.pcard-kind-icon) .pcard-excerpt {
+  color: var(--fg4);
+}
+
+/* Per-kind icon tint matches the collection accent on L0. */
+.pcard-search .pcard-kind-icon { color: var(--fg4); }
+.pcard-search .pcard-main .pcard-title { /* inherits default */ }
+
 /* ─── Groups (pinned cluster + temporal groups) ───────── */
 
 .plist-groups {
@@ -300,13 +481,48 @@
     background-color 180ms var(--ease-smooth);
 }
 
-/* Row ⋯ menu button: top-right, hidden until wrapper hover / btn focus. */
-.pcard-menu-btn {
-  position: absolute;
-  top: var(--space-sm);
-  right: var(--space-sm);
-  width: 24px;
-  height: 24px;
+/* Right-click context menu. Fixed-positioned at cursor coordinates, not
+   anchored to a wrapper, so it works anywhere in the app. Inline left/top
+   styles come from the view's menu state. */
+.rc-popover {
+  position: fixed;
+  top: auto;
+  bottom: auto;
+  right: auto;
+  z-index: 200;
+  animation: rc-popover-in 140ms var(--ease-smooth) both;
+}
+
+@keyframes rc-popover-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* First-time right-click hint banner. Shown until dismissed or until the
+   user triggers their first context menu. Quiet, dismissible, collection-
+   tinted border so it reads as app chrome, not an error. */
+.rc-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-collection-projects-bg);
+  border: 1px solid var(--color-collection-projects-border);
+  border-radius: var(--radius-m);
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  color: var(--fg2);
+}
+
+.rc-hint-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.rc-hint-dismiss {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
   padding: 0;
   border: none;
   background: transparent;
@@ -315,42 +531,20 @@
   font-size: var(--font-size-lg);
   line-height: 1;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
   border-radius: var(--radius-s);
-  transform: translateY(-2px);
   transition:
-    opacity 150ms var(--ease-smooth),
-    transform 150ms var(--ease-smooth),
     color 150ms var(--ease-smooth),
     background-color 150ms var(--ease-smooth);
-  z-index: 5;
 }
 
-.pcard-wrapper:hover .pcard-menu-btn,
-.pcard-menu-btn:focus-visible {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.pcard-menu-btn:hover {
+.rc-hint-dismiss:hover {
   color: var(--fg);
   background: var(--bg1);
 }
 
-.pcard-menu-btn:focus-visible {
+.rc-hint-dismiss:focus-visible {
   outline: 2px solid var(--color-collection-projects);
   outline-offset: 2px;
-}
-
-/* Reposition the shared vcard menu popover when anchored to a pcard row:
-   flip downward from the ⋯ button instead of upward. */
-.pcard-wrapper .vcard-menu-popover {
-  top: calc(var(--space-sm) + 28px);
-  right: var(--space-sm);
-  bottom: auto;
 }
 
 .plist-group:not([data-pinned="true"]) .pcard-wrapper + .pcard-wrapper::before {
@@ -444,6 +638,31 @@
   align-items: center;
   gap: var(--space-sm);
   min-width: 0;
+}
+
+/* Small lowercase pill that surfaces cross-scope search hits (e.g. an
+   "archive" result while viewing "work"). Only renders during a query;
+   quiet by default, deprioritized visual weight for archive. */
+.pcard-scope-pill {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--fg3);
+  background: var(--bg);
+  border: 1px solid var(--bg2);
+  border-radius: 999px;
+  text-transform: lowercase;
+  letter-spacing: 0.04em;
+  line-height: 1.6;
+}
+
+.pcard-scope-pill[data-scope="archive"] {
+  color: var(--fg4);
+  opacity: 0.7;
 }
 
 .pcard-title {

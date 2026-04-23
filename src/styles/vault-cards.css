@@ -510,57 +510,49 @@
  * Reuses the signature sliding-pill motion from tab bar / breadcrumb.
  * ═══════════════════════════════════════════════════════════════════ */
 
+/* Matched-shape independent chips (B-variant). Each chip is a rounded-
+   rect that mirrors the Find input's shape so the toolbar row reads as
+   a unified strip. Chips fill the scope column evenly via flex: 1 1 0,
+   preserving breathing room for three items. */
 .vchips {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 3px;
-  background: var(--bg-soft);
-  border: 1px solid var(--fg4);
-  border-radius: var(--radius-l);
-  width: fit-content;
-  /* Perceptual-alignment nudge: on a ~30px tall container the 14px
-     corner arcs dominate the left-edge profile, so the eye reads the
-     chip as ~4px further right than the taller cards below (whose
-     long straight edges dominate). Negative margin shifts the true
-     box-edge left by the average curve offset so the visual alignment
-     matches the cards' straight left edge. */
-  margin-left: -4px;
-}
-
-.vchips-pill {
-  position: absolute;
-  top: 3px;
-  bottom: 3px;
-  background: var(--vchips-accent-bg, var(--accent-subtle));
-  border: 1px solid var(--vchips-accent-border, var(--accent-muted));
-  border-radius: calc(var(--radius-l) - 4px);
-  transition: transform 200ms var(--ease-bounce),
-              width 200ms var(--ease-bounce),
-              opacity 150ms var(--ease-smooth);
-  pointer-events: none;
-  z-index: 0;
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-sm);
+  min-width: 0;
+  flex: 1;
 }
 
 .vchip {
-  position: relative;
-  z-index: 1;
-  background: transparent;
-  border: none;
+  flex: 1 1 0;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--plist-toolbar-h, 40px);
+  padding: 0 var(--space-sm);
+  background: var(--bg-soft);
+  border: 1px solid var(--bg2);
+  border-radius: var(--radius-m);
+  box-shadow: var(--inset-highlight);
   font-family: var(--font-body);
   font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--fg3);
-  padding: var(--space-xs) var(--space-md);
   cursor: pointer;
-  border-radius: calc(var(--radius-l) - 4px);
-  transition: color 150ms var(--ease-smooth),
-              transform 150ms var(--ease-smooth);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition:
+    color 150ms var(--ease-smooth),
+    border-color 150ms var(--ease-smooth),
+    background-color 150ms var(--ease-smooth),
+    transform 150ms var(--ease-smooth),
+    box-shadow 150ms var(--ease-smooth);
 }
 
 .vchip:hover {
-  color: var(--fg);
+  color: var(--fg1);
+  border-color: var(--bg3);
 }
 
 .vchip:focus-visible {
@@ -569,11 +561,39 @@
 }
 
 .vchip:active {
-  transform: scale(0.97);
+  transform: translateY(1px);
 }
 
+/* Active state: keep the --bg-soft surface underneath so the chip does
+   not visually recess against inactive chips, then layer the emerald
+   tint and border on top. The collection-accent border is the louder
+   signal; the tint is the softer reinforcement. A soft resting shadow
+   gives the active chip a quiet lift, echoing Find's focus-within
+   without matching its loudness. */
 .vchip[aria-pressed="true"] {
-  color: var(--fg);
+  color: var(--vchips-accent, var(--accent));
+  background:
+    linear-gradient(var(--vchips-accent-bg, var(--accent-subtle)), var(--vchips-accent-bg, var(--accent-subtle))),
+    var(--bg-soft);
+  border-color: var(--vchips-accent-border, var(--accent-muted));
+  box-shadow: var(--shadow-card-soft), var(--inset-highlight);
+}
+
+.vchip[aria-pressed="true"]:hover {
+  color: var(--vchips-accent, var(--accent));
+  border-color: color-mix(in srgb, var(--vchips-accent, var(--accent)) 45%, transparent);
+}
+
+/* Active chip gets slightly heavier weight WITHOUT changing rendered
+   width. Modern/mono use a 100-weight bump; editorial (Fraunces/Lora)
+   uses optical sizing to keep metrics stable. */
+[data-font="modern"] .vchip[aria-pressed="true"],
+[data-font="mono"] .vchip[aria-pressed="true"] {
+  font-weight: 600;
+}
+
+[data-font="editorial"] .vchip[aria-pressed="true"] {
+  font-variation-settings: "opsz" 36;
 }
 
 /* Collection-scoped accent wiring */
@@ -993,7 +1013,9 @@
 .vsearch-group[data-collection="notes"]    .vsearch-group-label { color: var(--color-collection-notes); }
 
 .vsearch-result {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
   width: 100%;
   padding: var(--space-sm) var(--space-md);
   background: transparent;
@@ -1006,6 +1028,25 @@
   cursor: pointer;
   transition: background 120ms var(--ease-smooth),
               transform 120ms var(--ease-smooth);
+}
+
+.vsearch-result-icon {
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+  font-family: var(--font-mono);
+  color: var(--fg4);
+  font-size: var(--font-size);
+}
+
+.vsearch-result[data-kind="project"] .vsearch-result-icon { color: var(--color-collection-projects); }
+.vsearch-result[data-kind="wiki"] .vsearch-result-icon { color: var(--color-collection-library); }
+.vsearch-result[data-kind="note"] .vsearch-result-icon { color: var(--color-collection-notes); }
+.vsearch-result[data-kind="project_note"] .vsearch-result-icon { color: var(--fg3); }
+
+.vsearch-result-main {
+  flex: 1;
+  min-width: 0;
 }
 
 .vsearch-result:hover {

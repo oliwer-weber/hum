@@ -2,8 +2,15 @@ import { useState, useEffect, useCallback, useRef } from "react";
 
 export type FadeEdge = "none" | "top" | "bottom" | "both";
 
-export function useScrollFade(deps: unknown[] = []) {
-  const ref = useRef<HTMLDivElement>(null);
+/**
+ * Tracks whether the scroll container has content above or below the
+ * visible window so CSS can mask only those edges. Replaces hard
+ * scrollbars with a soft fade. Pass any deps that affect scroll height
+ * (filtered item count, expanded sections) so the calculation stays
+ * accurate after layout changes.
+ */
+export function useScrollFade<T extends HTMLElement = HTMLDivElement>(deps: unknown[] = []) {
+  const ref = useRef<T>(null);
   const [edge, setEdge] = useState<FadeEdge>("none");
 
   const update = useCallback(() => {
@@ -26,6 +33,7 @@ export function useScrollFade(deps: unknown[] = []) {
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => { el.removeEventListener("scroll", update); ro.disconnect(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [update, ...deps]);
 
   return { ref, edge };
