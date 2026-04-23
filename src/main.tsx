@@ -7,6 +7,7 @@ import "./theme/tokens.css";
 import "./styles/global.css";
 import "./styles/components.css";
 import "./styles/vault-cards.css";
+import "./styles/project-list.css";
 
 applyStoredTheme();
 applyStoredFont();

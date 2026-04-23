@@ -263,11 +263,16 @@ fn append_todos(vault: &Path, project_path: &str, todo_blocks: &[String], date_s
     fs::write(&path, new_content).map_err(|e| format!("Failed to write todos: {}", e))
 }
 
-fn append_project_notes(
+/// Writes a brand-new note file for a single routed capture. Filename is
+/// `YYYY-MM-DD-HHMM.md` derived from `stamp` (`YYYY-MM-DDTHH:MM`), with a
+/// numeric suffix on collision. Stamps frontmatter (type/status/created/
+/// updated/pinned). Does not append to existing files: per-capture granularity
+/// is the whole point of this function.
+fn write_project_note_per_capture(
     vault: &Path,
     project_path: &str,
     notes: &[String],
-    date_str: &str,
+    stamp: &str,
 ) -> Result<(), String> {
     let notes_dir = vault.join(project_path).join("notes");
     if !notes_dir.exists() {
@@ -275,19 +280,26 @@ fn append_project_notes(
             .map_err(|e| format!("Failed to create notes dir: {}", e))?;
     }
 
-    let note_file = notes_dir.join(format!("{}.md", date_str));
-    let existing = fs::read_to_string(&note_file).unwrap_or_default();
-    let mut new_content = existing.trim_end().to_string();
-
-    if !new_content.is_empty() {
-        new_content.push_str("\n\n");
+    let body = notes.join("\n").trim().to_string();
+    if body.is_empty() {
+        return Ok(());
     }
 
-    let note_text = notes.join("\n").trim().to_string();
-    new_content.push_str(&note_text);
-    new_content.push('\n');
+    let base_name = stamp.replacen('T', "-", 1).replace(':', "");
+    let mut filename = format!("{}.md", base_name);
+    let mut suffix = 0u32;
+    while notes_dir.join(&filename).exists() {
+        suffix += 1;
+        filename = format!("{}-{}.md", base_name, suffix);
+    }
 
-    fs::write(&note_file, new_content).map_err(|e| format!("Failed to write notes: {}", e))
+    let note_path = notes_dir.join(&filename);
+    let frontmatter = format!(
+        "---\ntype: note\nstatus: active\ncreated: {ts}\nupdated: {ts}\npinned: false\n---\n\n",
+        ts = stamp
+    );
+    let content = format!("{}{}\n", frontmatter, body);
+    fs::write(&note_path, content).map_err(|e| format!("Failed to write note: {}", e))
 }
 
 // ── File operations: notes/wiki running-list files ───
@@ -349,7 +361,7 @@ fn create_new_note_file(vault: &Path, tag: &str, content: &str, date_str: &str) 
 
 /// Split content into (frontmatter_with_fences, body). Returns empty frontmatter
 /// if the file doesn't start with `---`.
-fn split_frontmatter(content: &str) -> (String, String) {
+pub(crate) fn split_frontmatter(content: &str) -> (String, String) {
     if !content.starts_with("---\n") && !content.starts_with("---\r\n") {
         return (String::new(), content.to_string());
     }
@@ -457,6 +469,7 @@ fn route_to_project(
     project: &KnownProject,
     lines: &[String],
     today: &str,
+    stamp: &str,
     routed: &mut Vec<RoutedProject>,
 ) -> Result<(), String> {
     let (todo_blocks, notes, todo_count) = split_todos_and_notes(lines);
@@ -466,7 +479,7 @@ fn route_to_project(
         append_todos(vault, &project.rel_path, &todo_blocks, today)?;
     }
     if notes.iter().any(|l| !l.trim().is_empty()) {
-        append_project_notes(vault, &project.rel_path, &notes, today)?;
+        write_project_note_per_capture(vault, &project.rel_path, &notes, stamp)?;
     }
     if todo_count > 0 || note_count > 0 {
         routed.push(RoutedProject {
@@ -544,7 +557,7 @@ pub fn process(vault_override: Option<PathBuf>) -> Result<ProcessResult, String>
             Some(tag) => {
                 match resolve_tag(&tag, &vault, &projects) {
                     TagResolution::Project(project) => {
-                        route_to_project(&vault, project, &section.lines, &today, &mut routed)?;
+                        route_to_project(&vault, project, &section.lines, &today, &timestamp, &mut routed)?;
                     }
                     TagResolution::ExistingNote(rel) => {
                         route_to_note_file(&vault, &tag, rel, false, &section.lines, &today, &mut notes_routed)?;

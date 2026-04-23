@@ -45,6 +45,7 @@ static BINARY_EXTS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
 mod calendar;
 mod hum;
 mod inbox;
+mod note_meta;
 mod prefs;
 mod todo_index;
 mod todo_parser;
@@ -1028,8 +1029,10 @@ fn hub_ambient(project_prefix: String) -> Result<HubAmbient, String> {
     let project_dir = base.join(&project_prefix);
     let notes_dir = project_dir.join("notes");
 
-    // Find date-named notes
-    let date_re = regex::Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap();
+    // Find date-stamped notes. Accepts the legacy `YYYY-MM-DD.md` and the
+    // new per-capture `YYYY-MM-DD-HHMM(-N)?.md`. Both share the `YYYY-MM-DD`
+    // prefix, so we bucket by the date prefix.
+    let date_re = regex::Regex::new(r"^(\d{4}-\d{2}-\d{2})(?:-\d{4}(?:-\d+)?)?$").unwrap();
     let mut date_notes: Vec<(String, PathBuf)> = Vec::new();
     let mut note_count: u32 = 0;
 
@@ -1041,8 +1044,9 @@ fn hub_ambient(project_prefix: String) -> Result<HubAmbient, String> {
                     note_count += 1;
                     if let Some(stem) = path.file_stem() {
                         let stem_str = stem.to_string_lossy().to_string();
-                        if date_re.is_match(&stem_str) {
-                            date_notes.push((stem_str, path));
+                        if let Some(caps) = date_re.captures(&stem_str) {
+                            let date_prefix = caps.get(1).unwrap().as_str().to_string();
+                            date_notes.push((date_prefix, path));
                         }
                     }
                 }
@@ -1591,13 +1595,18 @@ fn get_project_gravity() -> Result<Vec<ProjectGravity>, String> {
             }
         }
 
-        // Last activity: scan notes/ folder for most recent YYYY-MM-DD.md
+        // Last activity: scan notes/ for most recent date. Filenames may be
+        // legacy `YYYY-MM-DD.md` or per-capture `YYYY-MM-DD-HHMM(-N)?.md`;
+        // both share the `YYYY-MM-DD` prefix which is all we need here.
         let notes_dir = vault.join(&rel).join("notes");
         let mut last_note_date: Option<chrono::NaiveDate> = None;
         if let Ok(entries) = fs::read_dir(&notes_dir) {
             for entry in entries.flatten() {
                 let fname = entry.file_name().to_string_lossy().to_string();
-                if let Some(date_part) = fname.strip_suffix(".md") {
+                if let Some(stem) = fname.strip_suffix(".md") {
+                    // `get(..10)` is None if the stem is shorter than 10 bytes
+                    // OR if byte index 10 lands mid-char (e.g. `Objekten är…`).
+                    let Some(date_part) = stem.get(..10) else { continue };
                     if let Ok(d) = chrono::NaiveDate::parse_from_str(date_part, "%Y-%m-%d") {
                         if last_note_date.map_or(true, |prev| d > prev) {
                             last_note_date = Some(d);
@@ -1743,6 +1752,175 @@ fn unsnooze_project(project: String) -> Result<FocusState, String> {
     Ok(state)
 }
 
+/* ── Project notes: pin/unpin + structured listing ─ */
+
+#[derive(serde::Serialize)]
+struct NoteSummary {
+    path: String,
+    title: String,
+    excerpt: String,
+    tags: Vec<String>,
+    created: String,            // "YYYY-MM-DDTHH:MM" (frontmatter or filename fallback)
+    updated: String,
+    pinned: bool,
+    bucket: note_meta::Bucket,
+}
+
+#[tauri::command]
+fn list_project_notes(project_path: String) -> Result<Vec<NoteSummary>, String> {
+    let vault = vault_path();
+    let notes_dir = vault.join(&project_path).join("notes");
+    if !notes_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let today = chrono::Local::now().date_naive();
+    let mut out: Vec<NoteSummary> = Vec::new();
+
+    let entries = fs::read_dir(&notes_dir)
+        .map_err(|e| format!("Failed to read notes dir: {}", e))?;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("md") {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
+        let content = match fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let (fm, body) = inbox::split_frontmatter(&content);
+
+        let created = fm_field(&fm, "created")
+            .or_else(|| date_from_stem(stem).map(|d| format!("{}T00:00", d.format("%Y-%m-%d"))))
+            .unwrap_or_else(|| "0000-00-00T00:00".to_string());
+        let updated = fm_field(&fm, "updated").unwrap_or_else(|| created.clone());
+        let pinned = fm_field(&fm, "pinned")
+            .map(|v| v.trim() == "true")
+            .unwrap_or(false);
+
+        let title = note_meta::derive_title(&body);
+        let excerpt = note_meta::derive_excerpt(&body);
+        let tags = note_meta::extract_tags(&body);
+
+        let created_date = created
+            .get(..10)
+            .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
+            .unwrap_or(today);
+        let bucket = note_meta::bucket_of(created_date, today);
+
+        let rel = path
+            .strip_prefix(&vault)
+            .map(|r| r.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| path.to_string_lossy().to_string());
+
+        out.push(NoteSummary {
+            path: rel,
+            title,
+            excerpt,
+            tags,
+            created,
+            updated,
+            pinned,
+            bucket,
+        });
+    }
+
+    // Newest first within each future group.
+    out.sort_by(|a, b| b.created.cmp(&a.created));
+    Ok(out)
+}
+
+/// Flip the `pinned` field in a note's frontmatter. Injects a minimal
+/// frontmatter block on legacy notes that don't have one.
+#[tauri::command]
+fn set_note_pinned(rel_path: String, pinned: bool) -> Result<(), String> {
+    let vault = vault_path();
+    let full_path = vault.join(&rel_path);
+    let existing = fs::read_to_string(&full_path)
+        .map_err(|e| format!("Failed to read {}: {}", rel_path, e))?;
+
+    let (fm, body) = inbox::split_frontmatter(&existing);
+    let now = chrono::Local::now().format("%Y-%m-%dT%H:%M").to_string();
+
+    let new_fm = if fm.is_empty() {
+        let created = date_from_stem(
+            std::path::Path::new(&rel_path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(""),
+        )
+        .map(|d| format!("{}T00:00", d.format("%Y-%m-%d")))
+        .unwrap_or_else(|| now.clone());
+        format!(
+            "---\ntype: note\nstatus: active\ncreated: {}\nupdated: {}\npinned: {}\n---",
+            created, now, pinned
+        )
+    } else {
+        upsert_fm_field(&fm, "pinned", &pinned.to_string(), &now)
+    };
+
+    let combined = if body.trim().is_empty() {
+        format!("{}\n", new_fm)
+    } else {
+        format!("{}\n{}", new_fm, body)
+    };
+    fs::write(&full_path, combined).map_err(|e| format!("Failed to write note: {}", e))?;
+    Ok(())
+}
+
+/// Read a field value from a frontmatter block (without the fences). Returns
+/// the value trimmed of surrounding whitespace, or None if the field is
+/// missing. Does not handle multi-line or quoted values, adequate for the
+/// flat key/value frontmatter we write.
+fn fm_field(fm: &str, field: &str) -> Option<String> {
+    let prefix = format!("{}:", field);
+    for line in fm.lines() {
+        if let Some(rest) = line.strip_prefix(&prefix) {
+            return Some(rest.trim().to_string());
+        }
+    }
+    None
+}
+
+/// Update `field` (or insert before the closing fence) and always bump
+/// `updated` to `now`. Returns the rewritten frontmatter block with fences.
+fn upsert_fm_field(fm: &str, field: &str, value: &str, now: &str) -> String {
+    if fm.is_empty() {
+        return String::new();
+    }
+    let mut lines: Vec<String> = fm.split('\n').map(|s| s.to_string()).collect();
+
+    let mut upsert = |k: &str, v: &str| {
+        let prefix = format!("{}:", k);
+        let mut found = false;
+        for line in lines.iter_mut() {
+            if line.starts_with(&prefix) {
+                *line = format!("{}: {}", k, v);
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            if let Some(close_idx) = lines.iter().rposition(|l| l.trim_end() == "---") {
+                lines.insert(close_idx, format!("{}: {}", k, v));
+            }
+        }
+    };
+
+    upsert(field, value);
+    upsert("updated", now);
+    lines.join("\n")
+}
+
+/// Parse a date prefix out of a note filename stem. Accepts both the legacy
+/// `YYYY-MM-DD` and the per-capture `YYYY-MM-DD-HHMM(-N)?` forms.
+fn date_from_stem(stem: &str) -> Option<chrono::NaiveDate> {
+    let prefix = stem.get(..10)?;
+    chrono::NaiveDate::parse_from_str(prefix, "%Y-%m-%d").ok()
+}
+
 /* ── Todo index commands ─────────────────────────── */
 
 /// Rebuild the todo index from scratch (stamps UUIDs on active projects, scans all files).
@@ -1847,9 +2025,20 @@ fn get_weekly_summary(week_offset: i32) -> Result<WeeklySummary, String> {
                 }
             }
 
-            // Check for notes on this date
-            let note_path = vault.join(rel).join("notes").join(format!("{}.md", date_str));
-            let has_notes = note_path.exists();
+            // Check for notes on this date. Legacy: notes/{date}.md exact.
+            // Per-capture: notes/{date}-HHMM(-N)?.md. Either form counts.
+            let notes_dir = vault.join(rel).join("notes");
+            let legacy_note = notes_dir.join(format!("{}.md", date_str));
+            let has_notes = legacy_note.exists()
+                || fs::read_dir(&notes_dir)
+                    .ok()
+                    .map(|entries| {
+                        entries.flatten().any(|e| {
+                            let fname = e.file_name().to_string_lossy().to_string();
+                            fname.starts_with(&format!("{}-", date_str)) && fname.ends_with(".md")
+                        })
+                    })
+                    .unwrap_or(false);
 
             if !todos_completed.is_empty() || has_notes {
                 total_completed += todos_completed.len();
@@ -1995,6 +2184,8 @@ pub fn run() {
             snooze_project,
             unsnooze_project,
             read_project_todos,
+            list_project_notes,
+            set_note_pinned,
             prefs::get_prefs,
             prefs::set_prefs,
         ])

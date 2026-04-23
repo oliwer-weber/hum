@@ -64,7 +64,7 @@ Inbox processing is a **two-phase** operation:
 
 **Phase 1 (deterministic — use the `process_inbox` tool):**
 Call `process_inbox` first. It resolves every `@tag` in this order:
-1. **Project match** → routes todos → project's `todos.md`, notes → project's `notes/YYYY-MM-DD.md`.
+1. **Project match** → routes todos → project's `todos.md`, notes → a new per-capture file `notes/YYYY-MM-DD-HHMM.md` (frontmatter-stamped; one file per routed section, never appended).
 2. **Existing note/wiki file match** (case-insensitive, hyphen/space equivalent) → appends content verbatim to that file.
 3. **No match** → creates a new `notes/<tag>.md` and drops content in. The tag is respected exactly as typed (no renaming).
 

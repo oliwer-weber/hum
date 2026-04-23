@@ -1,0 +1,585 @@
+/* ═══════════════════════════════════════════════════════════════════
+ * Project list view
+ *
+ * Hybrid layout: pinned items are full cards (Hum identity via shadow,
+ * inset highlight, 3px emerald accent pill), temporal groups below are
+ * transparent rows with hairline separators. Aqua is reserved for app
+ * identity; emerald is the Projects collection accent.
+ *
+ * Column is capped at --plist-col-max so cards never sprawl. The tone
+ * is calm not Outlook: one meta line per row, three visual weights,
+ * generous vertical rhythm between groups.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.plist {
+  --plist-col-max: 680px;
+
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--plist-col-max);
+  margin: 0 auto;
+  padding: var(--space-2xl) var(--space-xl) var(--space-3xl);
+  gap: var(--space-xl);
+  animation: plist-view-in 320ms var(--ease-smooth) both;
+}
+
+/* ─── Header ─────────────────────────────────────────── */
+
+.plist-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.plist-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-family: var(--font-body);
+  font-size: var(--font-size-xs);
+  color: var(--color-collection-projects);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 600;
+}
+
+.plist-kicker-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-collection-projects);
+  opacity: 0.7;
+}
+
+.plist-title {
+  font-family: var(--font-display);
+  font-size: var(--font-size-3xl);
+  letter-spacing: var(--letter-spacing-tight);
+  line-height: var(--line-height-tight);
+  color: var(--fg);
+  font-weight: 500;
+  font-variation-settings: "opsz" 96;
+  margin: 0;
+}
+
+.plist-tagline {
+  font-family: var(--font-body);
+  font-size: var(--font-size);
+  color: var(--fg3);
+  max-width: 52ch;
+  margin: 0;
+}
+
+/* ─── Find input ─────────────────────────────────────── */
+
+.plist-find {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-soft);
+  border: 1px solid var(--bg2);
+  border-radius: var(--radius-m);
+  box-shadow: var(--inset-highlight);
+  transition:
+    border-color 150ms var(--ease-smooth),
+    transform 150ms var(--ease-smooth),
+    box-shadow 150ms var(--ease-smooth);
+}
+
+.plist-find:focus-within {
+  border-color: var(--color-collection-projects-border);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-card), var(--inset-highlight);
+}
+
+.plist-find-icon {
+  color: var(--fg4);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.plist-find-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: var(--font-body);
+  font-size: var(--font-size);
+  color: var(--fg);
+  padding: 0;
+  min-width: 0;
+}
+
+.plist-find-input::placeholder {
+  color: var(--fg4);
+}
+
+.plist-find-kbd {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--fg3);
+  background: var(--bg-hard);
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-s);
+  border: 1px solid var(--bg2);
+  user-select: none;
+  flex-shrink: 0;
+}
+
+/* ─── Filter chip row ────────────────────────────────── */
+
+.plist-filters {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.plist-filter-label {
+  font-family: var(--font-body);
+  font-size: var(--font-size-xs);
+  color: var(--fg4);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-right: var(--space-xs);
+}
+
+.plist-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  background: transparent;
+  border: 1px solid var(--bg2);
+  border-radius: 999px;
+  padding: var(--space-xs) var(--space-md);
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  color: var(--fg3);
+  cursor: pointer;
+  transition:
+    color 150ms var(--ease-smooth),
+    border-color 150ms var(--ease-smooth),
+    background-color 150ms var(--ease-smooth),
+    transform 150ms var(--ease-smooth);
+}
+
+.plist-chip:hover {
+  color: var(--fg1);
+  border-color: var(--bg3);
+}
+
+.plist-chip:focus-visible {
+  outline: 2px solid var(--color-collection-projects);
+  outline-offset: 2px;
+}
+
+.plist-chip:active {
+  transform: scale(0.97);
+}
+
+.plist-chip[aria-pressed="true"] {
+  color: var(--color-collection-projects);
+  background: var(--color-collection-projects-bg);
+  border-color: var(--color-collection-projects-border);
+}
+
+.plist-chip-hash {
+  color: var(--fg4);
+  font-weight: 600;
+}
+
+.plist-chip[aria-pressed="true"] .plist-chip-hash {
+  color: var(--color-collection-projects);
+  opacity: 0.7;
+}
+
+/* ─── Groups (pinned cluster + temporal groups) ───────── */
+
+.plist-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xl);
+}
+
+.plist-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.plist-group-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: 0 var(--space-xs);
+}
+
+.plist-group-title {
+  font-family: var(--font-body);
+  font-size: var(--font-size-xs);
+  color: var(--fg4);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 600;
+  margin: 0;
+}
+
+.plist-group-count {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--fg4);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+.plist-group-rule {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    var(--bg2),
+    transparent 80%
+  );
+}
+
+.plist-group[data-pinned="true"] .plist-group-title {
+  color: var(--color-collection-projects);
+}
+
+.plist-group[data-pinned="true"] .plist-group-rule {
+  background: linear-gradient(
+    to right,
+    var(--color-collection-projects-border),
+    transparent 80%
+  );
+}
+
+.plist-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+/* ─── Note row / card ─────────────────────────────────── */
+
+/* Wrapper anchors the ⋯ menu button and menu popover. Carries the
+   entry animation so sibling staggering via :nth-child works. */
+.pcard-wrapper {
+  position: relative;
+  animation: pcard-in 280ms var(--ease-smooth) both;
+}
+
+/* Base .pcard is a transparent row. Pinned cards add the full card
+   treatment on top via [data-pinned="true"] overrides below. */
+.pcard {
+  --pcard-accent: var(--color-collection-projects);
+  --pcard-accent-border: var(--color-collection-projects-border);
+
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: var(--space-lg);
+  align-items: baseline;
+  padding: var(--space-lg);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-m);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-body);
+  color: var(--fg);
+  width: 100%;
+  transition:
+    transform 180ms var(--ease-smooth),
+    border-color 180ms var(--ease-smooth),
+    box-shadow 180ms var(--ease-smooth),
+    background-color 180ms var(--ease-smooth);
+}
+
+/* Row ⋯ menu button: top-right, hidden until wrapper hover / btn focus. */
+.pcard-menu-btn {
+  position: absolute;
+  top: var(--space-sm);
+  right: var(--space-sm);
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg4);
+  font-family: var(--font-body);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  border-radius: var(--radius-s);
+  transform: translateY(-2px);
+  transition:
+    opacity 150ms var(--ease-smooth),
+    transform 150ms var(--ease-smooth),
+    color 150ms var(--ease-smooth),
+    background-color 150ms var(--ease-smooth);
+  z-index: 5;
+}
+
+.pcard-wrapper:hover .pcard-menu-btn,
+.pcard-menu-btn:focus-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.pcard-menu-btn:hover {
+  color: var(--fg);
+  background: var(--bg1);
+}
+
+.pcard-menu-btn:focus-visible {
+  outline: 2px solid var(--color-collection-projects);
+  outline-offset: 2px;
+}
+
+/* Reposition the shared vcard menu popover when anchored to a pcard row:
+   flip downward from the ⋯ button instead of upward. */
+.pcard-wrapper .vcard-menu-popover {
+  top: calc(var(--space-sm) + 28px);
+  right: var(--space-sm);
+  bottom: auto;
+}
+
+.plist-group:not([data-pinned="true"]) .pcard-wrapper + .pcard-wrapper::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: var(--space-lg);
+  right: var(--space-lg);
+  height: 1px;
+  background: var(--bg1);
+  opacity: 0.7;
+  pointer-events: none;
+  transition: opacity 160ms var(--ease-smooth);
+}
+
+.plist-group:not([data-pinned="true"]) .pcard-wrapper:hover + .pcard-wrapper::before,
+.plist-group:not([data-pinned="true"]) .pcard-wrapper:hover::before {
+  opacity: 0;
+}
+
+.pcard:not([data-pinned="true"]):hover {
+  background: var(--bg-soft);
+  border-color: var(--bg2);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-card);
+}
+
+.pcard[data-pinned="true"]:hover {
+  transform: translateY(-1px);
+  border-color: var(--pcard-accent-border);
+  box-shadow: var(--shadow-card-hover), var(--inset-highlight);
+}
+
+.pcard:focus-visible {
+  outline: 2px solid var(--pcard-accent);
+  outline-offset: 2px;
+}
+
+.pcard:active {
+  transform: translateY(0);
+}
+
+.pcard[data-pinned="true"]:active {
+  box-shadow: var(--shadow-card-soft), var(--inset-highlight);
+}
+
+/* Pinned cards: emerald-tinted border, stronger shadow, 3px top pill. */
+.pcard[data-pinned="true"] {
+  background: var(--bg-soft);
+  border-color: var(--pcard-accent-border);
+  box-shadow: var(--shadow-card), var(--inset-highlight);
+  overflow: hidden;
+  padding: calc(var(--space-md) + 8px) var(--space-lg) var(--space-md);
+}
+
+.pcard[data-pinned="true"]::before {
+  content: "";
+  position: absolute;
+  top: var(--space-sm);
+  left: var(--radius-m);
+  right: var(--radius-m);
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to bottom,
+    var(--pcard-accent),
+    color-mix(in srgb, var(--pcard-accent) 92%, rgb(var(--shadow-rgb)))
+  );
+  transition:
+    left 220ms var(--ease-smooth),
+    right 220ms var(--ease-smooth);
+  pointer-events: none;
+}
+
+.pcard[data-pinned="true"]:hover::before {
+  left: var(--space-sm);
+  right: var(--space-sm);
+}
+
+/* ─── Card content ───────────────────────────────────── */
+
+.pcard-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.pcard-title-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.pcard-title {
+  font-family: var(--font-display);
+  font-size: var(--font-size-lg);
+  font-weight: 500;
+  letter-spacing: var(--letter-spacing-tight);
+  color: var(--fg);
+  line-height: var(--line-height-tight);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  font-variation-settings: "opsz" 36;
+}
+
+.pcard-excerpt-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.pcard-excerpt {
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  color: var(--fg3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  line-height: var(--line-height);
+}
+
+.pcard-tags {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+.pcard-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--fg3);
+  background: var(--bg);
+  border: 1px solid var(--bg2);
+  border-radius: 999px;
+  line-height: var(--line-height);
+}
+
+.pcard-tag-hash {
+  color: var(--fg4);
+  opacity: 0.8;
+}
+
+.pcard-date {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--fg4);
+  white-space: nowrap;
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+  align-self: center;
+}
+
+/* ─── Empty state ─────────────────────────────────────── */
+
+.plist-empty {
+  padding: var(--space-2xl) var(--space-lg);
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  color: var(--fg4);
+  text-align: center;
+  border: 1px dashed var(--bg2);
+  border-radius: var(--radius-m);
+}
+
+/* ─── Entry animations (transform + opacity only) ─────── */
+
+@keyframes plist-view-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pcard-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.pcard-wrapper:nth-child(1) { animation-delay: 0ms; }
+.pcard-wrapper:nth-child(2) { animation-delay: 40ms; }
+.pcard-wrapper:nth-child(3) { animation-delay: 80ms; }
+.pcard-wrapper:nth-child(4) { animation-delay: 120ms; }
+.pcard-wrapper:nth-child(n+5) { animation-delay: 160ms; }
+
+/* ─── Font preset overrides ──────────────────────────── */
+
+[data-font="editorial"] .plist-title {
+  font-size: 44px;
+  font-weight: 600;
+  font-variation-settings: "opsz" 144, "SOFT" 30;
+  letter-spacing: -0.028em;
+  line-height: 1.05;
+}
+
+[data-font="editorial"] .pcard-title {
+  font-weight: 500;
+  font-variation-settings: "opsz" 28;
+}
+
+[data-font="modern"] .plist-title {
+  font-size: 36px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+[data-font="modern"] .pcard-title {
+  font-weight: 600;
+}
+
+[data-font="mono"] .plist-title {
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Mono row/card titles need special treatment. JetBrainsMono at 16px
+   is visually far heavier than Inter or Lora at the same size because
+   mono chars are wider and carry more ink per glyph. Pull size and
+   weight back, neutralize the negative tracking (mono doesn't want it). */
+[data-font="mono"] .pcard-title {
+  font-size: var(--font-size);
+  font-weight: 500;
+  letter-spacing: 0;
+}
