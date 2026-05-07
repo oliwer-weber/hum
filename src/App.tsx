@@ -6,6 +6,7 @@ import Inbox from "./components/Inbox";
 import Vault from "./components/Vault";
 import SettingsModal from "./components/SettingsModal";
 import Welcome from "./components/Welcome";
+import OnboardingSlides from "./components/OnboardingSlides";
 import { getPrefs, type TabId } from "./prefs/prefs";
 
 type VaultCollection = "projects" | "library" | "notes" | null;
@@ -18,6 +19,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [vaultCollection, setVaultCollection] = useState<VaultCollection>(null);
   const [showWelcome, setShowWelcome] = useState(() => !getPrefs().first_run_completed);
+  const [showOnboarding, setShowOnboarding] = useState(() => !getPrefs().onboarding_completed);
   const appWindow = getCurrentWindow();
 
   const triggerVaultRefresh = useCallback(() => {
@@ -175,8 +177,18 @@ export default function App() {
         </div>
       </main>
 
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onReplayOnboarding={() => {
+          setSettingsOpen(false);
+          setShowOnboarding(true);
+        }}
+      />
       {showWelcome && <Welcome onDismiss={() => setShowWelcome(false)} />}
+      {!showWelcome && showOnboarding && (
+        <OnboardingSlides onDismiss={() => setShowOnboarding(false)} />
+      )}
     </div>
   );
 }

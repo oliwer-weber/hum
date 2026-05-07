@@ -7,14 +7,20 @@ import {
   getPrefs, setPrefs, TAB_IDS, TAB_LABELS, type TabId,
 } from "../prefs/prefs";
 
-type Section = "general" | "appearance";
+type Section = "general" | "appearance" | "shortcuts";
 
 interface Props {
   open: boolean;
   onClose: () => void;
+  onReplayOnboarding?: () => void;
 }
 
-export default function SettingsModal({ open, onClose }: Props) {
+const isMac =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+const modKey = isMac ? "⌘" : "Ctrl";
+const altKey = isMac ? "⌥" : "Alt";
+
+export default function SettingsModal({ open, onClose, onReplayOnboarding }: Props) {
   const [section, setSection] = useState<Section>("general");
   const [currentTheme, setCurrentTheme] = useState<ThemeId>(() => getStoredTheme());
   const [currentFont, setCurrentFont] = useState<FontId>(() => getStoredFont());
@@ -105,11 +111,14 @@ export default function SettingsModal({ open, onClose }: Props) {
             >
               Appearance
             </button>
-            <button className="settings-nav-item settings-nav-item-stub" disabled>
-              Find
+            <button
+              className={`settings-nav-item ${section === "shortcuts" ? "settings-nav-item-active" : ""}`}
+              onClick={() => setSection("shortcuts")}
+            >
+              Shortcuts
             </button>
             <button className="settings-nav-item settings-nav-item-stub" disabled>
-              Keyboard
+              Find
             </button>
             <button className="settings-nav-item settings-nav-item-stub" disabled>
               About
@@ -155,6 +164,160 @@ export default function SettingsModal({ open, onClose }: Props) {
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {onReplayOnboarding && (
+                <div className="settings-group">
+                  <div className="settings-group-label">Onboarding</div>
+                  <button
+                    type="button"
+                    className="settings-replay"
+                    onClick={async () => {
+                      await setPrefs({ ...getPrefs(), onboarding_completed: false });
+                      onReplayOnboarding();
+                    }}
+                  >
+                    Show onboarding again
+                  </button>
+                  <div className="settings-field-help">
+                    Walks through the four tabs and the writing shortcuts.
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+
+          {section === "shortcuts" && (
+            <section className="settings-pane">
+              <div className="settings-group">
+                <div className="settings-group-label">Place</div>
+                <ul className="shortcuts-list">
+                  <li><code className="shortcuts-mono">@project</code><span>Route what follows into a project, library entry, or note.</span></li>
+                  <li><code className="shortcuts-mono">[[note name]]</code><span>Link to another file in your work.</span></li>
+                  <li><code className="shortcuts-mono">![[image.png]]</code><span>Embed an image inline.</span></li>
+                  <li><code className="shortcuts-mono">#tag</code><span>Add a tag. <code className="shortcuts-mono">#blocked</code> and <code className="shortcuts-mono">#waiting</code> lift a project in Focus.</span></li>
+                </ul>
+              </div>
+
+              <div className="settings-group">
+                <div className="settings-group-label">Shape</div>
+                <div className="settings-field-help shortcuts-tip">
+                  You don't have to type the marks. Each one has a keyboard shortcut too.
+                </div>
+                <ul className="shortcuts-list">
+                  <li>
+                    <code className="shortcuts-mono">**bold**</code>
+                    <span>
+                      Bold. Or press{" "}
+                      <kbd className="shortcuts-kbd shortcuts-kbd-inline">{modKey}</kbd>
+                      <kbd className="shortcuts-kbd shortcuts-kbd-inline">B</kbd>.
+                    </span>
+                  </li>
+                  <li>
+                    <code className="shortcuts-mono">*italic*</code>
+                    <span>
+                      Italic. Or press{" "}
+                      <kbd className="shortcuts-kbd shortcuts-kbd-inline">{modKey}</kbd>
+                      <kbd className="shortcuts-kbd shortcuts-kbd-inline">I</kbd>.
+                    </span>
+                  </li>
+                  <li>
+                    <code className="shortcuts-mono">~~strike~~</code>
+                    <span>
+                      Strikethrough. Or press{" "}
+                      <kbd className="shortcuts-kbd shortcuts-kbd-inline">{modKey}</kbd>
+                      <kbd className="shortcuts-kbd shortcuts-kbd-inline">⇧</kbd>
+                      <kbd className="shortcuts-kbd shortcuts-kbd-inline">S</kbd>.
+                    </span>
+                  </li>
+                  <li>
+                    <code className="shortcuts-mono">==highlight==</code>
+                    <span>
+                      Highlight. Or press{" "}
+                      <kbd className="shortcuts-kbd shortcuts-kbd-inline">{modKey}</kbd>
+                      <kbd className="shortcuts-kbd shortcuts-kbd-inline">⇧</kbd>
+                      <kbd className="shortcuts-kbd shortcuts-kbd-inline">H</kbd>.
+                    </span>
+                  </li>
+                  <li>
+                    <code className="shortcuts-mono"># Heading</code>
+                    <span>
+                      Up to six levels with more <code className="shortcuts-mono">#</code>. Or press{" "}
+                      <kbd className="shortcuts-kbd shortcuts-kbd-inline">{modKey}</kbd>
+                      <kbd className="shortcuts-kbd shortcuts-kbd-inline">{altKey}</kbd>
+                      <kbd className="shortcuts-kbd shortcuts-kbd-inline">1</kbd>
+                      …
+                      <kbd className="shortcuts-kbd shortcuts-kbd-inline">6</kbd>.
+                    </span>
+                  </li>
+                  <li><code className="shortcuts-mono">- item</code><span>Bullet list. Use <code className="shortcuts-mono">1.</code> for numbered.</span></li>
+                  <li><code className="shortcuts-mono">- [ ] todo</code><span>Checkbox. Becomes a todo when under a project.</span></li>
+                  <li><code className="shortcuts-mono">{"> quote"}</code><span>Blockquote.</span></li>
+                  <li>
+                    <code className="shortcuts-mono">`code`</code>
+                    <span>
+                      Inline code. Or press{" "}
+                      <kbd className="shortcuts-kbd shortcuts-kbd-inline">{modKey}</kbd>
+                      <kbd className="shortcuts-kbd shortcuts-kbd-inline">E</kbd>.
+                    </span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="settings-group">
+                <div className="settings-group-label">Speed</div>
+                <ul className="shortcuts-list">
+                  <li>
+                    <span className="shortcuts-keys"><kbd className="shortcuts-kbd">{modKey}</kbd><kbd className="shortcuts-kbd">L</kbd></span>
+                    <span>Make a checkbox.</span>
+                  </li>
+                  <li>
+                    <span className="shortcuts-keys"><kbd className="shortcuts-kbd">{modKey}</kbd><kbd className="shortcuts-kbd">K</kbd></span>
+                    <span>Insert a link.</span>
+                  </li>
+                  <li>
+                    <span className="shortcuts-keys"><kbd className="shortcuts-kbd">{modKey}</kbd><kbd className="shortcuts-kbd">↵</kbd></span>
+                    <span>New line below without splitting the current one.</span>
+                  </li>
+                  <li>
+                    <span className="shortcuts-keys"><kbd className="shortcuts-kbd">{modKey}</kbd><kbd className="shortcuts-kbd">⇧</kbd><kbd className="shortcuts-kbd">K</kbd></span>
+                    <span>Delete the current line.</span>
+                  </li>
+                  <li>
+                    <span className="shortcuts-keys"><kbd className="shortcuts-kbd">{modKey}</kbd><kbd className="shortcuts-kbd">⇧</kbd><kbd className="shortcuts-kbd">V</kbd></span>
+                    <span>Paste as plain text.</span>
+                  </li>
+                  <li>
+                    <span className="shortcuts-keys"><kbd className="shortcuts-kbd">Tab</kbd> / <kbd className="shortcuts-kbd">⇧</kbd><kbd className="shortcuts-kbd">Tab</kbd></span>
+                    <span>Indent and outdent in lists.</span>
+                  </li>
+                  <li>
+                    <span className="shortcuts-keys"><kbd className="shortcuts-kbd">*</kbd> <kbd className="shortcuts-kbd">~</kbd> <kbd className="shortcuts-kbd">=</kbd></span>
+                    <span>Wrap a selection with italic, strike, or highlight.</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="settings-group">
+                <div className="settings-group-label">App</div>
+                <ul className="shortcuts-list">
+                  <li>
+                    <span className="shortcuts-keys"><kbd className="shortcuts-kbd">{modKey}</kbd><kbd className="shortcuts-kbd">,</kbd></span>
+                    <span>Open settings.</span>
+                  </li>
+                  <li>
+                    <span className="shortcuts-keys"><kbd className="shortcuts-kbd">Esc</kbd></span>
+                    <span>Close any open modal.</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="settings-group">
+                <div className="settings-group-label">Tips</div>
+                <ul className="shortcuts-list">
+                  <li><span className="shortcuts-keys">Drag or paste</span><span>Drop an image straight into the editor and it lands in your work.</span></li>
+                  <li><span className="shortcuts-keys">Auto-pair</span><span>Brackets and quotes pair themselves. Backspace at the seam removes both.</span></li>
+                </ul>
               </div>
             </section>
           )}

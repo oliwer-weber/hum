@@ -4009,7 +4009,7 @@
 }
 
 .settings-modal {
-  width: 560px;
+  width: 720px;
   max-width: 100%;
   max-height: 80vh;
   background: var(--bg-soft);
@@ -5028,4 +5028,683 @@
   font-size: var(--font-size-xs);
   color: var(--fg4);
   margin-top: var(--space-xs);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Onboarding slides — shown after Welcome on first run, and on demand
+ * via Settings. Four-slide carousel: Write, Focus, Find, Hum. Skip
+ * link, progress dots, Back/Next, Begin CTA on the final slide.
+ * Reuses the welcome backdrop ambience for visual continuity.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.onb-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2xl) var(--space-xl);
+  background-color: var(--bg-hard);
+  background-image:
+    radial-gradient(ellipse 80% 60% at 50% 20%,
+      color-mix(in srgb, var(--aqua) 7%, transparent),
+      transparent 70%),
+    radial-gradient(ellipse 60% 50% at 50% 110%,
+      color-mix(in srgb, var(--aqua) 4%, transparent),
+      transparent 70%);
+  animation: welcome-fade-in 360ms var(--ease-smooth) both;
+}
+
+.onb-dismissing {
+  animation: welcome-fade-out 280ms var(--ease-smooth) both;
+  pointer-events: none;
+}
+
+.onb-skip {
+  position: absolute;
+  top: var(--space-lg);
+  right: var(--space-xl);
+  background: transparent;
+  border: 1px solid transparent;
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-s);
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  color: var(--fg4);
+  cursor: pointer;
+  transition: color 150ms var(--ease-smooth),
+              background-color 150ms var(--ease-smooth),
+              border-color 150ms var(--ease-smooth);
+}
+
+.onb-skip:hover {
+  color: var(--fg2);
+  background-color: var(--bg1);
+}
+
+.onb-skip:focus-visible {
+  outline: none;
+  color: var(--fg2);
+  border-color: var(--accent-muted);
+}
+
+.onb-skip:active {
+  transform: scale(0.97);
+}
+
+.onb-stage {
+  flex: 1;
+  width: 100%;
+  max-width: 720px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bg2) transparent;
+}
+
+.onb-stage::-webkit-scrollbar { width: var(--scrollbar-width); }
+.onb-stage::-webkit-scrollbar-thumb { background: var(--bg2); border-radius: 3px; }
+.onb-stage::-webkit-scrollbar-track { background: transparent; }
+
+.onb-slide-wrap {
+  width: 100%;
+  animation: onb-slide-in 320ms var(--ease-smooth) both;
+}
+
+@keyframes onb-slide-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.onb-slide {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  padding: var(--space-xl) var(--space-lg);
+  text-align: left;
+}
+
+.onb-title {
+  font-family: var(--font-display);
+  font-size: var(--font-size-3xl);
+  font-weight: 600;
+  color: var(--fg);
+  letter-spacing: -0.03em;
+  line-height: 1;
+  margin: 0;
+}
+
+.onb-opener,
+.onb-body,
+.onb-coda {
+  font-family: var(--font-body);
+  font-size: var(--font-size-lg);
+  color: var(--fg1);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.onb-tagline {
+  font-family: var(--font-display);
+  font-size: var(--font-size-lg);
+  color: var(--accent);
+  letter-spacing: -0.01em;
+  font-style: italic;
+  margin: 0;
+  opacity: 0.9;
+}
+
+.onb-beat {
+  font-family: var(--font-body);
+  font-size: var(--font-size);
+  color: var(--fg2);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.onb-path,
+.onb-mark {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  padding: 1px 6px;
+  background-color: var(--bg);
+  border: 1px solid var(--bg2);
+  border-radius: var(--radius-s);
+  color: var(--fg);
+}
+
+/* ── Slide 1 example block ─── */
+
+.onb-example {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-lg);
+  background-color: var(--bg);
+  border: 1px solid var(--bg1);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-card), var(--inset-highlight);
+  font-family: var(--font-mono);
+  font-size: var(--font-size);
+  color: var(--fg1);
+  line-height: 1.5;
+}
+
+.onb-example-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 22px;
+}
+
+.onb-example-todo {
+  padding-left: var(--space-md);
+}
+
+.onb-checkbox {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--fg3);
+  border-radius: 3px;
+  background-color: transparent;
+  flex-shrink: 0;
+}
+
+.onb-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--mention-py) var(--mention-px);
+  border-radius: var(--mention-radius);
+  font-size: var(--mention-font);
+  font-weight: var(--mention-weight);
+  font-family: var(--font-body);
+  border: 1px solid transparent;
+}
+
+.onb-pill-projects {
+  color: var(--color-collection-projects);
+  background-color: var(--color-collection-projects-bg);
+  border-color: var(--color-collection-projects-border);
+}
+
+.onb-pill-notes {
+  color: var(--color-collection-notes);
+  background-color: var(--color-collection-notes-bg);
+  border-color: var(--color-collection-notes-border);
+}
+
+/* ── Keyboard chips ─── */
+
+.onb-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  margin: 0 1px;
+  background-color: var(--bg);
+  border: 1px solid var(--bg2);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-s);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--fg1);
+  vertical-align: baseline;
+}
+
+/* ── Show shortcuts disclosure ─── */
+
+.onb-shortcuts-toggle {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+  padding: var(--space-xs) var(--space-md);
+  background: transparent;
+  border: 1px solid var(--bg2);
+  border-radius: var(--radius-m);
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  color: var(--fg2);
+  cursor: pointer;
+  transition: color 150ms var(--ease-smooth),
+              background-color 150ms var(--ease-smooth),
+              border-color 150ms var(--ease-smooth);
+}
+
+.onb-shortcuts-toggle:hover {
+  color: var(--fg);
+  background-color: var(--bg);
+  border-color: var(--bg3);
+}
+
+.onb-shortcuts-toggle:focus-visible {
+  outline: none;
+  border-color: var(--accent-muted);
+  color: var(--fg);
+}
+
+.onb-shortcuts-toggle:active {
+  transform: scale(0.98);
+}
+
+.onb-caret {
+  display: inline-block;
+  font-family: var(--font-mono);
+  color: var(--fg3);
+  transition: transform 200ms var(--ease-smooth);
+}
+
+.onb-caret-open {
+  transform: rotate(90deg);
+}
+
+/* ── Cheat card grid ─── */
+
+.onb-cheats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  background-color: var(--bg);
+  border: 1px solid var(--bg1);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-popover), var(--inset-highlight);
+  animation: onb-cheats-in 240ms var(--ease-smooth) both;
+}
+
+@keyframes onb-cheats-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.onb-cheat-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.onb-cheat-head {
+  font-family: var(--font-display);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg3);
+  margin: 0;
+}
+
+.onb-cheat-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.onb-cheat-list li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  font-size: var(--font-size-sm);
+  color: var(--fg2);
+  font-family: var(--font-body);
+}
+
+.onb-mono {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+/* ── Slide 2/3 lists ─── */
+
+.onb-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  background-color: var(--bg);
+  border: 1px solid var(--bg1);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-card), var(--inset-highlight);
+}
+
+.onb-list-head {
+  font-family: var(--font-display);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg3);
+  margin: 0 0 var(--space-xs) 0;
+}
+
+.onb-bullets,
+.onb-shelves {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.onb-bullets li,
+.onb-shelves li {
+  font-family: var(--font-body);
+  font-size: var(--font-size);
+  color: var(--fg1);
+  line-height: 1.6;
+}
+
+.onb-bullets strong,
+.onb-shelves strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.onb-shelves {
+  padding-left: 0;
+  gap: var(--space-lg);
+}
+
+.onb-shelves li {
+  padding: var(--space-md) var(--space-lg);
+  background-color: var(--bg);
+  border: 1px solid var(--bg1);
+  border-left: 3px solid var(--bg3);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-card);
+}
+
+.onb-shelves li:nth-child(1) {
+  border-left-color: var(--color-collection-projects);
+}
+
+.onb-shelves li:nth-child(2) {
+  border-left-color: var(--color-collection-library);
+}
+
+.onb-shelves li:nth-child(3) {
+  border-left-color: var(--color-collection-notes);
+}
+
+/* ── Footer: progress dots + nav buttons ─── */
+
+.onb-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 720px;
+  padding: var(--space-lg) var(--space-md) 0;
+}
+
+.onb-dots {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.onb-dot {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background-color: var(--bg2);
+  cursor: pointer;
+  transition: background-color 180ms var(--ease-smooth),
+              transform 180ms var(--ease-smooth);
+}
+
+.onb-dot:hover {
+  background-color: var(--bg3);
+  transform: scale(1.15);
+}
+
+.onb-dot:focus-visible {
+  outline: 2px solid var(--accent-muted);
+  outline-offset: 2px;
+}
+
+.onb-dot-active,
+.onb-dot-active:hover {
+  background-color: var(--accent);
+  transform: scale(1.15);
+}
+
+.onb-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.onb-back,
+.onb-next {
+  padding: var(--space-sm) var(--space-lg);
+  background-color: transparent;
+  border: 1px solid var(--bg2);
+  border-radius: var(--radius-m);
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--fg2);
+  cursor: pointer;
+  transition: color 150ms var(--ease-smooth),
+              background-color 150ms var(--ease-smooth),
+              border-color 150ms var(--ease-smooth);
+}
+
+.onb-back:hover:not(:disabled),
+.onb-next:hover {
+  color: var(--fg);
+  background-color: var(--bg);
+  border-color: var(--bg3);
+}
+
+.onb-back:focus-visible,
+.onb-next:focus-visible {
+  outline: none;
+  border-color: var(--accent-muted);
+  color: var(--fg);
+}
+
+.onb-back:active:not(:disabled),
+.onb-next:active {
+  transform: scale(0.98);
+}
+
+.onb-back:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.onb-cta {
+  padding: var(--space-sm) var(--space-2xl);
+  background-color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-m);
+  font-family: var(--font-body);
+  font-size: var(--font-size);
+  font-weight: 600;
+  color: var(--bg-hard);
+  cursor: pointer;
+  box-shadow: var(--shadow-elevated);
+  transition: background-color 150ms var(--ease-smooth),
+              border-color 150ms var(--ease-smooth),
+              transform 150ms var(--ease-smooth);
+}
+
+.onb-cta:hover {
+  background-color: var(--accent-hover);
+  border-color: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.onb-cta:focus-visible {
+  outline: 2px solid var(--accent-muted);
+  outline-offset: 3px;
+}
+
+.onb-cta:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* ── Slide 4 centered Hum ─── */
+
+.onb-slide-hum {
+  align-items: flex-start;
+  gap: var(--space-xl);
+  padding-top: var(--space-3xl);
+}
+
+/* ─── Narrow viewport: stack cheat card ─── */
+@media (max-width: 640px) {
+  .onb-cheats {
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+  }
+  .onb-title {
+    font-size: var(--font-size-2xl);
+  }
+  .onb-footer {
+    padding: var(--space-md) var(--space-sm) 0;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Settings → Shortcuts pane
+ * Reference card for syntax, formatting, and keyboard shortcuts.
+ * Same content as the onboarding cheat sheet, expanded with
+ * descriptions and an additional App + Tips section.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.shortcuts-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.shortcuts-list li {
+  display: grid;
+  grid-template-columns: minmax(140px, max-content) 1fr;
+  align-items: baseline;
+  gap: var(--space-lg);
+  padding: var(--space-xs) 0;
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  color: var(--fg2);
+  line-height: 1.55;
+}
+
+.shortcuts-list li > span:last-child {
+  color: var(--fg2);
+}
+
+.shortcuts-list li code.shortcuts-mono {
+  display: inline-block;
+}
+
+.shortcuts-mono {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--fg);
+  background-color: var(--bg);
+  border: 1px solid var(--bg1);
+  border-radius: var(--radius-s);
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.shortcuts-keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+  color: var(--fg2);
+  font-family: var(--font-body);
+  font-size: var(--font-size-xs);
+}
+
+.shortcuts-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  margin: 0 1px;
+  background-color: var(--bg);
+  border: 1px solid var(--bg2);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-s);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--fg1);
+}
+
+/* Inline variant: tucked into description text rather than the keys column.
+   Slightly shorter so it sits on the text baseline without ballooning
+   the line box. */
+.shortcuts-kbd-inline {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 10px;
+  border-bottom-width: 1px;
+  vertical-align: -0.18em;
+}
+
+.shortcuts-tip {
+  margin: calc(-1 * var(--space-xs)) 0 var(--space-sm) 0;
+  font-style: italic;
+  color: var(--fg3);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Settings → "Show onboarding again" link in General pane
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.settings-replay {
+  align-self: flex-start;
+  padding: var(--space-xs) var(--space-md);
+  background: transparent;
+  border: 1px solid var(--bg2);
+  border-radius: var(--radius-s);
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  color: var(--fg2);
+  cursor: pointer;
+  transition: color 150ms var(--ease-smooth),
+              background-color 150ms var(--ease-smooth),
+              border-color 150ms var(--ease-smooth);
+}
+
+.settings-replay:hover {
+  color: var(--fg);
+  background-color: var(--bg);
+  border-color: var(--bg3);
+}
+
+.settings-replay:focus-visible {
+  outline: none;
+  color: var(--fg);
+  border-color: var(--accent-muted);
+}
+
+.settings-replay:active {
+  transform: scale(0.98);
 }

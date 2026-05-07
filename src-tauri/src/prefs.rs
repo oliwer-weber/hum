@@ -18,6 +18,10 @@ pub struct Prefs {
     // never see the welcome screen. Fresh scaffolds explicitly write this as false.
     #[serde(default = "default_first_run_completed")]
     pub first_run_completed: bool,
+    // Default false: existing users without this field see onboarding slides on
+    // next launch. New users also default to false. Set to true once dismissed.
+    #[serde(default)]
+    pub onboarding_completed: bool,
 }
 
 impl Default for Prefs {
@@ -26,6 +30,7 @@ impl Default for Prefs {
             ics_url: String::new(),
             starting_tab: default_starting_tab(),
             first_run_completed: default_first_run_completed(),
+            onboarding_completed: false,
         }
     }
 }

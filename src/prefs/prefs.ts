@@ -15,12 +15,14 @@ export interface Prefs {
   ics_url: string;
   starting_tab: TabId;
   first_run_completed: boolean;
+  onboarding_completed: boolean;
 }
 
 const DEFAULTS: Prefs = {
   ics_url: "",
   starting_tab: "write",
   first_run_completed: true,
+  onboarding_completed: false,
 };
 
 let cached: Prefs = DEFAULTS;
@@ -31,6 +33,7 @@ function coerce(raw: Prefs): Prefs {
     ics_url: raw.ics_url ?? "",
     starting_tab: tab,
     first_run_completed: raw.first_run_completed ?? true,
+    onboarding_completed: raw.onboarding_completed ?? false,
   };
 }
 
