@@ -10,6 +10,7 @@ interface VaultLandingProps {
   refreshKey: number;
   onOpenCollection: (key: CollectionKey) => void;
   onOpenPath: (path: string) => void;
+  onOpenProject: (path: string) => void;
 }
 
 interface RecentEntry {
@@ -93,7 +94,7 @@ function resultSubtitle(item: FindItem): string {
   }
 }
 
-export default function VaultLanding({ refreshKey, onOpenCollection, onOpenPath }: VaultLandingProps) {
+export default function VaultLanding({ refreshKey, onOpenCollection, onOpenPath, onOpenProject }: VaultLandingProps) {
   const [corpus, setCorpus] = useState<FindItem[]>([]);
   const [query, setQuery] = useState("");
   const [showResults, setShowResults] = useState(false);
@@ -122,8 +123,9 @@ export default function VaultLanding({ refreshKey, onOpenCollection, onOpenPath 
     setShowResults(false);
     setQuery("");
     if (item.kind === "project") {
-      // Projects route through the project-hub flow, not the editor.
-      onOpenPath(item.path);
+      // Projects are directories; route through the project-hub flow rather
+      // than the editor (which would 404 on vault_read_file).
+      onOpenProject(item.path);
     } else {
       onOpenPath(item.path);
     }

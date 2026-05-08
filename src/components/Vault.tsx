@@ -1180,6 +1180,7 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled, openPro
             loadDirectory(COLLECTION_PATHS[key], 0);
           })}
           onOpenPath={(p) => navigate("forward", () => navigateToPath(p))}
+          onOpenProject={(p) => navigate("forward", () => goToProjectHub(p))}
         />
       ) : (
         <>
