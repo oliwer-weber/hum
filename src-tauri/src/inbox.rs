@@ -20,6 +20,12 @@ pub struct RoutedProject {
     pub path: String,          // relative vault path (e.g. "projects/work/Kalkyl-X")
     pub todos_added: usize,
     pub notes_added: usize,
+    // When set, content was appended to this existing project note instead of
+    // creating a new per-capture file. Holds the note's display title for the
+    // status toast — the user picks notes by title in the popup so they
+    // recognize the same string back.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub appended_to: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -147,11 +153,41 @@ fn find_note_or_wiki_file(tag: &str, vault: &Path) -> Option<String> {
 
 enum TagResolution<'a> {
     Project(&'a KnownProject),
+    // Append-to-existing flow: tag was `@Project/Note Title`. Holds the
+    // resolved project, the cleaned title we matched on (for the toast), and
+    // the relative path of the note file to append into.
+    AppendToProjectNote {
+        project: &'a KnownProject,
+        note_title: String,
+        note_rel_path: String,
+    },
     ExistingNote(String),   // relative vault path
     NewNote(String),        // tag (preserved verbatim as filename stem)
 }
 
 fn resolve_tag<'a>(tag: &str, vault: &Path, projects: &'a [KnownProject]) -> TagResolution<'a> {
+    // `@Project/Note Title` — drill into a project's notes and append into a
+    // chosen one. Split on the first `/` only; note titles can contain slashes
+    // but the project name can't.
+    if let Some((left, right)) = tag.split_once('/') {
+        let note_query = right.trim();
+        if !note_query.is_empty() {
+            if let Some(project) = resolve_project(left.trim(), projects) {
+                if let Some((rel, title)) = find_project_note_by_title(vault, project, note_query) {
+                    return TagResolution::AppendToProjectNote {
+                        project,
+                        note_title: title,
+                        note_rel_path: rel,
+                    };
+                }
+                // Project resolved but the note name didn't match anything —
+                // fall through to plain project routing so the capture still
+                // lands somewhere sensible instead of becoming a stray new note.
+                return TagResolution::Project(project);
+            }
+        }
+    }
+
     if let Some(p) = resolve_project(tag, projects) {
         return TagResolution::Project(p);
     }
@@ -159,6 +195,53 @@ fn resolve_tag<'a>(tag: &str, vault: &Path, projects: &'a [KnownProject]) -> Tag
         return TagResolution::ExistingNote(rel);
     }
     TagResolution::NewNote(tag.to_string())
+}
+
+/// Find a note inside `projects/.../notes/` whose `derive_title` (markdown
+/// stripped) normalizes to the same key as `query`. On ties, prefers the
+/// most recently modified file so an active note wins over an old duplicate.
+fn find_project_note_by_title(
+    vault: &Path,
+    project: &KnownProject,
+    query: &str,
+) -> Option<(String, String)> {
+    let notes_dir = vault.join(&project.rel_path).join("notes");
+    if !notes_dir.is_dir() { return None; }
+
+    let target = normalize_for_match(query);
+    if target.is_empty() { return None; }
+
+    let entries = fs::read_dir(&notes_dir).ok()?;
+    let mut best: Option<(String, String, std::time::SystemTime)> = None;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("md") {
+            continue;
+        }
+        let content = match fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let (_, body) = split_frontmatter(&content);
+        let title = crate::note_meta::derive_title(&body);
+        if title.is_empty() {
+            continue;
+        }
+        if normalize_for_match(&title) != target {
+            continue;
+        }
+        let mtime = entry.metadata().and_then(|m| m.modified()).ok();
+        let rel = path.strip_prefix(vault).ok()
+            .map(|r| r.to_string_lossy().replace('\\', "/"))?;
+        match (&best, mtime) {
+            (None, Some(t)) => best = Some((rel, title, t)),
+            (Some((_, _, prev)), Some(t)) if t > *prev => best = Some((rel, title, t)),
+            _ => {}
+        }
+    }
+
+    best.map(|(rel, title, _)| (rel, title))
 }
 
 // ── Inbox parser ─────────────────────────────────────
@@ -186,6 +269,26 @@ fn parse_inbox(content: &str) -> Vec<ParsedSection> {
                 });
             }
             current_tag = Some(trimmed[1..].to_string());
+            continue;
+        }
+
+        // Slash-tag form: `@Project/Note Title`. Note titles can contain any
+        // punctuation (apostrophes, colons, commas, the `…` from title
+        // truncation), so accept any non-newline char after `@`. The leading
+        // `@` plus the `/` keeps this from gobbling stray sentences — prose
+        // rarely contains `@word/word`.
+        if trimmed.starts_with('@')
+            && !trimmed.starts_with("@[")
+            && trimmed.contains('/')
+            && trimmed.len() > 1
+        {
+            if !current_lines.is_empty() || current_tag.is_some() {
+                sections.push(ParsedSection {
+                    tag: current_tag.take(),
+                    lines: std::mem::take(&mut current_lines),
+                });
+            }
+            current_tag = Some(trimmed[1..].trim().to_string());
             continue;
         }
 
@@ -333,13 +436,16 @@ fn append_to_note_file(vault: &Path, rel_path: &str, content: &str, date_str: &s
         .map_err(|e| format!("Failed to write note file: {}", e))
 }
 
-/// Create a new notes/{tag}.md file, stamping frontmatter.
+/// Create a new notes/{tag}.md file, stamping frontmatter. Path separators
+/// in the tag are flattened to `-` so a manually-typed `@Foo/Bar` (where
+/// neither side resolves to a project) doesn't try to create a subdirectory.
 fn create_new_note_file(vault: &Path, tag: &str, content: &str, date_str: &str) -> Result<String, String> {
     let notes_dir = vault.join("notes");
     fs::create_dir_all(&notes_dir)
         .map_err(|e| format!("Failed to create notes dir: {}", e))?;
 
-    let rel_path = format!("notes/{}.md", tag);
+    let safe_stem = tag.replace('/', "-");
+    let rel_path = format!("notes/{}.md", safe_stem);
     let full_path = vault.join(&rel_path);
 
     let frontmatter = format!(
@@ -487,6 +593,47 @@ fn route_to_project(
             path: project.rel_path.clone(),
             todos_added: todo_count,
             notes_added: note_count,
+            appended_to: None,
+        });
+    }
+    Ok(())
+}
+
+/// Append-into-existing project note: todos still flow to the project's
+/// `todos.md` (unchanged from the per-capture path), but notes are appended
+/// to the chosen note file rather than minting a new one.
+fn route_to_project_append(
+    vault: &Path,
+    project: &KnownProject,
+    note_title: &str,
+    note_rel_path: &str,
+    lines: &[String],
+    today: &str,
+    routed: &mut Vec<RoutedProject>,
+) -> Result<(), String> {
+    let (todo_blocks, notes, todo_count) = split_todos_and_notes(lines);
+    let note_count = notes.iter().filter(|l| !l.trim().is_empty()).count();
+
+    if !todo_blocks.is_empty() {
+        append_todos(vault, &project.rel_path, &todo_blocks, today)?;
+    }
+    if note_count > 0 {
+        let body: String = notes.iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let trimmed = body.trim();
+        if !trimmed.is_empty() {
+            append_to_note_file(vault, note_rel_path, trimmed, today)?;
+        }
+    }
+    if todo_count > 0 || note_count > 0 {
+        routed.push(RoutedProject {
+            project: project.display.clone(),
+            path: project.rel_path.clone(),
+            todos_added: todo_count,
+            notes_added: note_count,
+            appended_to: Some(note_title.to_string()),
         });
     }
     Ok(())
@@ -559,6 +706,9 @@ pub fn process(vault_override: Option<PathBuf>) -> Result<ProcessResult, String>
                     TagResolution::Project(project) => {
                         route_to_project(&vault, project, &section.lines, &today, &timestamp, &mut routed)?;
                     }
+                    TagResolution::AppendToProjectNote { project, note_title, note_rel_path } => {
+                        route_to_project_append(&vault, project, &note_title, &note_rel_path, &section.lines, &today, &mut routed)?;
+                    }
                     TagResolution::ExistingNote(rel) => {
                         route_to_note_file(&vault, &tag, rel, false, &section.lines, &today, &mut notes_routed)?;
                     }
@@ -586,4 +736,72 @@ pub fn process(vault_override: Option<PathBuf>) -> Result<ProcessResult, String>
             .collect(),
         timestamp,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_slash_tag_without_spaces() {
+        // `@Project/Note` (no spaces) hits the first parser branch which
+        // accepts any non-space chars after `@`.
+        let body = "---\n---\n@Foo/Bar Title\nthe captured line\nanother\n";
+        let sections = parse_inbox(body);
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0].tag.as_deref(), Some("Foo/Bar Title"));
+        assert_eq!(sections[0].lines, vec!["the captured line", "another"]);
+    }
+
+    #[test]
+    fn parses_slash_tag_with_spaces_in_note_name() {
+        // `@Project/Note Title With Spaces` — handled by the dedicated
+        // slash-tag branch (spaces + slash combo).
+        let body = "@Kalkyl/Note With Spaces\ncaptured content\n";
+        let sections = parse_inbox(body);
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0].tag.as_deref(), Some("Kalkyl/Note With Spaces"));
+    }
+
+    #[test]
+    fn parses_slash_tag_with_punctuation_in_note_title() {
+        // Real note titles routinely contain apostrophes, commas, colons,
+        // parens — and `derive_title` adds `…` on 80-char truncation. The
+        // slash-tag branch must accept all of these or the section gets
+        // misclassified as untagged content.
+        let cases = [
+            "@Kalkyl/Don't forget",
+            "@Kalkyl/Idea: spike on auth",
+            "@Kalkyl/Note, with comma",
+            "@Kalkyl/Some really long title that needs truncation…",
+            "@Kalkyl/Refactor (work in progress)",
+            "@Kalkyl/Bug #1234",
+        ];
+        for line in cases {
+            let body = format!("{}\ncaptured line\n", line);
+            let sections = parse_inbox(&body);
+            assert_eq!(
+                sections.len(),
+                1,
+                "expected one section for {}",
+                line,
+            );
+            assert!(
+                sections[0].tag.is_some(),
+                "expected tag recognised for {}",
+                line,
+            );
+            assert_eq!(sections[0].lines, vec!["captured line"]);
+        }
+    }
+
+    #[test]
+    fn unrelated_at_line_without_slash_still_strict() {
+        // Sanity: a line that starts with `@` but has no slash and contains
+        // disallowed punctuation is NOT treated as a tag — it stays content.
+        let body = "@some random sentence, with comma\n";
+        let sections = parse_inbox(body);
+        assert_eq!(sections.len(), 1);
+        assert!(sections[0].tag.is_none());
+    }
 }

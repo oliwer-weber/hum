@@ -1325,6 +1325,22 @@ struct MentionableItem {
     name: String,     // display name (project name or file stem)
     path: String,     // relative vault path
     kind: String,     // "project" | "note" | "wiki"
+    // For project rows only: true when `projects/.../notes/` contains at least
+    // one .md file. Drives the drill-in chevron in the @ popup; we hide the
+    // affordance for empty projects so it only appears where it's useful.
+    #[serde(default)]
+    has_notes: bool,
+}
+
+fn project_has_any_note(vault: &Path, rel_path: &str) -> bool {
+    let notes_dir = vault.join(rel_path).join("notes");
+    let Ok(entries) = fs::read_dir(&notes_dir) else { return false; };
+    for entry in entries.flatten() {
+        if entry.path().extension().and_then(|e| e.to_str()) == Some("md") {
+            return true;
+        }
+    }
+    false
 }
 
 /// Return everything an `@` mention can target: active projects, notes/*.md,
@@ -1349,6 +1365,7 @@ fn list_mentionables() -> Result<Vec<MentionableItem>, String> {
                 name: rel.rsplit('/').next().unwrap_or(rel).to_string(),
                 path: rel.to_string(),
                 kind: "project".into(),
+                has_notes: project_has_any_note(&vault, rel),
             });
         }
     }
@@ -1370,6 +1387,7 @@ fn list_mentionables() -> Result<Vec<MentionableItem>, String> {
                         name: stem.to_string(),
                         path: rel.to_string_lossy().replace('\\', "/"),
                         kind: kind.to_string(),
+                        has_notes: false,
                     });
                 }
             }

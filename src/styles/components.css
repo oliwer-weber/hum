@@ -2223,15 +2223,93 @@
 .pm-suggest {
   position: fixed;
   z-index: 9999;
-  min-width: 220px;
-  max-width: 360px;
-  max-height: 280px;
+  min-width: 240px;
+  max-width: 380px;
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   background: var(--bg-soft);
   border: 1px solid var(--bg3);
   border-radius: var(--radius-l);
   box-shadow: var(--shadow-suggest);
+}
+
+/* Header — only rendered in notes mode. "Appending to <Project chip>". */
+.pm-suggest-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--bg2);
+  font-size: var(--font-size-xs);
+}
+
+.pm-suggest-header-label {
+  color: var(--fg4);
+  letter-spacing: 0.02em;
+}
+
+.pm-suggest-header-chip {
+  padding: 2px 8px;
+  border-radius: var(--mention-radius);
+  font-weight: var(--mention-weight);
+  font-size: var(--font-size-xs);
+}
+
+.pm-suggest-header-chip[data-mention-kind="work"] {
+  color: var(--color-type-work);
+  background: var(--color-type-work-bg);
+  border: 1px solid var(--color-type-work-border);
+}
+
+.pm-suggest-header-chip[data-mention-kind="personal"] {
+  color: var(--color-type-personal);
+  background: var(--color-type-personal-bg);
+  border: 1px solid var(--color-type-personal-border);
+}
+
+/* Scrollable body holds the item list — header and footer stay sticky. */
+.pm-suggest-body {
+  flex: 1 1 auto;
+  overflow: hidden;
   padding: var(--space-xs) 0;
+  min-height: 0;
+}
+
+/* Footer hint — kbd hints in a status-bar tone. */
+.pm-suggest-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  padding: var(--space-xs) var(--space-md);
+  border-top: 1px solid var(--bg2);
+  font-size: 11px;
+  color: var(--fg4);
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+.pm-suggest-footer span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.pm-suggest-footer kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg2);
+  color: var(--fg3);
+  font-family: inherit;
+  font-size: 10px;
+  text-align: center;
+  border: 1px solid var(--bg3);
 }
 
 .pm-suggest-item {
@@ -2291,6 +2369,43 @@
   letter-spacing: 0.02em;
   white-space: nowrap;
   opacity: 0.7;
+}
+
+/* Drill-in chevron — sits after the label, signals "more inside". Hidden by
+   default so it doesn't appear on non-drillable rows. */
+.pm-suggest-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  margin-left: 4px;
+  color: var(--fg4);
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.5;
+  transition: opacity 80ms var(--ease-smooth),
+              transform 80ms var(--ease-smooth);
+}
+
+.pm-suggest-selected .pm-suggest-chevron,
+.pm-suggest-item:hover .pm-suggest-chevron {
+  opacity: 1;
+  transform: translateX(2px);
+}
+
+/* State rows — loading / empty inside the notes picker. Italic, dim, no
+   pillar accent (since they're not selectable in the kind-color sense). */
+.pm-suggest-item.pm-suggest-state {
+  cursor: default;
+}
+
+.pm-suggest-item.pm-suggest-state::before {
+  display: none;
+}
+
+.pm-suggest-state-text {
+  color: var(--fg4);
+  font-style: italic;
 }
 
 .pm-suggest-selected .pm-suggest-path {
@@ -2372,6 +2487,59 @@
   color: var(--color-type-pending);
   background: var(--color-type-pending-bg);
   border: 1px dashed var(--color-type-pending-border);
+}
+
+/* Pair mode — `@Project/Note Title`. Project portion keeps the pill look but
+   with a flat right edge so the note-title companion butts cleanly against it. */
+.project-mention.project-mention-pair {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: 0;
+  padding-right: 4px;
+}
+
+/* Note-title companion — softer, italic, shares the project's kind color but
+   without the heavy pill chrome. Reads as "appended to <project>" at a glance. */
+.project-mention-note {
+  display: inline;
+  padding: var(--mention-py) var(--mention-px) var(--mention-py) 2px;
+  font-size: var(--mention-font);
+  font-weight: 400;
+  font-style: italic;
+  border-radius: 0 var(--mention-radius) var(--mention-radius) 0;
+  border: 1px solid;
+  border-left: 0;
+}
+
+.project-mention-note[data-mention-kind="work"] {
+  color: var(--color-type-work);
+  background: var(--color-type-work-bg);
+  border-color: var(--color-type-work-border);
+}
+
+.project-mention-note[data-mention-kind="personal"] {
+  color: var(--color-type-personal);
+  background: var(--color-type-personal-bg);
+  border-color: var(--color-type-personal-border);
+}
+
+.project-mention-note[data-mention-kind="note"] {
+  color: var(--color-type-notes);
+  background: var(--color-type-notes-bg);
+  border-color: var(--color-type-notes-border);
+}
+
+.project-mention-note[data-mention-kind="wiki"] {
+  color: var(--color-type-wiki);
+  background: var(--color-type-wiki-bg);
+  border-color: var(--color-type-wiki-border);
+}
+
+.project-mention-note[data-mention-kind="pending"] {
+  color: var(--color-type-pending);
+  background: var(--color-type-pending-bg);
+  border: 1px dashed var(--color-type-pending-border);
+  border-left: 0;
 }
 
 /* ── Wiki embeds ![[target]] ─────────────────────── */

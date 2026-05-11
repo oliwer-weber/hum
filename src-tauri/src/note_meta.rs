@@ -10,8 +10,9 @@ use std::collections::HashSet;
 const TITLE_MAX_CHARS: usize = 80;
 
 /// First non-empty, non-todo line of the body (frontmatter stripped), truncated
-/// to 80 chars with `…`. Returns an empty string only when the body is empty
-/// or consists entirely of todos / whitespace.
+/// to 80 chars with `…`. Inline markdown is stripped so the result is flat text
+/// suitable for popup rows, list titles, breadcrumbs, etc. Returns an empty
+/// string only when the body is empty or consists entirely of todos / whitespace.
 pub fn derive_title(body: &str) -> String {
     let body = strip_frontmatter(body);
     for raw in body.lines() {
@@ -19,13 +20,18 @@ pub fn derive_title(body: &str) -> String {
         if line.is_empty() || is_todo_line(line) {
             continue;
         }
-        return truncate(line);
+        let plain = strip_markdown_inline(line);
+        if plain.is_empty() {
+            continue;
+        }
+        return truncate(&plain);
     }
     String::new()
 }
 
 /// One-line excerpt: the second non-empty, non-todo line after the title, if
-/// any. Trimmed, not truncated (the frontend clips with CSS).
+/// any. Inline markdown stripped. Trimmed, not truncated (the frontend clips
+/// with CSS).
 pub fn derive_excerpt(body: &str) -> String {
     let body = strip_frontmatter(body);
     let mut title_seen = false;
@@ -38,9 +44,37 @@ pub fn derive_excerpt(body: &str) -> String {
             title_seen = true;
             continue;
         }
-        return line.to_string();
+        let plain = strip_markdown_inline(line);
+        if plain.is_empty() {
+            continue;
+        }
+        return plain;
     }
     String::new()
+}
+
+/// Strip the inline markdown patterns that show up in titles/excerpts so the
+/// result reads as flat prose. Headings, bold, italic, code spans, highlights,
+/// strikethrough, wikilinks (`[[Name|alias]]` → alias), and markdown links
+/// (`[text](url)` → text). Run order matters: bold must precede italic so
+/// `**x**` is not chewed by the italic pattern.
+pub fn strip_markdown_inline(line: &str) -> String {
+    let s = HEADING_RE.replace(line, "");
+    let s = WIKILINK_RE.replace_all(&s, |caps: &regex::Captures| {
+        caps.get(2)
+            .or_else(|| caps.get(1))
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default()
+    });
+    let s = MD_LINK_RE.replace_all(&s, "$1");
+    let s = BOLD_STAR_RE.replace_all(&s, "$1");
+    let s = BOLD_USCORE_RE.replace_all(&s, "$1");
+    let s = HIGHLIGHT_RE.replace_all(&s, "$1");
+    let s = STRIKE_RE.replace_all(&s, "$1");
+    let s = CODE_RE.replace_all(&s, "$1");
+    let s = ITALIC_STAR_RE.replace_all(&s, "$1");
+    let s = ITALIC_USCORE_RE.replace_all(&s, "$1");
+    s.trim().to_string()
 }
 
 /// Inline `#foo` tags extracted from the body. Preserves first-seen casing but
@@ -103,6 +137,18 @@ static TAG_REGEX: Lazy<Regex> = Lazy::new(|| {
     // not-a-tag). Allows letters, digits, `_`, `-`.
     Regex::new(r"(?:^|\s)#([A-Za-z][A-Za-z0-9_-]*)").unwrap()
 });
+
+static HEADING_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^#{1,6}\s+").unwrap());
+static WIKILINK_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\[\[([^\]\|]+?)(?:\|([^\]]+?))?\]\]").unwrap());
+static MD_LINK_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\[([^\]]+)\]\([^\)]+\)").unwrap());
+static BOLD_STAR_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\*\*([^*]+?)\*\*").unwrap());
+static BOLD_USCORE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"__([^_]+?)__").unwrap());
+static HIGHLIGHT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"==([^=]+?)==").unwrap());
+static STRIKE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"~~([^~]+?)~~").unwrap());
+static CODE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"`([^`]+?)`").unwrap());
+static ITALIC_STAR_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\*([^*\n]+?)\*").unwrap());
+static ITALIC_USCORE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"_([^_\n]+?)_").unwrap());
 
 fn strip_frontmatter(content: &str) -> &str {
     if content.starts_with("---") {
@@ -238,6 +284,38 @@ mod tests {
             bucket_of(march, now),
             Bucket::Month { year: 2026, month: 3 }
         );
+    }
+
+    #[test]
+    fn title_strips_bold_and_italic() {
+        assert_eq!(derive_title("**Big idea**"), "Big idea");
+        assert_eq!(derive_title("*soft thought*"), "soft thought");
+        assert_eq!(derive_title("__bold__ then plain"), "bold then plain");
+    }
+
+    #[test]
+    fn title_strips_headings_and_code() {
+        assert_eq!(derive_title("## My heading"), "My heading");
+        assert_eq!(derive_title("a `snippet` inside"), "a snippet inside");
+    }
+
+    #[test]
+    fn title_strips_links_and_wikilinks() {
+        assert_eq!(derive_title("see [the docs](https://x.com)"), "see the docs");
+        assert_eq!(derive_title("ref to [[Other Note]]"), "ref to Other Note");
+        assert_eq!(derive_title("ref to [[Other Note|alias]]"), "ref to alias");
+    }
+
+    #[test]
+    fn title_strips_highlights_and_strikethrough() {
+        assert_eq!(derive_title("==important== bit"), "important bit");
+        assert_eq!(derive_title("~~old~~ new"), "old new");
+    }
+
+    #[test]
+    fn excerpt_strips_inline_markdown() {
+        let body = "title\n**bold** excerpt with `code`";
+        assert_eq!(derive_excerpt(body), "bold excerpt with code");
     }
 
     #[test]

@@ -6,7 +6,7 @@ import { createSharedExtensions, PAIRS, CLOSE_CHARS } from "./editor-config";
 import { WikiLink, WikiEmbed, convertTextToWikiLinks } from "./wikilink";
 import { HashTag } from "./hashtag";
 import { attachProjectAutocomplete, ProjectMentionKeymap, ProjectTagStyle } from "./project-mention";
-import type { MentionableItem, CreateKind } from "./project-mention";
+import type { MentionableItem, CreateKind, NoteRow } from "./project-mention";
 import type { VaultFileInfo } from "./wikilink";
 
 const FRONTMATTER = "---\ncssclasses:\n  - home-title\n---";
@@ -17,7 +17,7 @@ interface InboxProps {
 }
 
 interface ProcessResult {
-  routed: { project: string; path: string; todos_added: number; notes_added: number }[];
+  routed: { project: string; path: string; todos_added: number; notes_added: number; appended_to?: string }[];
   notes_routed: { tag: string; path: string; entries_added: number; is_new: boolean }[];
   untagged_remaining: string[];
   timestamp: string;
@@ -199,7 +199,21 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
       });
       onVaultChanged?.();
     };
-    const cleanup = attachProjectAutocomplete(editor, () => mentionablesRef.current, { onCreate });
+    const listProjectNotes = async (projectPath: string): Promise<NoteRow[]> => {
+      try {
+        const notes = await invoke<Array<{ path: string; title: string }>>(
+          "list_project_notes",
+          { projectPath },
+        );
+        return notes
+          .filter((n) => n.title && n.title.trim().length > 0)
+          .map((n) => ({ path: n.path, title: n.title }));
+      } catch (err) {
+        console.error("list_project_notes failed:", err);
+        return [];
+      }
+    };
+    const cleanup = attachProjectAutocomplete(editor, () => mentionablesRef.current, { onCreate, listProjectNotes });
     // Refresh the mentionables list whenever the editor gains focus — catches
     // files created externally (Vault view, filesystem) since component mount.
     const onFocus = () => reloadMentionables();
@@ -399,9 +413,13 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
             <span className={`inbox-hint inbox-hint-result ${statusRoll === "rolling-back" ? "roll-out" : "roll-in"}`}>
               {[
                 ...lastResult.routed.map((r) => {
-                  const parts = [r.project];
+                  const head = r.appended_to ? `${r.project} / ${r.appended_to}` : r.project;
+                  const parts = [head];
                   if (r.todos_added > 0) parts.push(`${r.todos_added} todo${r.todos_added > 1 ? "s" : ""}`);
-                  if (r.notes_added > 0) parts.push(`${r.notes_added} note${r.notes_added > 1 ? "s" : ""}`);
+                  if (r.notes_added > 0) {
+                    const verb = r.appended_to ? "appended" : `note${r.notes_added > 1 ? "s" : ""}`;
+                    parts.push(r.appended_to ? `${r.notes_added} ${verb}` : `${r.notes_added} ${verb}`);
+                  }
                   return parts.join(" · ");
                 }),
                 ...lastResult.notes_routed.map((n) => {
