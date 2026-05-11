@@ -320,6 +320,18 @@ input:focus-visible, textarea:focus-visible {
   box-shadow: 0 0 0 2px var(--accent-muted);
 }
 
+/* Bare inputs that live inside a focus-within wrapper (search bars, filter
+   bars, add-todo input). The wrapper handles the visual focus state via its
+   own border, so the global box-shadow ring becomes a duplicate stripe
+   inside the field. Suppress it for every such input across the app. */
+.vsearch-input:focus-visible,
+.vfilter-input:focus-visible,
+.plist-find-input:focus-visible,
+.ptodos-add-input:focus-visible {
+  box-shadow: none;
+  border-color: transparent;
+}
+
 textarea {
   resize: none;
 }
