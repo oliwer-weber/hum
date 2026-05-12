@@ -47,6 +47,21 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+ useEffect(()=> {
+  const map = {"1":"write","2":"focus","3":"find","4":"hum"} as const;  
+  const onKey = (e: KeyboardEvent) => {
+    const tab = map[e.key as keyof typeof map];
+    if ((e.metaKey || e.ctrlKey) && tab) {
+      e.preventDefault();
+      setActiveTab(tab);
+    }
+  }; 
+  window.addEventListener("keydown", onKey);
+  return () => window.removeEventListener("keydown", onKey);
+ },[]);
+
+
+
   // Mirror the vault's active collection onto the root element so the
   // tab pill's color can morph to match where the user is inside the
   // vault. Cleared when the user is on any other tab — the pill's
