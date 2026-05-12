@@ -11,6 +11,24 @@ import type { VaultFileInfo } from "./wikilink";
 
 const FRONTMATTER = "---\ncssclasses:\n  - home-title\n---";
 
+// Rolling tips shown in the Write status bar while idle. Each one shows
+// for TIP_DWELL_MS, then rolls up and the next rolls in from below using
+// the same status-roll keyframes the process result uses.
+const TIPS = [
+  "@mention picks the project a thought belongs to",
+  "Ctrl+Enter sends everything to its place",
+  "Edits save themselves as you write",
+  "Ctrl+B for bold, Ctrl+I for italic",
+  "Ctrl+L makes a line a checkbox",
+  "Link a note with [[brackets]]",
+  "Tag with # to find it again later",
+  "Half-formed thoughts are welcome here",
+  "Ctrl+1-4 jumps between tabs",
+  "Ctrl+, opens settings",
+];
+const TIP_DWELL_MS = 12000;
+const TIP_ROLL_MS = 350;
+
 interface InboxProps {
   refreshKey: number;
   onVaultChanged?: () => void;
@@ -31,6 +49,9 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
   const [lastResult, setLastResult] = useState<ProcessResult | null>(null);
   const [statusRoll, setStatusRoll] = useState<"idle" | "rolling-out" | "result" | "rolling-back">("idle");
   const rollTimerRef = useRef<number | null>(null);
+  const [tipIndex, setTipIndex] = useState(0);
+  const [tipRoll, setTipRoll] = useState<"in" | "out">("in");
+  const tipTimerRef = useRef<number | null>(null);
   const saveTimeoutRef = useRef<number | null>(null);
   const skipNextSave = useRef(false);
   const editorRef = useRef<ReturnType<typeof useEditor>>(null);
@@ -275,6 +296,40 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
     }, ROLL_DURATION);
   }, []);
 
+  // Tip rotation — cycles through TIPS while the status bar is idle.
+  // Reuses the same roll-in/roll-out classes the process result uses, so
+  // the animation language matches. Pauses while a result is being shown
+  // and while saving so neither gets yanked mid-flight.
+  useEffect(() => {
+    if (statusRoll !== "idle" || saving) {
+      if (tipTimerRef.current) {
+        clearTimeout(tipTimerRef.current);
+        tipTimerRef.current = null;
+      }
+      return;
+    }
+    if (tipRoll === "in") {
+      tipTimerRef.current = window.setTimeout(() => {
+        setTipRoll("out");
+      }, TIP_DWELL_MS);
+    } else {
+      tipTimerRef.current = window.setTimeout(() => {
+        setTipIndex((i) => (i + 1) % TIPS.length);
+        setTipRoll("in");
+      }, TIP_ROLL_MS);
+    }
+    return () => {
+      if (tipTimerRef.current) clearTimeout(tipTimerRef.current);
+    };
+  }, [tipRoll, statusRoll, saving]);
+
+  // When a process result takes over the bar, normalize the tip phase so
+  // when we return to idle the next tip rolls in from below rather than
+  // flashing out of the top.
+  useEffect(() => {
+    if (statusRoll !== "idle") setTipRoll("in");
+  }, [statusRoll]);
+
   const handleProcess = useCallback(async () => {
     const currentEditor = editorRef.current;
     // Flush any pending save first
@@ -405,8 +460,12 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
       <div className="inbox-status-bar">
         <span className="inbox-status-left">
           {(statusRoll === "idle" || statusRoll === "rolling-out") && (
-            <span className={`inbox-hint ${statusRoll === "rolling-out" ? "roll-out" : "roll-in"}`}>
-              {saving ? "Saving..." : "@project to route — Ctrl+Enter to process — edits auto-save — Ctrl+B bold, Ctrl+I italic, Ctrl+L checkbox"}
+            <span
+              className={`inbox-hint ${
+                statusRoll === "rolling-out" || tipRoll === "out" ? "roll-out" : "roll-in"
+              }`}
+            >
+              {saving ? "Saving..." : TIPS[tipIndex]}
             </span>
           )}
           {(statusRoll === "result" || statusRoll === "rolling-back") && lastResult && (
