@@ -130,7 +130,7 @@ body {
 .window-controls {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--space-2xs);
   padding: 0 var(--space-xs);
 }
 
@@ -199,7 +199,7 @@ body {
    be fiddly to redraw in CSS. */
 .window-btn-minimize::before {
   content: "";
-  width: 10px;
+  width: var(--icon-xs);
   height: 1.5px;
   background: currentColor;
   display: block;
@@ -207,9 +207,9 @@ body {
 
 .window-btn-maximize::before {
   content: "";
-  width: 10px;
-  height: 10px;
-  border: 1.5px solid currentColor;
+  width: var(--icon-xs);
+  height: var(--icon-xs);
+  border: var(--stroke-thin) solid currentColor;
   border-radius: 1px;
   display: block;
 }

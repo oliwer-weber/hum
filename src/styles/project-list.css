@@ -187,7 +187,7 @@
   font-size: var(--font-size-xs);
   color: var(--fg3);
   background: var(--bg-hard);
-  padding: 2px var(--space-sm);
+  padding: var(--space-2xs) var(--space-sm);
   border-radius: var(--radius-s);
   border: 1px solid var(--bg2);
   user-select: none;

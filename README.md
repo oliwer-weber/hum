@@ -1,73 +1,60 @@
-# React + TypeScript + Vite
+# Hum
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A quiet desktop app for notes, projects, and todos. Your vault on disk, your shape.
 
-Currently, two official plugins are available:
+Hum keeps a plain-text vault as the source of truth. Everything you write stays as Markdown files in a folder you own. The app reads and writes those files; it doesn't lock anything inside a database. If you close Hum and open the folder in your editor of choice, your notes are right where you left them.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## The four tabs
 
-## React Compiler
+- **Write** is the capture surface. A TipTap editor for inbox entries, with `@Project/Note` mentions that route a capture straight into an existing project note.
+- **Focus** ranks your projects by gravity (recent activity, open todos, deadlines) and shows the today/week view. You can snooze projects out of focus when they need to wait.
+- **Find** is the vault browser. Three collections (Projects, Library, Notes), each with cards, filtering, and a project hub for drilling in.
+- **Hum** is the AI surface. Currently resting; will come back in a later build.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Stack
 
-## Expanding the ESLint configuration
+- Tauri 2 (Rust backend, native window)
+- React 19 + TypeScript + Vite
+- TipTap for the editor
+- Fuse.js for search
+- Design tokens for theming (gruvbox, dark, light themes shipped, easy to add more)
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Scripts
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run dev          # vite dev server
+npm run tauri dev    # full app (rust backend + vite frontend, hot reload)
+npm run build        # tsc + vite build
+npm run tauri build  # produce installers
+npm run lint
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Project shape
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
 ```
+src/                 React frontend
+  components/        UI components per tab + shared primitives
+  hooks/             useFuseFilter, useScrollFade
+  styles/            global.css, components.css, vault-cards.css, project-list.css
+  theme/             tokens.css (the design system), theme.ts (theme switcher)
+  prefs/             user prefs (synced with the Rust prefs.rs)
+src-tauri/           Rust backend
+  src/
+    lib.rs           tauri command surface
+    inbox.rs         capture routing
+    hum.rs           AI tool-use loop (dormant until Hum returns)
+    todo_parser.rs   todo extraction
+    todo_index.rs    todo index + UUID stamping
+    note_meta.rs     frontmatter + metadata
+    calendar.rs      ICS feed
+    vault_manifest.rs project registry
+    prefs.rs         settings I/O
+```
+
+## Status
+
+Sweden-only beta. Cross-platform installers via GitHub Actions are wired but not yet active. Multi-device sync via Supabase is planned for later; the vault structure is already prepped for it.
+
+## Theming
+
+All colors, sizes, radii, and shadows live as CSS custom properties in `src/theme/tokens.css`. To add a theme, drop a `[data-theme="your-theme"]` block that overrides any subset of the tokens. No hardcoded values in components, so themes apply everywhere at once.

@@ -5,6 +5,7 @@ import VaultFAB from "./VaultFAB";
 import RightClickHint from "./RightClickHint";
 import { useFuseFilter } from "../hooks/useFuseFilter";
 import { useScrollFade } from "../hooks/useScrollFade";
+import { type Bucket, bucketFromISO, bucketKey, bucketLabel, bucketOrder, formatDate } from "./bucket-utils";
 
 interface LibraryViewProps {
   refreshKey: number;
@@ -29,17 +30,6 @@ interface FindItem {
   project: string | null;
 }
 
-type Bucket =
-  | { kind: "this_week" }
-  | { kind: "last_week" }
-  | { kind: "month"; year: number; month: number }
-  | { kind: "older" };
-
-const MONTH_NAMES = [
-  "January","February","March","April","May","June",
-  "July","August","September","October","November","December",
-];
-const WEEKDAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const LIB_ROOT = "wiki";
 
 const LIBRARY_KEYS: FuseOptionKey<FindItem>[] = [
@@ -66,68 +56,6 @@ const KIND_LABEL: Record<string, string> = {
 
 function joinPath(...parts: string[]): string { return parts.filter(Boolean).join("/"); }
 function stripMdExt(name: string): string { return name.replace(/\.md$/i, ""); }
-
-function startOfWeek(d: Date): Date {
-  const out = new Date(d);
-  out.setHours(0,0,0,0);
-  out.setDate(out.getDate() - ((out.getDay() + 6) % 7));
-  return out;
-}
-
-function bucketFromISO(iso: string, now: Date): Bucket {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return { kind: "older" };
-  const wkStart = startOfWeek(now);
-  const lastWkStart = new Date(wkStart);
-  lastWkStart.setDate(lastWkStart.getDate() - 7);
-  if (d >= wkStart) return { kind: "this_week" };
-  if (d >= lastWkStart) return { kind: "last_week" };
-  const yearAgo = new Date(now);
-  yearAgo.setFullYear(yearAgo.getFullYear() - 1);
-  if (d >= yearAgo) return { kind: "month", year: d.getFullYear(), month: d.getMonth() + 1 };
-  return { kind: "older" };
-}
-
-function bucketKey(b: Bucket): string {
-  switch (b.kind) {
-    case "this_week": return "this_week";
-    case "last_week": return "last_week";
-    case "month": return `month:${b.year}-${b.month}`;
-    case "older": return "older";
-  }
-}
-
-function bucketLabel(b: Bucket, now: Date): string {
-  switch (b.kind) {
-    case "this_week": return "This week";
-    case "last_week": return "Last week";
-    case "month": {
-      const n = MONTH_NAMES[b.month - 1];
-      return b.year === now.getFullYear() ? n : `${n} ${b.year}`;
-    }
-    case "older": return "Older";
-  }
-}
-
-function bucketOrder(b: Bucket): number {
-  switch (b.kind) {
-    case "this_week": return 0;
-    case "last_week": return 1;
-    case "month": return 1_000_000 - (b.year * 12 + b.month);
-    case "older": return Number.MAX_SAFE_INTEGER;
-  }
-}
-
-function formatDate(iso: string, now: Date): string {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
-  const age = (now.getTime() - d.getTime()) / (24 * 3600 * 1000);
-  const pad = (n: number) => n.toString().padStart(2,"0");
-  if (age < 7 && age >= 0) return `${WEEKDAYS[d.getDay()]} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  const abbr = MONTH_NAMES[d.getMonth()].slice(0,3);
-  if (d.getFullYear() === now.getFullYear()) return `${abbr} ${d.getDate()}`;
-  return `${abbr} ${d.getFullYear()}`;
-}
 
 export default function LibraryView({
   refreshKey,
