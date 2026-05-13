@@ -266,6 +266,12 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
       try {
         const raw = await invoke<string>("read_inbox");
         const stripped = raw.replace(/^---[\s\S]*?---\s*/, "").trim();
+        // Skip when disk already matches the editor. Without this, an unrelated
+        // vault refresh (e.g. @mention create) clobbers the editor and remaps
+        // the cursor to the end of the doc — right after a freshly typed
+        // @mention — which re-triggers the autocomplete popup.
+        const currentMd = (editor!.storage as any).markdown.getMarkdown().trim();
+        if (currentMd === stripped) return;
         skipNextSave.current = true;
         editor!.commands.setContent(stripped || "");
         convertTextToWikiLinks(editor!);
