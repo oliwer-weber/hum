@@ -14,6 +14,7 @@ interface TodoBlock {
   tags: string[];
   line_number: number;
   line_count: number;
+  subtasks: TodoBlock[];
 }
 
 interface ProjectTodosProps {
@@ -56,13 +57,6 @@ function formatAge(days: number | null): string {
   return `${Math.floor(days / 30)}mo`;
 }
 
-function depthForBlock(block: TodoBlock): number {
-  const first = block.raw_lines[0] ?? "";
-  const leading = first.length - first.trimStart().length;
-  return Math.floor(leading / 2);
-}
-
-// Strip status tags from display text since we render them as pills.
 function stripStatusTags(text: string): string {
   return text.replace(/#(?:blocked|waiting|on-hold)\b/g, "").replace(/\s+/g, " ").trim();
 }
@@ -105,44 +99,8 @@ function formatCompletedDate(iso: string, bucket: CompletedBucket): string {
   return `${MONTH_SHORT[d.getMonth()]} ${String(d.getDate()).padStart(2, "0")}`;
 }
 
-/* ── Tree build + gravity sort ──────────────────────
-   Open items are rendered as a forest: roots sort by age_days desc,
-   children follow their parent in document order (not re-sorted) so
-   the nesting reads naturally. */
-
-interface TreeNode {
-  block: TodoBlock;
-  depth: number;
-  children: TreeNode[];
-}
-
-function buildOpenTree(openBlocks: TodoBlock[]): TreeNode[] {
-  const roots: TreeNode[] = [];
-  const stack: TreeNode[] = [];
-  for (const block of openBlocks) {
-    const depth = depthForBlock(block);
-    const node: TreeNode = { block, depth, children: [] };
-    while (stack.length > 0 && stack[stack.length - 1].depth >= depth) stack.pop();
-    if (stack.length === 0) roots.push(node);
-    else stack[stack.length - 1].children.push(node);
-    stack.push(node);
-  }
-  return roots;
-}
-
-function flattenGravity(roots: TreeNode[]): Array<{ block: TodoBlock; depth: number }> {
-  const sorted = [...roots].sort((a, b) => {
-    const aAge = ageDays(a.block.created) ?? 0;
-    const bAge = ageDays(b.block.created) ?? 0;
-    return bAge - aAge;
-  });
-  const out: Array<{ block: TodoBlock; depth: number }> = [];
-  const walk = (n: TreeNode) => {
-    out.push({ block: n.block, depth: n.depth });
-    for (const c of n.children) walk(c);
-  };
-  for (const r of sorted) walk(r);
-  return out;
+function hasExtras(block: TodoBlock): boolean {
+  return block.body.trim().length > 0 || block.subtasks.length > 0;
 }
 
 /* ── Icons ────────────────────────────────────────── */
@@ -150,6 +108,12 @@ function flattenGravity(roots: TreeNode[]): Array<{ block: TodoBlock; depth: num
 const IconChevronLeft = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="m15 18-6-6 6-6" />
+  </svg>
+);
+
+const IconChevronRight = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="m9 18 6-6-6-6" />
   </svg>
 );
 
@@ -173,6 +137,62 @@ const IconOverflow = () => (
   </svg>
 );
 
+/* ── Sub-task cluster ──────────────────────────────
+   Shared between Open and Completed lists. Renders the body + sub-task
+   rows; the parent caller owns the parent row. Age on sub-tasks reflects
+   the parent's created date (sub-tasks inherit). */
+
+function TodoExtras({
+  block,
+  parentAge,
+  onToggle,
+  onDelete,
+}: {
+  block: TodoBlock;
+  parentAge: number | null;
+  onToggle: (block: TodoBlock, checked: boolean) => void;
+  onDelete: (block: TodoBlock) => void;
+}) {
+  if (!hasExtras(block)) return null;
+
+  return (
+    <div className="ptodos-extras">
+      {block.body.trim().length > 0 && (
+        <p className="ptodos-body">{block.body}</p>
+      )}
+      {block.subtasks.length > 0 && (
+        <ul className="ptodos-subtasks">
+          {block.subtasks.map((sub) => {
+            const key = `${sub.line_number}-${sub.id ?? sub.text}`;
+            return (
+              <li key={key} className="ptodos-subtask-row">
+                <input
+                  type="checkbox"
+                  className="todo-checkbox"
+                  checked={sub.checked}
+                  onChange={() => onToggle(sub, !sub.checked)}
+                  aria-label={sub.checked ? "Mark sub-task incomplete" : "Mark sub-task complete"}
+                />
+                <span className={`ptodos-subtask-text ${sub.checked ? "ptodos-subtask-text-done" : ""}`}>
+                  {stripStatusTags(sub.text)}
+                </span>
+                <span className="ptodos-age">{formatAge(parentAge)}</span>
+                <button
+                  className="ptodos-delete"
+                  onClick={() => onDelete(sub)}
+                  aria-label="Delete sub-task"
+                >
+                  <IconClose />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /* ── Component ────────────────────────────────────── */
 
 export default function ProjectTodos({
@@ -184,6 +204,10 @@ export default function ProjectTodos({
   const [blocks, setBlocks] = useState<TodoBlock[]>([]);
   const [overflowOpen, setOverflowOpen] = useState(false);
   const [addValue, setAddValue] = useState("");
+  // Keyed by parent id (or fallback to line_number) — tracks which completed
+  // rows are currently expanded. Resets on each loadTodos to avoid drift if
+  // a previously-expanded row went away after a re-parse.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const addRef = useRef<HTMLInputElement>(null);
 
   const projectName = projectNameFromPath(projectPath);
@@ -195,6 +219,7 @@ export default function ProjectTodos({
         projectRelPath: projectPath,
       });
       setBlocks(data);
+      setExpanded(new Set());
     } catch (err) {
       console.error("Failed to load todos:", err);
     }
@@ -202,7 +227,7 @@ export default function ProjectTodos({
 
   useEffect(() => { loadTodos(); }, [loadTodos, refreshKey]);
 
-  // Refresh when the window regains focus (user edits file in Obsidian, returns)
+  // Refresh when the window regains focus (handles external edits gracefully)
   useEffect(() => {
     const onVis = () => { if (document.visibilityState === "visible") loadTodos(); };
     document.addEventListener("visibilitychange", onVis);
@@ -227,10 +252,15 @@ export default function ProjectTodos({
   const openBlocks = useMemo(() => blocks.filter((b) => !b.checked), [blocks]);
   const completedBlocks = useMemo(() => blocks.filter((b) => b.checked), [blocks]);
 
-  const openOrdered = useMemo(
-    () => flattenGravity(buildOpenTree(openBlocks)),
-    [openBlocks],
-  );
+  // Sort open parents by age desc — oldest things float to the top, the way
+  // gravity-ranked todos do elsewhere in the app.
+  const openOrdered = useMemo(() => {
+    return [...openBlocks].sort((a, b) => {
+      const aAge = ageDays(a.created) ?? 0;
+      const bAge = ageDays(b.created) ?? 0;
+      return bAge - aAge;
+    });
+  }, [openBlocks]);
 
   const buckets = useMemo(() => {
     const result: Record<CompletedBucket, TodoBlock[]> = {
@@ -244,7 +274,6 @@ export default function ProjectTodos({
       if (!bucket) continue;
       result[bucket].push(b);
     }
-    // Sort each bucket by completion date desc, then line_number desc as tiebreaker
     const byDateDesc = (a: TodoBlock, b: TodoBlock) => {
       const aT = a.completed ?? "";
       const bT = b.completed ?? "";
@@ -258,20 +287,20 @@ export default function ProjectTodos({
   }, [completedBlocks]);
 
   const doneTodayCount = buckets.today.length;
+  const totalOpenCount = useMemo(() => {
+    // Count parents + open sub-tasks so the header reflects all open work.
+    let n = 0;
+    for (const b of openBlocks) {
+      n += 1;
+      for (const s of b.subtasks) if (!s.checked) n += 1;
+    }
+    return n;
+  }, [openBlocks]);
 
   /* ── Handlers ─────────────────────────────────── */
 
   const handleToggle = useCallback(
     async (block: TodoBlock, checked: boolean) => {
-      // Optimistic: flip in local state immediately
-      setBlocks((prev) => prev.map((b) => {
-        if (b.line_number !== block.line_number) return b;
-        return {
-          ...b,
-          checked,
-          completed: checked ? todayISO() : null,
-        };
-      }));
       try {
         await invoke("toggle_dashboard_todo", {
           project: projectName,
@@ -299,14 +328,12 @@ export default function ProjectTodos({
       } catch {
         // File may not exist yet — that's fine, we'll create it via write
       }
-      // Prepend the new todo at the top (matches add-row position)
       const newContent = content.length === 0
         ? line + "\n"
         : line + "\n" + content.replace(/^\n+/, "");
       await invoke("vault_write_file", { relativePath: todosRelPath, content: newContent });
       setAddValue("");
       await loadTodos();
-      // Keep focus in the input so rapid entry stays fluid
       addRef.current?.focus();
     } catch (err) {
       console.error("add todo failed:", err);
@@ -319,7 +346,6 @@ export default function ProjectTodos({
       const lines = content.split("\n");
       const startIdx = block.line_number - 1;
       const endIdx = Math.min(startIdx + block.line_count, lines.length);
-      // Remove the block's lines
       const next = [...lines.slice(0, startIdx), ...lines.slice(endIdx)].join("\n");
       await invoke("vault_write_file", { relativePath: todosRelPath, content: next });
       await loadTodos();
@@ -327,6 +353,15 @@ export default function ProjectTodos({
       console.error("delete todo failed:", err);
     }
   }, [todosRelPath, loadTodos]);
+
+  const toggleExpanded = useCallback((key: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   const onAddKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
@@ -375,7 +410,7 @@ export default function ProjectTodos({
         <div className="ptodos-title-row">
           <h1 className="ptodos-title">Todos</h1>
           <p className="ptodos-subtitle">
-            <span><strong>{openBlocks.length}</strong> open</span>
+            <span><strong>{totalOpenCount}</strong> open</span>
             <span className="ptodos-sep">·</span>
             <span><strong>{doneTodayCount}</strong> done today</span>
           </p>
@@ -410,43 +445,47 @@ export default function ProjectTodos({
             <p className="ptodos-empty-list">Nothing open. Quiet day.</p>
           ) : (
             <ul className="ptodos-list">
-              {openOrdered.map(({ block, depth }) => {
+              {openOrdered.map((block) => {
                 const age = ageDays(block.created);
                 const hasBlocked = block.tags.includes("#blocked");
                 const hasWaiting = block.tags.includes("#waiting");
                 const stuck = hasBlocked || hasWaiting;
                 const displayText = stripStatusTags(block.text);
                 const key = `${block.line_number}-${block.id ?? block.text}`;
-                const depthClass = depth > 0 ? `ptodos-row-nested ptodos-row-depth-${Math.min(depth, 3)}` : "";
 
                 return (
-                  <li
-                    key={key}
-                    className={`ptodos-row ${stuck ? "ptodos-row-stuck" : ""} ${depthClass}`}
-                  >
-                    <input
-                      type="checkbox"
-                      className="todo-checkbox"
-                      checked={false}
-                      onChange={() => handleToggle(block, true)}
-                      aria-label="Mark complete"
+                  <li key={key} className="ptodos-item">
+                    <div className={`ptodos-row ${stuck ? "ptodos-row-stuck" : ""}`}>
+                      <input
+                        type="checkbox"
+                        className="todo-checkbox"
+                        checked={false}
+                        onChange={() => handleToggle(block, true)}
+                        aria-label="Mark complete"
+                      />
+                      <span className="ptodos-text">{displayText}</span>
+                      {hasBlocked ? (
+                        <span className="vault-tag vault-tag-blocked">#blocked</span>
+                      ) : hasWaiting ? (
+                        <span className="vault-tag vault-tag-waiting">#waiting</span>
+                      ) : null}
+                      <span className={`ptodos-age ${age !== null && age >= 14 ? "ptodos-age-warm" : ""}`}>
+                        {formatAge(age)}
+                      </span>
+                      <button
+                        className="ptodos-delete"
+                        onClick={() => handleDelete(block)}
+                        aria-label="Delete todo"
+                      >
+                        <IconClose />
+                      </button>
+                    </div>
+                    <TodoExtras
+                      block={block}
+                      parentAge={age}
+                      onToggle={handleToggle}
+                      onDelete={handleDelete}
                     />
-                    <span className="ptodos-text">{displayText}</span>
-                    {hasBlocked ? (
-                      <span className="vault-tag vault-tag-blocked">#blocked</span>
-                    ) : hasWaiting ? (
-                      <span className="vault-tag vault-tag-waiting">#waiting</span>
-                    ) : null}
-                    <span className={`ptodos-age ${age !== null && age >= 14 ? "ptodos-age-warm" : ""}`}>
-                      {formatAge(age)}
-                    </span>
-                    <button
-                      className="ptodos-delete"
-                      onClick={() => handleDelete(block)}
-                      aria-label="Delete todo"
-                    >
-                      <IconClose />
-                    </button>
                   </li>
                 );
               })}
@@ -458,9 +497,33 @@ export default function ProjectTodos({
 
         {/* RIGHT: Completed rail */}
         <aside className="ptodos-col-rail">
-          <RailSection label="Today" blocks={buckets.today} bucket="today" onToggle={handleToggle} />
-          <RailSection label="This Week" blocks={buckets.week} bucket="week" onToggle={handleToggle} />
-          <RailSection label="Earlier" blocks={buckets.earlier} bucket="earlier" onToggle={handleToggle} />
+          <RailSection
+            label="Today"
+            blocks={buckets.today}
+            bucket="today"
+            expanded={expanded}
+            onToggleExpand={toggleExpanded}
+            onToggle={handleToggle}
+            onDelete={handleDelete}
+          />
+          <RailSection
+            label="This Week"
+            blocks={buckets.week}
+            bucket="week"
+            expanded={expanded}
+            onToggleExpand={toggleExpanded}
+            onToggle={handleToggle}
+            onDelete={handleDelete}
+          />
+          <RailSection
+            label="Earlier"
+            blocks={buckets.earlier}
+            bucket="earlier"
+            expanded={expanded}
+            onToggleExpand={toggleExpanded}
+            onToggle={handleToggle}
+            onDelete={handleDelete}
+          />
         </aside>
       </section>
     </div>
@@ -479,12 +542,18 @@ function RailSection({
   label,
   blocks,
   bucket,
+  expanded,
+  onToggleExpand,
   onToggle,
+  onDelete,
 }: {
   label: string;
   blocks: TodoBlock[];
   bucket: CompletedBucket;
+  expanded: Set<string>;
+  onToggleExpand: (key: string) => void;
   onToggle: (block: TodoBlock, checked: boolean) => void;
+  onDelete: (block: TodoBlock) => void;
 }) {
   return (
     <div className="ptodos-rail-section">
@@ -499,17 +568,48 @@ function RailSection({
           {blocks.map((block) => {
             const dateLabel = block.completed ? formatCompletedDate(block.completed, bucket) : "";
             const key = `${block.line_number}-${block.id ?? block.text}`;
+            const canExpand = hasExtras(block);
+            const isOpen = canExpand && expanded.has(key);
+            const parentAge = ageDays(block.created);
+
             return (
-              <li key={key} className="ptodos-done">
-                <input
-                  type="checkbox"
-                  className="todo-checkbox"
-                  checked={true}
-                  onChange={() => onToggle(block, false)}
-                  aria-label="Mark incomplete"
-                />
-                <span className="ptodos-done-text">{stripStatusTags(block.text)}</span>
-                {dateLabel && <span className="ptodos-done-date">{dateLabel}</span>}
+              <li key={key} className="ptodos-done-item">
+                <div
+                  className={`ptodos-done ${canExpand ? "ptodos-done-expandable" : ""} ${isOpen ? "ptodos-done-open" : ""}`}
+                  onClick={canExpand ? () => onToggleExpand(key) : undefined}
+                  role={canExpand ? "button" : undefined}
+                  tabIndex={canExpand ? 0 : undefined}
+                  onKeyDown={canExpand ? (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onToggleExpand(key);
+                    }
+                  } : undefined}
+                >
+                  <input
+                    type="checkbox"
+                    className="todo-checkbox"
+                    checked={true}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={() => onToggle(block, false)}
+                    aria-label="Mark incomplete"
+                  />
+                  <span className="ptodos-done-text">{stripStatusTags(block.text)}</span>
+                  {canExpand && (
+                    <span className={`ptodos-done-chevron ${isOpen ? "ptodos-done-chevron-open" : ""}`} aria-hidden="true">
+                      <IconChevronRight />
+                    </span>
+                  )}
+                  {dateLabel && <span className="ptodos-done-date">{dateLabel}</span>}
+                </div>
+                {isOpen && (
+                  <TodoExtras
+                    block={block}
+                    parentAge={parentAge}
+                    onToggle={onToggle}
+                    onDelete={onDelete}
+                  />
+                )}
               </li>
             );
           })}

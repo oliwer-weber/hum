@@ -1338,6 +1338,98 @@
   border-radius: var(--radius-s);
 }
 
+/* Tier 1 — parent + body + sub-task cluster.
+   The group is the new divider boundary; the row inside keeps its layout
+   but the per-row border is moved to the group so extras sit cleanly
+   under their parent without a stray hairline between them. */
+.gravity-todo-group {
+  border-bottom: 1px solid var(--bg1);
+}
+.gravity-todo-group:last-child { border-bottom: none; }
+.gravity-todo-group > .gravity-todo { border-bottom: none; }
+.gravity-todo-group > .gravity-todo:first-child { padding-top: var(--space-sm); }
+.gravity-todo-group:first-child > .gravity-todo:first-child { padding-top: 0; }
+
+.gravity-todo-extras {
+  position: relative;
+  padding: 0 0 var(--space-sm) calc(var(--space-sm) + 20px + var(--space-sm));
+}
+
+.gravity-todo-extras::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: var(--space-sm);
+  left: calc(var(--space-sm) + 20px + var(--space-sm) - 12px);
+  width: 1px;
+  background: var(--bg3);
+  border-radius: 1px;
+}
+
+.gravity-todo-body {
+  margin: 0 0 var(--space-xs) 0;
+  color: var(--fg3);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gravity-todo-subtasks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.gravity-todo-subtask {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 2px 0;
+}
+
+.gravity-todo-subtask-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg1);
+  font-size: var(--font-size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gravity-todo-subtask-text-done {
+  color: var(--fg3);
+  text-decoration: line-through;
+  text-decoration-color: var(--fg4);
+  text-decoration-thickness: 1px;
+}
+
+.gravity-todo-more {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--fg4);
+  font-family: inherit;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  padding: 2px 0;
+  margin-top: var(--space-xs);
+  text-align: left;
+  transition: color 140ms var(--ease-smooth);
+}
+
+.gravity-todo-more:hover { color: var(--fg2); }
+.gravity-todo-more:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  outline-offset: 2px;
+  border-radius: var(--radius-s);
+}
+
 .gravity-tag-blocked {
   color: var(--red-dim);
   background-color: var(--tint-red-tag);
@@ -5094,6 +5186,132 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+/* ─── Body + sub-tasks under a todo ───────────────
+   Used in both Open list and (when expanded) Completed rail. The body is
+   prose that travelled with the todo at capture time; sub-tasks are
+   nested checkboxes that tag along with the parent. */
+
+.ptodos-body-color { /* alias slot for future tuning */ color: var(--ptodos-body-color, var(--fg3)); }
+
+.ptodos-item {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.ptodos-extras {
+  position: relative;
+  padding: 2px 0 var(--space-xs) calc(var(--space-md) + 20px);
+}
+
+.ptodos-extras::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: var(--space-xs);
+  left: calc(var(--space-md) + 8px);
+  width: 1px;
+  background: var(--bg3);
+  border-radius: 1px;
+}
+
+.ptodos-body {
+  margin: 0 0 var(--space-xs) 0;
+  padding: 0 var(--space-md) 0 var(--space-md);
+  color: var(--ptodos-body-color, var(--fg3));
+  font-size: var(--font-size-sm);
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.ptodos-subtasks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ptodos-subtask-row {
+  position: relative;
+  display: grid;
+  grid-template-columns:
+    [check] 20px
+    [text] 1fr
+    [age] 44px
+    [delete] 20px;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-m);
+  transition: background-color 140ms var(--ease-smooth);
+}
+
+.ptodos-subtask-row:hover {
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+}
+
+.ptodos-subtask-row > .todo-checkbox { grid-column: check; margin-top: 0; }
+.ptodos-subtask-row > .ptodos-subtask-text { grid-column: text; min-width: 0; }
+.ptodos-subtask-row > .ptodos-age { grid-column: age; }
+.ptodos-subtask-row > .ptodos-delete { grid-column: delete; }
+
+.ptodos-subtask-text {
+  color: var(--fg);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.ptodos-subtask-text-done {
+  color: var(--fg3);
+  text-decoration: line-through;
+  text-decoration-color: var(--fg4);
+  text-decoration-thickness: 1px;
+}
+
+.ptodos-subtask-row:hover .ptodos-delete {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* ─── Expandable completed rows ──────────────────── */
+
+.ptodos-done-item {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.ptodos-done-expandable {
+  cursor: pointer;
+}
+
+.ptodos-done-expandable:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  outline-offset: 2px;
+}
+
+.ptodos-done {
+  grid-template-columns: 15px 1fr auto auto;
+}
+
+.ptodos-done > .todo-checkbox { grid-column: 1; }
+.ptodos-done > .ptodos-done-text { grid-column: 2; }
+.ptodos-done > .ptodos-done-chevron { grid-column: 3; }
+.ptodos-done > .ptodos-done-date { grid-column: 4; }
+
+.ptodos-done-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg4);
+  transition: transform 200ms var(--ease-smooth), color 140ms var(--ease-smooth);
+}
+
+.ptodos-done-expandable:hover .ptodos-done-chevron { color: var(--fg3); }
+
+.ptodos-done-chevron-open { transform: rotate(90deg); }
 
 /* Narrow viewports — stack rail below open list */
 @media (max-width: 860px) {

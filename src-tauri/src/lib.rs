@@ -102,6 +102,19 @@ struct GravityTodo {
     age_days: u32,
     is_blocked: bool,
     is_waiting: bool,
+    /// Prose body attached to the parent todo (empty string when there is none).
+    body: String,
+    /// Sub-tasks parsed from deeper-indented checkboxes under this todo.
+    /// Sub-tasks inherit the parent's age for gravity purposes; they ride
+    /// along visually but do not affect gravity ranking.
+    subtasks: Vec<SubtaskRow>,
+}
+
+#[derive(serde::Serialize, Clone)]
+struct SubtaskRow {
+    id: Option<String>,
+    text: String,
+    checked: bool,
 }
 
 fn vault_path() -> PathBuf {
@@ -203,40 +216,36 @@ fn toggle_dashboard_todo(project: String, todo_text: String, checked: bool) -> R
     let blocks = todo_parser::parse_todo_blocks(&content);
     let today_str = chrono::Local::now().format("%Y-%m-%d").to_string();
 
-    // Find the target block — try UUID match first (if todo_text looks like a UUID),
-    // then fall back to text match
-    let target_line = blocks.iter().find(|b| {
-        // UUID match: todo_text matches the block's id
+    // Find the target block across the full tree (top-level + nested sub-tasks).
+    // UUID match first; text match as backwards-compat fallback.
+    let flat = todo_parser::flatten_blocks(&blocks);
+    let target = flat.into_iter().find(|b| {
         if let Some(ref id) = b.id {
             if id == &todo_text {
                 return true;
             }
         }
-        // Text match (backwards compat): clean text matches todo_text
         b.text == todo_text
-    });
+    }).ok_or_else(|| format!("Todo not found: {}", todo_text))?;
 
-    let target = target_line
-        .ok_or_else(|| format!("Todo not found: {}", todo_text))?;
-
-    // Replace the checkbox line in the raw content
+    // Replace the checkbox line in the raw content, preserving original
+    // leading whitespace so nested rows stay at their indent depth.
     let lines: Vec<&str> = content.lines().collect();
     let mut updated_lines: Vec<String> = Vec::new();
 
     for (i, line) in lines.iter().enumerate() {
         let line_num = i + 1; // 1-based
         if line_num == target.line_number {
-            let trimmed = line.trim();
+            let indent_len = line.len() - line.trim_start().len();
+            let indent = &line[..indent_len];
+            let trimmed = &line[indent_len..];
             if checked && trimmed.starts_with("- [ ]") {
-                // Check it off: rebuild as - [x] text ✅ date <!-- id:xxx --> <!-- created:xxx -->
-                let mut new_line = format!("- [x] {}", target.text);
-                // Add status tags back
+                let mut new_line = format!("{}- [x] {}", indent, target.text);
                 for tag in &target.tags {
                     new_line.push(' ');
                     new_line.push_str(tag);
                 }
                 new_line.push_str(&format!(" ✅ {}", today_str));
-                // Preserve id and created comments
                 if let Some(ref id) = target.id {
                     new_line.push_str(&format!(" <!-- id:{} -->", id));
                 }
@@ -245,8 +254,7 @@ fn toggle_dashboard_todo(project: String, todo_text: String, checked: bool) -> R
                 }
                 updated_lines.push(new_line);
             } else if !checked && trimmed.starts_with("- [x]") {
-                // Uncheck it
-                let mut new_line = format!("- [ ] {}", target.text);
+                let mut new_line = format!("{}- [ ] {}", indent, target.text);
                 for tag in &target.tags {
                     new_line.push(' ');
                     new_line.push_str(tag);
@@ -1601,6 +1609,14 @@ fn get_project_gravity() -> Result<Vec<ProjectGravity>, String> {
                 let neglect_i = (age_days as f64 / 14.0).min(5.0);
                 neglect_signal += neglect_i;
 
+                let subtasks: Vec<SubtaskRow> = block.subtasks.iter()
+                    .map(|s| SubtaskRow {
+                        id: s.id.clone(),
+                        text: s.text.clone(),
+                        checked: s.checked,
+                    })
+                    .collect();
+
                 top_todos.push(GravityTodo {
                     text: block.text.clone(),
                     project_name: name.clone(),
@@ -1609,6 +1625,8 @@ fn get_project_gravity() -> Result<Vec<ProjectGravity>, String> {
                     age_days,
                     is_blocked,
                     is_waiting,
+                    body: block.body.clone(),
+                    subtasks,
                 });
             }
         }

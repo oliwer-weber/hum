@@ -335,35 +335,47 @@ fn strip_frontmatter(content: &str) -> &str {
 fn append_todos(vault: &Path, project_path: &str, todo_blocks: &[String], date_str: &str) -> Result<(), String> {
     let path = vault.join(project_path).join("todos.md");
     let existing = fs::read_to_string(&path).unwrap_or_default();
-    let created_tag = format!(" <!-- created:{} -->", date_str);
 
     let mut new_content = existing.trim_end().to_string();
     for block in todo_blocks {
         new_content.push('\n');
-        let mut lines = block.lines();
-        if let Some(first_line) = lines.next() {
-            let mut stamped = first_line.trim_end().to_string();
-
-            if !stamped.contains("<!-- id:") {
-                let id = todo_index::generate_id();
-                stamped = format!("{} <!-- id:{} -->", stamped, id);
-            }
-
-            if !stamped.contains("<!-- created:") {
-                stamped = format!("{}{}", stamped, created_tag);
-            }
-
-            new_content.push_str(&stamped);
-
-            for continuation in lines {
-                new_content.push('\n');
-                new_content.push_str(continuation);
-            }
+        for line in block.lines() {
+            new_content.push_str(&stamp_checkbox_line_if_needed(line, date_str));
+            new_content.push('\n');
+        }
+        // Strip the trailing newline we just added so blocks join cleanly.
+        if new_content.ends_with('\n') {
+            new_content.pop();
         }
     }
     new_content.push('\n');
 
     fs::write(&path, new_content).map_err(|e| format!("Failed to write todos: {}", e))
+}
+
+/// If `line` is a checkbox (at any indent), stamp `<!-- id:xxx -->` and
+/// `<!-- created:YYYY-MM-DD -->` on it if it's missing them. Non-checkbox
+/// lines (prose continuation, blanks) pass through unchanged. This walks
+/// every line in a captured block so nested sub-tasks get IDs too.
+fn stamp_checkbox_line_if_needed(line: &str, date_str: &str) -> String {
+    let trimmed = line.trim_start();
+    let is_checkbox = trimmed.starts_with("- [ ] ")
+        || trimmed.starts_with("- [x] ")
+        || trimmed == "- [ ]"
+        || trimmed == "- [x]";
+    if !is_checkbox {
+        return line.to_string();
+    }
+
+    let mut stamped = line.trim_end().to_string();
+    if !stamped.contains("<!-- id:") {
+        let id = todo_index::generate_id();
+        stamped = format!("{} <!-- id:{} -->", stamped, id);
+    }
+    if !stamped.contains("<!-- created:") {
+        stamped = format!("{} <!-- created:{} -->", stamped, date_str);
+    }
+    stamped
 }
 
 /// Writes a brand-new note file for a single routed capture. Filename is

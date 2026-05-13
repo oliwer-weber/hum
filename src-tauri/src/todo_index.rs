@@ -40,6 +40,10 @@ pub struct TodoEntry {
     pub project_path: String,
     /// Whether this todo is in an archived project
     pub archived: bool,
+    /// UUID of the parent todo when this entry is a nested sub-task.
+    /// `None` for top-level todos.
+    #[serde(default)]
+    pub parent_id: Option<String>,
 }
 
 /// The full index structure.
@@ -113,25 +117,44 @@ fn scan_project_todos(
     let source = format!("{}/todos.md", rel_path).replace('\\', "/");
 
     for block in &blocks {
-        let id = block.id.clone().unwrap_or_else(generate_id);
-
-        index.entries.insert(id.clone(), TodoEntry {
-            id: id.clone(),
-            source: source.clone(),
-            line: block.line_number,
-            text: block.text.clone(),
-            body: block.body.clone(),
-            status: if block.checked { "completed".to_string() } else { "open".to_string() },
-            created: block.created.clone(),
-            completed: block.completed.clone(),
-            tags: block.tags.clone(),
-            project_name: project_name.to_string(),
-            project_path: rel_path.to_string(),
-            archived,
-        });
+        insert_block_recursive(block, None, &source, project_name, rel_path, archived, index);
     }
 
     Ok(())
+}
+
+/// Insert one block and its sub-tasks into the index. Sub-tasks carry the
+/// parent's UUID in `parent_id` so consumers can stitch a tree back together.
+fn insert_block_recursive(
+    block: &todo_parser::TodoBlock,
+    parent_id: Option<String>,
+    source: &str,
+    project_name: &str,
+    rel_path: &str,
+    archived: bool,
+    index: &mut TodoIndex,
+) {
+    let id = block.id.clone().unwrap_or_else(generate_id);
+
+    index.entries.insert(id.clone(), TodoEntry {
+        id: id.clone(),
+        source: source.to_string(),
+        line: block.line_number,
+        text: block.text.clone(),
+        body: block.body.clone(),
+        status: if block.checked { "completed".to_string() } else { "open".to_string() },
+        created: block.created.clone(),
+        completed: block.completed.clone(),
+        tags: block.tags.clone(),
+        project_name: project_name.to_string(),
+        project_path: rel_path.to_string(),
+        archived,
+        parent_id,
+    });
+
+    for sub in &block.subtasks {
+        insert_block_recursive(sub, Some(id.clone()), source, project_name, rel_path, archived, index);
+    }
 }
 
 /// Recursively scan archived project directories.
@@ -178,18 +201,18 @@ pub fn stamp_uuids(vault: &Path, rel_path: &str) -> Result<usize, String> {
     let mut updated_lines: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
     let mut stamped = 0usize;
 
-    for block in &blocks {
+    // Walk the full tree (top-level + nested sub-tasks) so every checkbox
+    // line lacking an `<!-- id:xxx -->` gets one stamped on disk.
+    for block in todo_parser::flatten_blocks(&blocks) {
         if block.id.is_some() {
-            continue; // already has a UUID
+            continue;
         }
 
         let new_id = generate_id();
-        let line_idx = block.line_number - 1; // 0-based
+        let line_idx = block.line_number - 1;
 
         if line_idx < updated_lines.len() {
             let line = &updated_lines[line_idx];
-            // Insert <!-- id:xxx --> before the <!-- created: --> comment if present,
-            // otherwise at the end of the checkbox line
             let id_comment = format!("<!-- id:{} -->", new_id);
 
             let new_line = if let Some(pos) = line.find("<!-- created:") {

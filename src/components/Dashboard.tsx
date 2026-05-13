@@ -5,6 +5,12 @@ import { useScrollFade } from "../hooks/useScrollFade";
 
 /* ── Interfaces ─────────────────────────────────────── */
 
+interface SubtaskRow {
+  id: string | null;
+  text: string;
+  checked: boolean;
+}
+
 interface GravityTodo {
   text: string;
   project_name: string;
@@ -13,6 +19,8 @@ interface GravityTodo {
   age_days: number;
   is_blocked: boolean;
   is_waiting: boolean;
+  body: string;
+  subtasks: SubtaskRow[];
 }
 
 interface ProjectGravity {
@@ -439,6 +447,20 @@ export default function Dashboard({ refreshKey, onOpenProjectHub }: DashProps) {
     }
   }, []);
 
+  const handleToggleSubtask = useCallback(async (parent: GravityTodo, sub: SubtaskRow) => {
+    try {
+      await invoke("toggle_dashboard_todo", {
+        project: parent.project_name,
+        todoText: sub.id ?? sub.text,
+        checked: !sub.checked,
+      });
+      loadGravity(true);
+    } catch (err) {
+      console.error("Failed to toggle sub-task:", err);
+      loadGravity(true);
+    }
+  }, []);
+
   const handleToggleProjectFocus = useCallback(async (projectPath: string) => {
     const next = focusSet.has(projectPath)
       ? focusState.focus.filter((p) => p !== projectPath)
@@ -589,24 +611,67 @@ export default function Dashboard({ refreshKey, onOpenProjectHub }: DashProps) {
             {topTodos.length === 0 && (
               <div className="dash-empty">No open items</div>
             )}
-            {topTodos.map((todo, i) => (
-              <div key={i} className="gravity-todo">
-                <input
-                  type="checkbox"
-                  className="todo-checkbox"
-                  checked={false}
-                  onChange={() => handleToggleTodo(todo)}
-                />
-                <span
-                  className={`project-pip project-pip-${pipFor(todo.project_name).shape}`}
-                  style={{ "--pip-color": pipFor(todo.project_name).color } as React.CSSProperties}
-                />
-                <span className="gravity-todo-text"><TaggedText text={todo.text} /></span>
-                <span className={`gravity-todo-age ${todo.age_days >= 14 ? "gravity-todo-age-warm" : ""}`}>
-                  {formatAge(todo.age_days)}
-                </span>
-              </div>
-            ))}
+            {topTodos.map((todo, i) => {
+              const subtasksVisible = todo.subtasks.slice(0, 2);
+              const hiddenSubtasks = Math.max(0, todo.subtasks.length - subtasksVisible.length);
+              return (
+                <div key={i} className="gravity-todo-group">
+                  <div className="gravity-todo">
+                    <input
+                      type="checkbox"
+                      className="todo-checkbox"
+                      checked={false}
+                      onChange={() => handleToggleTodo(todo)}
+                    />
+                    <span
+                      className={`project-pip project-pip-${pipFor(todo.project_name).shape}`}
+                      style={{ "--pip-color": pipFor(todo.project_name).color } as React.CSSProperties}
+                    />
+                    <span className="gravity-todo-text"><TaggedText text={todo.text} /></span>
+                    <span className={`gravity-todo-age ${todo.age_days >= 14 ? "gravity-todo-age-warm" : ""}`}>
+                      {formatAge(todo.age_days)}
+                    </span>
+                  </div>
+                  {(todo.body.trim().length > 0 || subtasksVisible.length > 0) && (
+                    <div className="gravity-todo-extras">
+                      {todo.body.trim().length > 0 && (
+                        <p className="gravity-todo-body" title={todo.body}>{todo.body}</p>
+                      )}
+                      {subtasksVisible.length > 0 && (
+                        <ul className="gravity-todo-subtasks">
+                          {subtasksVisible.map((sub, si) => (
+                            <li key={si} className="gravity-todo-subtask">
+                              <input
+                                type="checkbox"
+                                className="todo-checkbox"
+                                checked={sub.checked}
+                                onChange={() => handleToggleSubtask(todo, sub)}
+                                aria-label={sub.checked ? "Mark sub-task incomplete" : "Mark sub-task complete"}
+                              />
+                              <span className={`gravity-todo-subtask-text ${sub.checked ? "gravity-todo-subtask-text-done" : ""}`}>
+                                {sub.text}
+                              </span>
+                              <span className={`gravity-todo-age ${todo.age_days >= 14 ? "gravity-todo-age-warm" : ""}`}>
+                                {formatAge(todo.age_days)}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {hiddenSubtasks > 0 && (
+                        <button
+                          type="button"
+                          className="gravity-todo-more"
+                          onClick={() => handleOpenProjectHub(todo.project_path)}
+                        >
+                          + {hiddenSubtasks} more in {todo.project_name}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {/* Tier 2: Stuck */}
