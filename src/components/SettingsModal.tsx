@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   THEMES, getStoredTheme, setTheme, type ThemeId,
   FONTS, getStoredFont, setFont, type FontId,
+  getStoredMdPlain, setMdPlain,
 } from "../theme/theme";
 import {
   getPrefs, setPrefs, TAB_IDS, TAB_LABELS, type TabId,
@@ -24,6 +25,7 @@ export default function SettingsModal({ open, onClose, onReplayOnboarding }: Pro
   const [section, setSection] = useState<Section>("general");
   const [currentTheme, setCurrentTheme] = useState<ThemeId>(() => getStoredTheme());
   const [currentFont, setCurrentFont] = useState<FontId>(() => getStoredFont());
+  const [mdPlain, setMdPlainState] = useState<boolean>(() => getStoredMdPlain());
   const [icsUrl, setIcsUrl] = useState<string>(() => getPrefs().ics_url);
   const [startingTab, setStartingTab] = useState<TabId>(() => getPrefs().starting_tab);
 
@@ -43,6 +45,7 @@ export default function SettingsModal({ open, onClose, onReplayOnboarding }: Pro
     if (open) {
       setCurrentTheme(getStoredTheme());
       setCurrentFont(getStoredFont());
+      setMdPlainState(getStoredMdPlain());
       const p = getPrefs();
       setIcsUrl(p.ics_url);
       setStartingTab(p.starting_tab);
@@ -59,6 +62,12 @@ export default function SettingsModal({ open, onClose, onReplayOnboarding }: Pro
   const pickFont = (id: FontId) => {
     setFont(id);
     setCurrentFont(id);
+  };
+
+  const toggleMdPlain = () => {
+    const next = !mdPlain;
+    setMdPlain(next);
+    setMdPlainState(next);
   };
 
   const commitIcsUrl = () => {
@@ -365,6 +374,27 @@ export default function SettingsModal({ open, onClose, onReplayOnboarding }: Pro
                     </button>
                   ))}
                 </div>
+              </div>
+
+              <div className="settings-group">
+                <div className="settings-group-label">Markdown</div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={mdPlain}
+                  className={`settings-toggle ${mdPlain ? "settings-toggle-on" : ""}`}
+                  onClick={toggleMdPlain}
+                >
+                  <span className="settings-toggle-text">
+                    <span className="settings-toggle-label">Plain text styling</span>
+                    <span className="settings-toggle-desc">
+                      Style with weight and size instead of color, like a classic writing app. Tags and mentions stay colored.
+                    </span>
+                  </span>
+                  <span className="settings-toggle-track" aria-hidden="true">
+                    <span className="settings-toggle-thumb" />
+                  </span>
+                </button>
               </div>
             </section>
           )}

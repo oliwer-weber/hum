@@ -177,7 +177,7 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
       ],
     }),
     editorProps: {
-      attributes: { class: "inbox-tiptap" },
+      attributes: { class: "inbox-tiptap md-surface" },
     },
     onUpdate: ({ editor: ed }) => {
       if (skipNextSave.current) {

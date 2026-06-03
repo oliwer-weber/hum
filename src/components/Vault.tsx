@@ -378,7 +378,7 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled, openPro
       ],
     }),
     editorProps: {
-      attributes: { class: "vault-editor-tiptap" },
+      attributes: { class: "vault-editor-tiptap md-surface" },
     },
     onUpdate: ({ editor: ed }) => {
       if (skipAutoSaveRef.current) return;

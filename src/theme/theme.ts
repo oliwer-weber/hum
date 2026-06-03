@@ -16,6 +16,7 @@ export const FONTS: { id: FontId; label: string; description: string }[] = [
 
 const THEME_KEY = "pa.theme";
 const FONT_KEY = "pa.font";
+const MD_PLAIN_KEY = "pa.mdPlain";
 const DEFAULT_THEME: ThemeId = "light";
 const DEFAULT_FONT: FontId = "modern";
 
@@ -55,4 +56,28 @@ export function setFont(id: FontId) {
 
 export function applyStoredFont() {
   setFont(getStoredFont());
+}
+
+/**
+ * Plain text styling: render markdown with weight and size instead of color,
+ * like a classic writing app. Tags (#) and mentions (@) keep their color.
+ * Off by default. Drives the `data-md-plain` attribute that the editor CSS
+ * reads to neutralize structural colors.
+ */
+export function getStoredMdPlain(): boolean {
+  const raw = typeof localStorage !== "undefined" ? localStorage.getItem(MD_PLAIN_KEY) : null;
+  return raw === "true";
+}
+
+export function setMdPlain(on: boolean) {
+  document.documentElement.setAttribute("data-md-plain", on ? "true" : "false");
+  try {
+    localStorage.setItem(MD_PLAIN_KEY, on ? "true" : "false");
+  } catch {
+    // localStorage unavailable — setting still applies for this session
+  }
+}
+
+export function applyStoredMdPlain() {
+  setMdPlain(getStoredMdPlain());
 }

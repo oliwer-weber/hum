@@ -1953,24 +1953,31 @@
   opacity: 0.65;
 }
 
+/* ── Shared markdown surface ──────────────────────────────────────────
+   Single source of truth for token-level markdown styling. Every TipTap
+   editor carries the .md-surface class alongside its own wrapper class
+   (Write tab = .inbox-tiptap, Find tab = .vault-editor-tiptap). Change a
+   heading colour once, here, and both surfaces follow. Surface-specific
+   bits (padding, block rhythm, placeholder, sweep) stay on the wrappers. */
+
 /* Headings — gruvbox cascade */
-.inbox-tiptap h1 { color: var(--aqua); font-size: 1.6em; font-weight: 700; border-bottom: 1px solid var(--bg2); padding-bottom: 6px; margin-top: var(--space-xl); }
-.inbox-tiptap h2 { color: var(--green); font-size: 1.35em; font-weight: 700; margin-top: var(--space-xl); }
-.inbox-tiptap h3 { color: var(--yellow); font-size: 1.15em; font-weight: 600; margin-top: var(--space-lg); }
-.inbox-tiptap h4 { color: var(--blue); font-size: 1.05em; font-weight: 600; }
-.inbox-tiptap h5 { color: var(--purple); font-size: 1.0em; font-weight: 600; }
-.inbox-tiptap h6 { color: var(--orange); font-size: 0.95em; font-weight: 600; }
+.md-surface h1 { color: var(--aqua); font-size: 1.6em; font-weight: 700; border-bottom: 1px solid var(--bg2); padding-bottom: 6px; margin-top: var(--space-xl); }
+.md-surface h2 { color: var(--green); font-size: 1.35em; font-weight: 700; margin-top: var(--space-xl); }
+.md-surface h3 { color: var(--yellow); font-size: 1.15em; font-weight: 600; margin-top: var(--space-lg); }
+.md-surface h4 { color: var(--blue); font-size: 1.05em; font-weight: 600; }
+.md-surface h5 { color: var(--purple); font-size: 1.0em; font-weight: 600; }
+.md-surface h6 { color: var(--orange); font-size: 0.95em; font-weight: 600; }
 
 /* Bold & italic */
-.inbox-tiptap strong { color: var(--orange); font-weight: 700; }
-.inbox-tiptap em { color: var(--purple); }
+.md-surface strong { color: var(--orange); font-weight: 700; }
+.md-surface em { color: var(--purple); }
 
 /* Links */
-.inbox-tiptap a { color: var(--blue); text-decoration: none; }
-.inbox-tiptap a:hover { text-decoration: underline; }
+.md-surface a { color: var(--blue); text-decoration: none; }
+.md-surface a:hover { text-decoration: underline; }
 
 /* Code — always monospace regardless of chosen font preset. */
-.inbox-tiptap code {
+.md-surface code {
   background-color: var(--bg-soft);
   color: var(--green);
   border-radius: var(--radius-xs);
@@ -1979,7 +1986,7 @@
   font-family: var(--font-mono);
 }
 
-.inbox-tiptap pre {
+.md-surface pre {
   background-color: var(--bg);
   border: 1px solid var(--bg2);
   border-radius: var(--radius-m);
@@ -1989,7 +1996,7 @@
   font-family: var(--font-mono);
 }
 
-.inbox-tiptap pre code {
+.md-surface pre code {
   background: none;
   padding: 0;
   border-radius: 0;
@@ -1997,7 +2004,7 @@
 }
 
 /* Blockquotes */
-.inbox-tiptap blockquote {
+.md-surface blockquote {
   border-left: 3px solid var(--aqua-dim);
   padding-left: var(--space-lg);
   color: var(--fg2);
@@ -2005,54 +2012,52 @@
 }
 
 /* Horizontal rule */
-.inbox-tiptap hr {
+.md-surface hr {
   border: none;
   border-top: 1px solid var(--bg3);
   margin: var(--space-xl) 0;
 }
 
 /* Lists */
-.inbox-tiptap ul, .inbox-tiptap ol {
+.md-surface ul, .md-surface ol {
   padding-left: var(--space-xl);
 }
 
-.inbox-tiptap li {
+.md-surface li {
   margin: var(--space-xs) 0;
 }
 
-.inbox-tiptap li::marker {
+.md-surface li::marker {
   color: var(--aqua-dim);
 }
 
 /* Task list (checkboxes) */
-.inbox-tiptap ul[data-type="taskList"] {
+.md-surface ul[data-type="taskList"] {
   list-style: none;
   padding-left: 0;
 }
 
-.inbox-tiptap ul[data-type="taskList"] li {
+.md-surface ul[data-type="taskList"] li {
   display: flex;
   align-items: flex-start;
   gap: var(--space-sm);
 }
 
-.inbox-tiptap ul[data-type="taskList"] li > label {
+.md-surface ul[data-type="taskList"] li > label {
   margin-top: 3px;
   flex-shrink: 0;
 }
 
-.inbox-tiptap ul[data-type="taskList"] li > label input[type="checkbox"] {
+.md-surface ul[data-type="taskList"] li > label input[type="checkbox"] {
   -webkit-appearance: none;
   -moz-appearance: none;
   appearance: none;
   width: var(--icon-s);
   height: var(--icon-s);
   min-width: var(--icon-s);
-  max-width: var(--icon-s);
   min-height: var(--icon-s);
-  max-height: var(--icon-s);
   border: var(--stroke-thin) solid var(--bg3);
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-s);
   padding: 0;
   margin: 0;
   cursor: pointer;
@@ -2062,29 +2067,29 @@
               background-color 150ms var(--ease-smooth);
 }
 
-.inbox-tiptap ul[data-type="taskList"] li > label input[type="checkbox"]:hover {
+.md-surface ul[data-type="taskList"] li > label input[type="checkbox"]:hover {
   border-color: var(--aqua);
 }
 
-.inbox-tiptap ul[data-type="taskList"] li > label input[type="checkbox"]:checked {
+.md-surface ul[data-type="taskList"] li > label input[type="checkbox"]:checked {
   background-color: var(--aqua);
   border-color: var(--aqua);
 }
 
-.inbox-tiptap ul[data-type="taskList"] li[data-checked="true"] > div > p {
+.md-surface ul[data-type="taskList"] li[data-checked="true"] > div > p {
   color: var(--fg4);
   text-decoration: line-through;
 }
 
 /* Images */
-.inbox-tiptap img {
+.md-surface img {
   border-radius: var(--radius-m);
   max-width: 100%;
   box-shadow: var(--shadow-card);
 }
 
 /* Highlight */
-.inbox-tiptap mark {
+.md-surface mark {
   background-color: var(--yellow);
   color: var(--bg-hard);
   padding: 1px 3px;
@@ -2092,27 +2097,32 @@
 }
 
 /* Tables */
-.inbox-tiptap table {
+.md-surface table {
   border-collapse: collapse;
   width: 100%;
   margin: var(--space-md) 0;
 }
-.inbox-tiptap th,
-.inbox-tiptap td {
+.md-surface th,
+.md-surface td {
   border: 1px solid var(--bg3);
   padding: var(--space-sm) var(--space-md);
   text-align: left;
 }
-.inbox-tiptap th {
+.md-surface th {
   background-color: var(--bg1);
   font-weight: 700;
   color: var(--fg1);
 }
-.inbox-tiptap td {
+.md-surface td {
   color: var(--fg2);
 }
-.inbox-tiptap tr:hover td {
+.md-surface tr:hover td {
   background-color: var(--bg1);
+}
+
+/* Write keeps a slightly tighter checkbox corner than the shared default. */
+.inbox-tiptap ul[data-type="taskList"] li > label input[type="checkbox"] {
+  border-radius: var(--radius-xs);
 }
 
 .inbox-status-bar {
@@ -3845,118 +3855,9 @@
 
 .vault-editor-tiptap > * + * { margin-top: var(--space-lg); }
 
-.vault-editor-tiptap h1 { color: var(--aqua); font-size: 1.6em; font-weight: 700; border-bottom: 1px solid var(--bg2); padding-bottom: 6px; margin-top: var(--space-xl); }
-.vault-editor-tiptap h2 { color: var(--green); font-size: 1.35em; font-weight: 700; margin-top: var(--space-xl); }
-.vault-editor-tiptap h3 { color: var(--yellow); font-size: 1.15em; font-weight: 600; margin-top: var(--space-lg); }
-.vault-editor-tiptap h4 { color: var(--blue); font-size: 1.05em; font-weight: 600; }
-.vault-editor-tiptap h5 { color: var(--purple); font-size: 1.0em; font-weight: 600; }
-.vault-editor-tiptap h6 { color: var(--orange); font-size: 0.95em; font-weight: 600; }
-
-.vault-editor-tiptap strong { color: var(--orange); font-weight: 700; }
-.vault-editor-tiptap em { color: var(--purple); }
-.vault-editor-tiptap a { color: var(--blue); text-decoration: none; }
-.vault-editor-tiptap a:hover { text-decoration: underline; }
-
-.vault-editor-tiptap code {
-  background-color: var(--bg-soft);
-  color: var(--green);
-  border-radius: var(--radius-xs);
-  padding: var(--space-2xs) var(--space-sm);
-  font-size: 0.92em;
-  font-family: var(--font-mono);
-}
-
-.vault-editor-tiptap pre {
-  background-color: var(--bg);
-  border: 1px solid var(--bg2);
-  border-radius: var(--radius-m);
-  padding: var(--space-lg);
-  margin: var(--space-md) 0;
-  overflow-x: auto;
-  font-family: var(--font-mono);
-}
-
-.vault-editor-tiptap pre code {
-  background: none;
-  padding: 0;
-  border-radius: 0;
-  color: var(--fg1);
-}
-
-.vault-editor-tiptap blockquote {
-  border-left: 3px solid var(--aqua-dim);
-  padding-left: var(--space-lg);
-  color: var(--fg2);
-  margin: var(--space-md) 0;
-}
-
-.vault-editor-tiptap hr {
-  border: none;
-  border-top: 1px solid var(--bg3);
-  margin: var(--space-xl) 0;
-}
-
-.vault-editor-tiptap ul, .vault-editor-tiptap ol { padding-left: var(--space-xl); }
-.vault-editor-tiptap li { margin: var(--space-xs) 0; }
-.vault-editor-tiptap li::marker { color: var(--aqua-dim); }
-
-.vault-editor-tiptap ul[data-type="taskList"] { list-style: none; padding-left: 0; }
-.vault-editor-tiptap ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: var(--space-sm); }
-.vault-editor-tiptap ul[data-type="taskList"] li > label { margin-top: 3px; flex-shrink: 0; }
-.vault-editor-tiptap ul[data-type="taskList"] li > label input[type="checkbox"] {
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  appearance: none;
-  width: var(--icon-s); height: var(--icon-s); min-width: var(--icon-s); min-height: var(--icon-s);
-  border: var(--stroke-thin) solid var(--bg3);
-  border-radius: var(--radius-s);
-  padding: 0; margin: 0;
-  cursor: pointer;
-  background: transparent;
-  display: inline-block;
-  transition: border-color 150ms var(--ease-smooth), background-color 150ms var(--ease-smooth);
-}
-.vault-editor-tiptap ul[data-type="taskList"] li > label input[type="checkbox"]:hover { border-color: var(--aqua); }
-.vault-editor-tiptap ul[data-type="taskList"] li > label input[type="checkbox"]:checked { background-color: var(--aqua); border-color: var(--aqua); }
-.vault-editor-tiptap ul[data-type="taskList"] li[data-checked="true"] > div > p { color: var(--fg4); text-decoration: line-through; }
-
-.vault-editor-tiptap img {
-  border-radius: var(--radius-m);
-  max-width: 100%;
-  box-shadow: var(--shadow-card);
-}
-
-/* Highlight */
-.vault-editor-tiptap mark {
-  background-color: var(--yellow);
-  color: var(--bg-hard);
-  padding: 1px 3px;
-  border-radius: 2px;
-}
-
-/* Tables */
-.vault-editor-tiptap table {
-  border-collapse: collapse;
-  width: 100%;
-  margin: var(--space-md) 0;
-}
-.vault-editor-tiptap th,
-.vault-editor-tiptap td {
-  border: 1px solid var(--bg3);
-  padding: var(--space-sm) var(--space-md);
-  text-align: left;
-}
-.vault-editor-tiptap th {
-  background-color: var(--bg1);
-  font-weight: 700;
-  color: var(--fg1);
-}
-.vault-editor-tiptap td {
-  color: var(--fg2);
-}
-.vault-editor-tiptap tr:hover td {
-  background-color: var(--bg1);
-}
+/* Token-level markdown styling is shared — see the .md-surface block above.
+   .vault-editor-tiptap carries that class; only surface-specific rules
+   (block rhythm above, placeholder below) live here. */
 
 .vault-editor-tiptap p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
@@ -3965,6 +3866,27 @@
   pointer-events: none;
   height: 0;
 }
+
+/* Plain text styling — when data-md-plain is on, strip color from structural
+   markdown so size, weight, and slant carry the meaning (a classic writing-app
+   feel). #tags and @mentions intentionally keep their color. Targets the shared
+   .md-surface, so it covers every editor (Write and Find) in one place. */
+[data-md-plain="true"] .md-surface h1,
+[data-md-plain="true"] .md-surface h2,
+[data-md-plain="true"] .md-surface h3,
+[data-md-plain="true"] .md-surface h4,
+[data-md-plain="true"] .md-surface h5,
+[data-md-plain="true"] .md-surface h6 { color: var(--fg); }
+[data-md-plain="true"] .md-surface strong { color: var(--fg); }
+[data-md-plain="true"] .md-surface em { color: var(--fg); }
+/* Links keep their blue but gain an underline so they read without hue alone. */
+[data-md-plain="true"] .md-surface a { text-decoration: underline; }
+/* Inline code: keep the mono face and soft gray surface, drop the green. */
+[data-md-plain="true"] .md-surface code { color: var(--fg); }
+[data-md-plain="true"] .md-surface blockquote { border-left-color: var(--bg3); }
+[data-md-plain="true"] .md-surface li::marker { color: var(--fg3); }
+/* Highlight: a neutral gray block instead of the yellow. */
+[data-md-plain="true"] .md-surface mark { background-color: var(--bg3); color: var(--fg); }
 
 /* Raw text editor (non-md files) */
 .vault-editor-raw {
@@ -4694,6 +4616,97 @@
   color: var(--accent);
   background-color: var(--accent-subtle);
   border-color: var(--accent-muted);
+}
+
+/* ── Settings toggle (switch row) ──────────────────── */
+.settings-toggle {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--space-lg);
+  width: 100%;
+  padding: var(--space-md) var(--space-lg);
+  background: transparent;
+  border: 1px solid var(--bg2);
+  border-radius: var(--radius-m);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 150ms var(--ease-smooth),
+              background-color 150ms var(--ease-smooth),
+              transform 120ms var(--ease-smooth);
+}
+
+.settings-toggle:hover {
+  border-color: var(--bg3);
+  background-color: var(--bg1);
+}
+
+.settings-toggle:focus-visible {
+  outline: none;
+  border-color: var(--accent-muted);
+  background-color: var(--accent-subtle);
+}
+
+.settings-toggle:active {
+  transform: translateY(1px);
+}
+
+.settings-toggle-on,
+.settings-toggle-on:hover {
+  border-color: var(--accent);
+  background-color: var(--accent-subtle);
+}
+
+.settings-toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  min-width: 0;
+}
+
+.settings-toggle-label {
+  font-size: var(--font-size);
+  font-weight: 600;
+  color: var(--fg);
+  line-height: 1.2;
+}
+
+.settings-toggle-desc {
+  font-size: var(--font-size-xs);
+  color: var(--fg3);
+  line-height: 1.4;
+  max-width: 44ch;
+}
+
+/* Switch — track recolors on state, thumb slides via transform only. */
+.settings-toggle-track {
+  position: relative;
+  width: 40px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--bg3);
+  transition: background-color 200ms var(--ease-smooth);
+}
+
+.settings-toggle-on .settings-toggle-track {
+  background: var(--accent);
+}
+
+.settings-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--bg-soft);
+  box-shadow: var(--shadow-card);
+  transition: transform 200ms var(--ease-bounce);
+}
+
+.settings-toggle-on .settings-toggle-thumb {
+  transform: translateX(16px);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
