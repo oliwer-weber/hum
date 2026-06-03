@@ -185,6 +185,7 @@ export default function App() {
             openProjectHub={vaultOpenProjectHub}
             onOpenProjectHubHandled={() => setVaultOpenProjectHub(null)}
             onActiveCollectionChange={setVaultCollection}
+            onVaultChanged={triggerVaultRefresh}
           />
         </div>
         <div className={`tab-panel ${activeTab === "hum" ? "tab-panel-active" : ""}`}>

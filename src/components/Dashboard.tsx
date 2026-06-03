@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { TaggedText } from "./TaggedText";
+import TodoCard from "./TodoCard";
 import { useScrollFade } from "../hooks/useScrollFade";
 
 /* ── Interfaces ─────────────────────────────────────── */
@@ -12,6 +13,7 @@ interface SubtaskRow {
 }
 
 interface GravityTodo {
+  id: string | null;
   text: string;
   project_name: string;
   project_path: string;
@@ -276,6 +278,8 @@ export default function Dashboard({ refreshKey, onOpenProjectHub }: DashProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [draftFocus, setDraftFocus] = useState<string[]>([]);
   const [snoozeMenuFor, setSnoozeMenuFor] = useState<string | null>(null);
+  // The todo whose action card is open, with the row rect for anchoring.
+  const [card, setCard] = useState<{ id: string; rect: DOMRect } | null>(null);
 
   // When `preserveOrder` is true, the fresh backend data is re-sorted to match
   // the previous visual order. Used after in-place interactions (ticking a
@@ -445,6 +449,21 @@ export default function Dashboard({ refreshKey, onOpenProjectHub }: DashProps) {
       console.error("Failed to toggle todo:", err);
       loadGravity(true);
     }
+  }, []);
+
+  // Open the action card for a todo, anchored to its row. Needs a stamped id;
+  // the index stamps every todo on launch, so this is virtually always present.
+  const openCard = useCallback((e: React.MouseEvent | React.KeyboardEvent, todo: GravityTodo) => {
+    if (!todo.id) return;
+    const row = (e.currentTarget as HTMLElement).closest(".gravity-todo");
+    const rect = (row ?? (e.currentTarget as HTMLElement)).getBoundingClientRect();
+    setCard({ id: todo.id, rect });
+  }, []);
+
+  // Card actions edit todos.md + the index server-side; re-derive gravity so
+  // status changes, splits and deletes move the todo across tiers live.
+  const handleCardChanged = useCallback(() => {
+    loadGravity(true);
   }, []);
 
   const handleToggleSubtask = useCallback(async (parent: GravityTodo, sub: SubtaskRow) => {
@@ -627,7 +646,18 @@ export default function Dashboard({ refreshKey, onOpenProjectHub }: DashProps) {
                       className={`project-pip project-pip-${pipFor(todo.project_name).shape}`}
                       style={{ "--pip-color": pipFor(todo.project_name).color } as React.CSSProperties}
                     />
-                    <span className="gravity-todo-text"><TaggedText text={todo.text} /></span>
+                    <span
+                      className="gravity-todo-text gravity-todo-text-clickable"
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => openCard(e, todo)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          openCard(e, todo);
+                        }
+                      }}
+                    ><TaggedText text={todo.text} /></span>
                     <span className={`gravity-todo-age ${todo.age_days >= 14 ? "gravity-todo-age-warm" : ""}`}>
                       {formatAge(todo.age_days)}
                     </span>
@@ -686,7 +716,18 @@ export default function Dashboard({ refreshKey, onOpenProjectHub }: DashProps) {
                     checked={false}
                     onChange={() => handleToggleTodo(todo)}
                   />
-                  <span className="gravity-todo-text"><TaggedText text={todo.text} /></span>
+                  <span
+                    className="gravity-todo-text gravity-todo-text-clickable"
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => openCard(e, todo)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        openCard(e, todo);
+                      }
+                    }}
+                  ><TaggedText text={todo.text} /></span>
                   <span className={`vault-tag ${todo.is_blocked ? "vault-tag-blocked" : "vault-tag-waiting"}`}>
                     {todo.is_blocked ? "#blocked" : "#waiting"}
                   </span>
@@ -801,7 +842,18 @@ export default function Dashboard({ refreshKey, onOpenProjectHub }: DashProps) {
                             checked={false}
                             onChange={() => handleToggleTodo(todo)}
                           />
-                          <span className="gravity-todo-text"><TaggedText text={todo.text} /></span>
+                          <span
+                      className="gravity-todo-text gravity-todo-text-clickable"
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => openCard(e, todo)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          openCard(e, todo);
+                        }
+                      }}
+                    ><TaggedText text={todo.text} /></span>
                           <span className={`gravity-todo-age ${todo.age_days >= 14 ? "gravity-todo-age-warm" : ""}`}>
                             {formatAge(todo.age_days)}
                           </span>
@@ -879,6 +931,15 @@ export default function Dashboard({ refreshKey, onOpenProjectHub }: DashProps) {
           </div>
         </div>
       </div>
+
+      {card && (
+        <TodoCard
+          todoId={card.id}
+          anchorRect={card.rect}
+          onClose={() => setCard(null)}
+          onChanged={handleCardChanged}
+        />
+      )}
     </div>
   );
 }

@@ -70,6 +70,7 @@ interface VaultProps {
   openProjectHub?: string | null;
   onOpenProjectHubHandled?: () => void;
   onActiveCollectionChange?: (collection: CollectionKey | null) => void;
+  onVaultChanged?: () => void;
 }
 
 /* ── File icons ───────────────────────────────────── */
@@ -180,7 +181,7 @@ type ModalState =
 
 /* ── Vault Component ──────────────────────────────── */
 
-export default function Vault({ refreshKey, openPath, onOpenPathHandled, openProjectHub, onOpenProjectHubHandled, onActiveCollectionChange }: VaultProps) {
+export default function Vault({ refreshKey, openPath, onOpenPathHandled, openProjectHub, onOpenProjectHubHandled, onActiveCollectionChange, onVaultChanged }: VaultProps) {
   const [columns, setColumns] = useState<ColumnState[]>([]);
   const [openFile, setOpenFile] = useState<{ path: string; entry: VaultEntry } | null>(null);
   const [fileContent, setFileContent] = useState("");
@@ -1254,6 +1255,7 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled, openPro
           projectPath={activeProjectPath}
           onBack={() => navigate("backward", () => goToProjectHub(activeProjectPath))}
           onOpenRaw={() => navigate("forward", () => openProjectTodosRaw(activeProjectPath))}
+          onVaultChanged={() => { refreshVaultIndex(); onVaultChanged?.(); }}
         />
       ) : (
       <div

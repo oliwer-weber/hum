@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import TodoCard from "./TodoCard";
 
 /* ── Types ────────────────────────────────────────── */
 
@@ -22,6 +23,9 @@ interface ProjectTodosProps {
   projectPath: string;
   onBack: () => void;
   onOpenRaw: () => void;
+  // Bumps global vault state so other surfaces (e.g. Focus's stuck tier)
+  // re-derive after a card action changes a todo.
+  onVaultChanged?: () => void;
 }
 
 /* ── Pure helpers ─────────────────────────────────── */
@@ -200,10 +204,13 @@ export default function ProjectTodos({
   projectPath,
   onBack,
   onOpenRaw,
+  onVaultChanged,
 }: ProjectTodosProps) {
   const [blocks, setBlocks] = useState<TodoBlock[]>([]);
   const [overflowOpen, setOverflowOpen] = useState(false);
   const [addValue, setAddValue] = useState("");
+  // The todo whose action card is open, with the row rect for anchoring.
+  const [card, setCard] = useState<{ id: string; rect: DOMRect } | null>(null);
   // Keyed by parent id (or fallback to line_number) — tracks which completed
   // rows are currently expanded. Resets on each loadTodos to avoid drift if
   // a previously-expanded row went away after a re-parse.
@@ -354,6 +361,22 @@ export default function ProjectTodos({
     }
   }, [todosRelPath, loadTodos]);
 
+  // Open the action card for a todo, anchored to its row. Needs a stamped id;
+  // the index stamps every todo on launch, so this is virtually always present.
+  const openCard = useCallback((e: React.MouseEvent | React.KeyboardEvent, block: TodoBlock) => {
+    if (!block.id) return;
+    const row = (e.currentTarget as HTMLElement).closest(".ptodos-row, .ptodos-subtask-row");
+    const rect = (row ?? (e.currentTarget as HTMLElement)).getBoundingClientRect();
+    setCard({ id: block.id, rect });
+  }, []);
+
+  // Card actions edit todos.md + the index server-side; reload locally and
+  // bump global vault state so Focus and friends re-derive.
+  const handleCardChanged = useCallback(() => {
+    loadTodos();
+    onVaultChanged?.();
+  }, [loadTodos, onVaultChanged]);
+
   const toggleExpanded = useCallback((key: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -463,7 +486,20 @@ export default function ProjectTodos({
                         onChange={() => handleToggle(block, true)}
                         aria-label="Mark complete"
                       />
-                      <span className="ptodos-text">{displayText}</span>
+                      <span
+                        className="ptodos-text ptodos-text-clickable"
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => openCard(e, block)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            openCard(e, block);
+                          }
+                        }}
+                      >
+                        {displayText}
+                      </span>
                       {hasBlocked ? (
                         <span className="vault-tag vault-tag-blocked">#blocked</span>
                       ) : hasWaiting ? (
@@ -526,6 +562,15 @@ export default function ProjectTodos({
           />
         </aside>
       </section>
+
+      {card && (
+        <TodoCard
+          todoId={card.id}
+          anchorRect={card.rect}
+          onClose={() => setCard(null)}
+          onChanged={handleCardChanged}
+        />
+      )}
     </div>
   );
 }
