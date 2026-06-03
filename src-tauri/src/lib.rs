@@ -48,6 +48,7 @@ mod inbox;
 mod note_meta;
 mod prefs;
 mod todo_index;
+mod todo_ops;
 mod todo_parser;
 mod vault_manifest;
 
@@ -95,6 +96,9 @@ struct ProjectGravity {
 
 #[derive(serde::Serialize, Clone)]
 struct GravityTodo {
+    /// UUID stamped on the todo line. Lets any surface open the action card by
+    /// id (None only for legacy un-stamped lines, which the index back-fills).
+    id: Option<String>,
     text: String,
     project_name: String,
     project_path: String,
@@ -289,6 +293,231 @@ fn toggle_dashboard_todo(project: String, todo_text: String, checked: bool) -> R
     }
 
     Ok(())
+}
+
+/* ── Id-keyed todo operations ───────────────────────
+   One shared layer every UI surface can call to act on a todo by UUID:
+   change status, delete, split, and attach/read a linked note. Each mutation
+   edits todos.md surgically (via todo_ops), then refreshes vault state so the
+   todo index — and anything derived from it, like Focus's stuck tier —
+   reflects the change. */
+
+/// Resolve a todo's UUID to its index entry, self-healing the index once if
+/// the id isn't present yet (e.g. a freshly hand-typed todo not stamped).
+fn todo_entry_by_id(vault: &Path, id: &str) -> Result<todo_index::TodoEntry, String> {
+    if let Ok(idx) = todo_index::read_index(vault) {
+        if let Some(entry) = idx.entries.get(id) {
+            return Ok(entry.clone());
+        }
+    }
+    let idx = todo_index::rebuild_and_persist(vault)?;
+    idx.entries
+        .get(id)
+        .cloned()
+        .ok_or_else(|| format!("Todo not found: {}", id))
+}
+
+/// Apply a pure edit (content -> content) to a project's todos.md, then refresh.
+fn edit_todos_file<F>(vault: &Path, project_path: &str, edit: F) -> Result<(), String>
+where
+    F: FnOnce(&str) -> Result<String, String>,
+{
+    let todos_path = vault.join(project_path).join("todos.md");
+    let content = fs::read_to_string(&todos_path)
+        .map_err(|e| format!("Failed to read todos.md: {}", e))?;
+    let next = edit(&content)?;
+    fs::write(&todos_path, next).map_err(|e| format!("Failed to write todos.md: {}", e))?;
+    refresh_vault_state(vault);
+    Ok(())
+}
+
+/// Set or clear a todo's status tag (#blocked / #waiting / #on-hold).
+/// `status` is "blocked" | "waiting" | "on-hold" | "" (clear).
+#[tauri::command]
+fn set_todo_status(id: String, status: String) -> Result<(), String> {
+    let vault = vault_path();
+    let change = todo_ops::StatusChange::parse(&status)?;
+    let entry = todo_entry_by_id(&vault, &id)?;
+    edit_todos_file(&vault, &entry.project_path, |content| {
+        todo_ops::apply_status(content, &id, change)
+    })
+}
+
+/// Delete a todo and everything it owns (continuation body + sub-tasks).
+#[tauri::command]
+fn delete_todo(id: String) -> Result<(), String> {
+    let vault = vault_path();
+    let entry = todo_entry_by_id(&vault, &id)?;
+    edit_todos_file(&vault, &entry.project_path, |content| {
+        todo_ops::apply_delete(content, &id)
+    })
+}
+
+/// Split a todo into one or more new top-level todos, removing the original.
+/// Each non-empty string in `parts` becomes a fresh todo with its own UUID.
+#[tauri::command]
+fn split_todo(id: String, parts: Vec<String>) -> Result<(), String> {
+    let vault = vault_path();
+    let entry = todo_entry_by_id(&vault, &id)?;
+    let today = Local::now().format("%Y-%m-%d").to_string();
+    let new_ids: Vec<String> = parts.iter().map(|_| todo_index::generate_id()).collect();
+    edit_todos_file(&vault, &entry.project_path, |content| {
+        todo_ops::apply_split(content, &id, &parts, &new_ids, &today)
+    })
+}
+
+/// A todo plus its linked note (body only — frontmatter is stripped for editing).
+#[derive(serde::Serialize)]
+struct TodoDetail {
+    entry: todo_index::TodoEntry,
+    note_path: Option<String>,
+    note_body: Option<String>,
+}
+
+/// Find the note linked to a todo by scanning the project tree for a `.md`
+/// whose frontmatter carries `todo: <id>`. Returns (relative path, body).
+fn find_todo_note(vault: &Path, project_path: &str, id: &str) -> Option<(String, String)> {
+    fn frontmatter_links_to(content: &str, id: &str) -> bool {
+        let (frontmatter, _) = inbox::split_frontmatter(content);
+        if frontmatter.is_empty() {
+            return false;
+        }
+        frontmatter.lines().any(|line| {
+            let line = line.trim();
+            line.strip_prefix("todo:")
+                .map(|v| v.trim() == id)
+                .unwrap_or(false)
+        })
+    }
+
+    fn scan(dir: &Path, vault: &Path, id: &str) -> Option<(String, String)> {
+        let entries = fs::read_dir(dir).ok()?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().starts_with('.'))
+                    .unwrap_or(false)
+                {
+                    continue;
+                }
+                if let Some(found) = scan(&path, vault, id) {
+                    return Some(found);
+                }
+            } else if path.extension().and_then(|e| e.to_str()) == Some("md")
+                && path.file_name().and_then(|n| n.to_str()) != Some("todos.md")
+            {
+                if let Ok(content) = fs::read_to_string(&path) {
+                    if frontmatter_links_to(&content, id) {
+                        let rel = path
+                            .strip_prefix(vault)
+                            .map(|p| p.to_string_lossy().replace('\\', "/"))
+                            .unwrap_or_default();
+                        let (_, body) = inbox::split_frontmatter(&content);
+                        return Some((rel, body));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    scan(&vault.join(project_path), vault, id)
+}
+
+/// Read a todo and any note linked to it. The note body is returned without
+/// frontmatter so the card can edit prose directly.
+#[tauri::command]
+fn get_todo_detail(id: String) -> Result<TodoDetail, String> {
+    let vault = vault_path();
+    let entry = todo_entry_by_id(&vault, &id)?;
+    let note = find_todo_note(&vault, &entry.project_path, &id);
+    let (note_path, note_body) = match note {
+        Some((path, body)) => (Some(path), Some(body)),
+        None => (None, None),
+    };
+    Ok(TodoDetail { entry, note_path, note_body })
+}
+
+/// Create or update the note linked to a todo. On first save the note is a real
+/// file in the project's notes/ dir, named from the todo's headline, carrying
+/// `todo: <id>` in its frontmatter as the durable backlink. Returns the note's
+/// path relative to the vault root.
+#[tauri::command]
+fn save_todo_note(id: String, body: String) -> Result<String, String> {
+    let vault = vault_path();
+    let entry = todo_entry_by_id(&vault, &id)?;
+    let ts = Local::now().format("%Y-%m-%dT%H:%M").to_string();
+
+    if let Some((rel_path, _)) = find_todo_note(&vault, &entry.project_path, &id) {
+        // Update existing: keep frontmatter (bump `updated`), replace body.
+        let full = vault.join(&rel_path);
+        let existing = fs::read_to_string(&full)
+            .map_err(|e| format!("Failed to read note: {}", e))?;
+        let (frontmatter, _) = inbox::split_frontmatter(&existing);
+        let new_fm = bump_frontmatter_field(&frontmatter, "updated", &ts);
+        let trimmed = body.trim_end();
+        let content = if new_fm.is_empty() {
+            format!("{}\n", trimmed)
+        } else {
+            format!("{}\n\n{}\n", new_fm, trimmed)
+        };
+        fs::write(&full, content).map_err(|e| format!("Failed to write note: {}", e))?;
+        return Ok(rel_path);
+    }
+
+    // Create new note in the project's notes/ dir, deriving a readable filename.
+    let notes_dir = vault.join(&entry.project_path).join("notes");
+    fs::create_dir_all(&notes_dir).map_err(|e| format!("Failed to create notes dir: {}", e))?;
+    let base = todo_ops::slugify(&entry.text);
+    let mut filename = format!("{}.md", base);
+    let mut suffix = 1u32;
+    while notes_dir.join(&filename).exists() {
+        suffix += 1;
+        filename = format!("{}-{}.md", base, suffix);
+    }
+    let frontmatter = format!(
+        "---\ntype: note\nstatus: active\ntodo: {id}\ncreated: {ts}\nupdated: {ts}\npinned: false\n---",
+        id = id,
+        ts = ts
+    );
+    let trimmed = body.trim_end();
+    let content = if trimmed.is_empty() {
+        format!("{}\n", frontmatter)
+    } else {
+        format!("{}\n\n{}\n", frontmatter, trimmed)
+    };
+    let full = notes_dir.join(&filename);
+    fs::write(&full, content).map_err(|e| format!("Failed to write note: {}", e))?;
+    invalidate_vault_cache();
+
+    Ok(format!("{}/notes/{}", entry.project_path, filename))
+}
+
+/// Replace (or insert, if absent) a single frontmatter field's value. The
+/// frontmatter passed in includes its `---` fences.
+fn bump_frontmatter_field(frontmatter: &str, field: &str, value: &str) -> String {
+    if frontmatter.is_empty() {
+        return String::new();
+    }
+    let prefix = format!("{}:", field);
+    let mut lines: Vec<String> = frontmatter.lines().map(|l| l.to_string()).collect();
+    let mut found = false;
+    for line in lines.iter_mut() {
+        if line.trim_start().starts_with(&prefix) {
+            *line = format!("{}: {}", field, value);
+            found = true;
+            break;
+        }
+    }
+    if !found {
+        // Insert just before the closing fence.
+        if let Some(pos) = lines.iter().rposition(|l| l.trim() == "---") {
+            lines.insert(pos, format!("{}: {}", field, value));
+        }
+    }
+    lines.join("\n")
 }
 
 /// Read and parse the todos.md file for a single project. Returns parsed
@@ -1618,6 +1847,7 @@ fn get_project_gravity() -> Result<Vec<ProjectGravity>, String> {
                     .collect();
 
                 top_todos.push(GravityTodo {
+                    id: block.id.clone(),
                     text: block.text.clone(),
                     project_name: name.clone(),
                     project_path: rel.clone(),
@@ -2479,6 +2709,11 @@ pub fn run() {
             write_inbox_raw,
             get_vault_path,
             toggle_dashboard_todo,
+            set_todo_status,
+            delete_todo,
+            split_todo,
+            get_todo_detail,
+            save_todo_note,
             fetch_calendar,
             vault_all_files,
             vault_resolve_link,
