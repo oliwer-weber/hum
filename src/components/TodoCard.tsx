@@ -31,6 +31,10 @@ interface TodoCardProps {
   onClose: () => void;
   /** Called after any mutation so the host can refresh every surface. */
   onChanged: () => void;
+  /** Whether this todo is in the day's hand-picked "Today" list. */
+  inToday?: boolean;
+  /** Toggle this todo's membership in Today. Omit to hide the action entirely. */
+  onToggleToday?: () => void;
 }
 
 /* ── Status model ─────────────────────────────────── */
@@ -107,6 +111,20 @@ const IconNote = () => (
   </svg>
 );
 
+const IconToday = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+  </svg>
+);
+
+const IconTodayCheck = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="9" />
+    <path d="m8.5 12 2.5 2.5 4.5-5" />
+  </svg>
+);
+
 /* ── Positioning ──────────────────────────────────── */
 
 const CARD_WIDTH = 340;
@@ -130,7 +148,7 @@ function placeCard(anchor: DOMRect, cardHeight: number): { left: number; top: nu
 
 /* ── Component ────────────────────────────────────── */
 
-export default function TodoCard({ todoId, anchorRect, onClose, onChanged }: TodoCardProps) {
+export default function TodoCard({ todoId, anchorRect, onClose, onChanged, inToday, onToggleToday }: TodoCardProps) {
   const [detail, setDetail] = useState<TodoDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -276,6 +294,21 @@ export default function TodoCard({ todoId, anchorRect, onClose, onChanged }: Tod
 
           {ageLabel(detail.entry.created) && (
             <div className="todocard-meta">{ageLabel(detail.entry.created)}</div>
+          )}
+
+          {/* Today toggle — the primary planning gesture: commit this to the
+              day's hand-picked few, or take it back off. Hidden when the host
+              doesn't wire it. */}
+          {onToggleToday && (
+            <button
+              className={`todocard-today ${inToday ? "todocard-today-on" : ""}`}
+              onClick={() => { onToggleToday(); onClose(); }}
+              disabled={busy}
+              aria-pressed={!!inToday}
+            >
+              {inToday ? <IconTodayCheck /> : <IconToday />}
+              {inToday ? "In today" : "Add to today"}
+            </button>
           )}
 
           {/* Status chips — click the active one to clear it. */}

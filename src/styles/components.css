@@ -945,6 +945,224 @@
   animation: dash-band-in 280ms var(--ease-smooth) 180ms both;
 }
 
+/* ═══ Today view (calm default) ═════════════════════
+ * The everyday face of Focus: just the day's hand-picked few, a narrow
+ * centered column so it reads as a clean desk, not a dashboard. The full
+ * board lives behind the Plan switch. */
+
+.today {
+  height: 100%;
+  animation: dash-band-in 280ms var(--ease-smooth) 80ms both;
+}
+
+/* Two columns — the calm few on the left, the calendar overview on the right.
+   Capped + centered so it stays tight rather than sprawling across the pane. */
+.today-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: var(--space-2xl);
+  height: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  overflow: hidden;
+}
+
+.today-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.today-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: var(--space-xl);
+}
+
+.today-title {
+  font-family: var(--font-display);
+  font-size: var(--font-size-2xl);
+  font-weight: 600;
+  letter-spacing: var(--letter-spacing-tight);
+  color: var(--fg);
+  margin: 0;
+}
+
+.today-plan-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--fg3);
+  background: transparent;
+  border: 1px solid var(--bg2);
+  border-radius: var(--radius-s);
+  padding: var(--space-xs) var(--space-md);
+  cursor: pointer;
+  transition: transform 140ms var(--ease-smooth),
+              color 140ms var(--ease-smooth),
+              border-color 140ms var(--ease-smooth),
+              background-color 140ms var(--ease-smooth);
+}
+.today-plan-btn:hover {
+  color: var(--fg);
+  border-color: var(--bg3);
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+.today-plan-btn:active { transform: scale(0.97); }
+.today-plan-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.today-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.today-list::-webkit-scrollbar { display: none; }
+
+.today-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) 0;
+  border-bottom: 1px solid var(--bg1);
+}
+.today-row:last-child { border-bottom: none; }
+
+.today-row-text {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  font-size: var(--font-size-lg);
+  color: var(--fg);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  padding: 0;
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 140ms var(--ease-smooth);
+}
+.today-row-text:hover { color: var(--accent); }
+.today-row-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+.today-row-project {
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  color: var(--fg4);
+}
+
+/* Empty state — invites planning without nagging */
+.today-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  text-align: center;
+  padding-bottom: var(--space-3xl);
+}
+.today-empty-title {
+  font-size: var(--font-size-lg);
+  color: var(--fg2);
+  margin: 0;
+}
+.today-empty-sub {
+  font-size: var(--font-size-sm);
+  color: var(--fg4);
+  margin: 0;
+}
+.today-empty-btn {
+  appearance: none;
+  margin-top: var(--space-md);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: var(--radius-s);
+  padding: var(--space-sm) var(--space-lg);
+  cursor: pointer;
+  transition: transform 140ms var(--ease-smooth),
+              background-color 140ms var(--ease-smooth),
+              border-color 140ms var(--ease-smooth);
+}
+.today-empty-btn:hover {
+  background: var(--accent-muted);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.today-empty-btn:active { transform: scale(0.97); }
+.today-empty-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ═══ Plan switch (the deliberate full board) ═══════ */
+
+.dash-plan {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.dash-plan .dash-layout {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+
+.dash-plan-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+  animation: dash-band-in 280ms var(--ease-smooth) 40ms both;
+}
+
+.dash-plan-back {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--fg2);
+  background: transparent;
+  border: 1px solid var(--bg2);
+  border-radius: var(--radius-s);
+  padding: var(--space-xs) var(--space-md);
+  cursor: pointer;
+  transition: transform 140ms var(--ease-smooth),
+              color 140ms var(--ease-smooth),
+              border-color 140ms var(--ease-smooth),
+              background-color 140ms var(--ease-smooth);
+}
+.dash-plan-back:hover {
+  color: var(--fg);
+  border-color: var(--bg3);
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+.dash-plan-back:active { transform: scale(0.97); }
+.dash-plan-back:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.dash-plan-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--fg3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
 /* ── Focus strip ────────────────────────────────── */
 
 .focus-strip {
@@ -6240,6 +6458,49 @@
   font-size: var(--font-size-xs);
   color: var(--fg4);
   margin-top: calc(-1 * var(--space-xs));
+}
+
+/* ── Today toggle (the planning commit) ─────────── */
+
+.todocard-today {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  width: 100%;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: var(--radius-s);
+  padding: var(--space-sm);
+  cursor: pointer;
+  transition: transform 140ms var(--ease-smooth),
+              color 140ms var(--ease-smooth),
+              border-color 140ms var(--ease-smooth),
+              background-color 140ms var(--ease-smooth);
+}
+.todocard-today:hover {
+  background: var(--accent-muted);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.todocard-today:active { transform: scale(0.98); }
+.todocard-today:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.todocard-today:disabled { opacity: 0.5; cursor: default; }
+
+/* On = already in today. Filled, reads as a settled state you can take back. */
+.todocard-today-on {
+  color: var(--bg-hard);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.todocard-today-on:hover {
+  color: var(--bg-hard);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 /* ── Status chips ───────────────────────────────── */

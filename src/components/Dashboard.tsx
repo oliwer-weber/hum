@@ -67,6 +67,20 @@ interface FocusState {
   focus: string[];
   focusSetAt: string;
   snoozed: SnoozeEntry[];
+  today: string[];
+}
+
+// A todo resolved from the day's hand-picked list (get_today_todos).
+interface TodayTodo {
+  id: string;
+  text: string;
+  body: string;
+  status: string;
+  created: string | null;
+  completed: string | null;
+  tags: string[];
+  project_name: string;
+  project_path: string;
 }
 
 const DAMPEN_FACTOR = 0.3;
@@ -274,7 +288,12 @@ export default function Dashboard({ refreshKey, onOpenProjectHub }: DashProps) {
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(getTodayStr());
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
-  const [focusState, setFocusState] = useState<FocusState>({ focus: [], focusSetAt: "", snoozed: [] });
+  const [focusState, setFocusState] = useState<FocusState>({ focus: [], focusSetAt: "", snoozed: [], today: [] });
+  // The day's hand-picked todos, resolved to full rows for the calm Today view.
+  const [todayTodos, setTodayTodos] = useState<TodayTodo[]>([]);
+  // "today" is the calm default; "plan" is the deliberate context switch into
+  // the full board, where you triage and pick the day's few.
+  const [view, setView] = useState<"today" | "plan">("today");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [draftFocus, setDraftFocus] = useState<string[]>([]);
   const [snoozeMenuFor, setSnoozeMenuFor] = useState<string | null>(null);
@@ -322,14 +341,25 @@ export default function Dashboard({ refreshKey, onOpenProjectHub }: DashProps) {
     }
   }
 
+  async function loadToday() {
+    try {
+      const data = await invoke<TodayTodo[]>("get_today_todos");
+      setTodayTodos(data);
+    } catch (err) {
+      console.error("Failed to load today's todos:", err);
+    }
+  }
+
   useEffect(() => {
     loadGravity();
     loadCalendar();
     loadFocus();
+    loadToday();
   }, [refreshKey]);
 
   const focusSet = useMemo(() => new Set(focusState.focus), [focusState.focus]);
   const hasFocus = focusSet.size > 0;
+  const todayIdSet = useMemo(() => new Set(focusState.today), [focusState.today]);
   const snoozedSet = useMemo(
     () => new Set(focusState.snoozed.map((s) => s.project)),
     [focusState.snoozed],
@@ -445,25 +475,68 @@ export default function Dashboard({ refreshKey, onOpenProjectHub }: DashProps) {
         checked: true,
       });
       loadGravity(true);
+      loadToday();
     } catch (err) {
       console.error("Failed to toggle todo:", err);
       loadGravity(true);
+      loadToday();
     }
   }, []);
 
-  // Open the action card for a todo, anchored to its row. Needs a stamped id;
-  // the index stamps every todo on launch, so this is virtually always present.
-  const openCard = useCallback((e: React.MouseEvent | React.KeyboardEvent, todo: GravityTodo) => {
-    if (!todo.id) return;
-    const row = (e.currentTarget as HTMLElement).closest(".gravity-todo");
-    const rect = (row ?? (e.currentTarget as HTMLElement)).getBoundingClientRect();
-    setCard({ id: todo.id, rect });
+  // Open the action card for a todo by id, anchored to its row. Needs a stamped
+  // id; the index stamps every todo on launch, so this is virtually always
+  // present. Used from both the gravity tiers and the calm Today rows.
+  const openCardAt = useCallback((target: HTMLElement, id: string | null) => {
+    if (!id) return;
+    const row = target.closest(".gravity-todo, .today-row");
+    const rect = (row ?? target).getBoundingClientRect();
+    setCard({ id, rect });
   }, []);
 
+  const openCard = useCallback((e: React.MouseEvent | React.KeyboardEvent, todo: GravityTodo) => {
+    openCardAt(e.currentTarget as HTMLElement, todo.id);
+  }, [openCardAt]);
+
   // Card actions edit todos.md + the index server-side; re-derive gravity so
-  // status changes, splits and deletes move the todo across tiers live.
+  // status changes, splits and deletes move the todo across tiers live, and
+  // refresh the Today list since a deleted/split/completed pick should drop out.
   const handleCardChanged = useCallback(() => {
     loadGravity(true);
+    loadToday();
+  }, []);
+
+  // Toggle a todo's membership in the day's hand-picked few. The card stays
+  // open and reflects the new state via its `inToday` prop.
+  const handleToggleToday = useCallback(async (id: string) => {
+    const current = focusState.today ?? [];
+    const next = current.includes(id)
+      ? current.filter((x) => x !== id)
+      : [...current, id];
+    try {
+      await invoke("set_today", { ids: next });
+      await loadFocus();
+      await loadToday();
+    } catch (err) {
+      console.error("Failed to update today:", err);
+    }
+  }, [focusState.today]);
+
+  // Complete a todo straight from the calm Today list. Optimistically drop it,
+  // then persist + refresh both the Today list and gravity.
+  const handleCompleteToday = useCallback(async (todo: TodayTodo) => {
+    setTodayTodos((prev) => prev.filter((t) => t.id !== todo.id));
+    try {
+      await invoke("toggle_dashboard_todo", {
+        project: todo.project_name,
+        todoText: todo.id,
+        checked: true,
+      });
+      loadGravity(true);
+      loadToday();
+    } catch (err) {
+      console.error("Failed to complete today todo:", err);
+      loadToday();
+    }
   }, []);
 
   const handleToggleSubtask = useCallback(async (parent: GravityTodo, sub: SubtaskRow) => {
@@ -523,8 +596,131 @@ export default function Dashboard({ refreshKey, onOpenProjectHub }: DashProps) {
     return <div className="dash"><div className="dash-error">Failed to load: {error}</div></div>;
   }
 
+  // Calendar + schedule column — shared by the Today view and the Plan board so
+  // the day's overview stays glanceable from either.
+  const calendarSidebar = (
+    <div className="dash-sidebar">
+      <MonthCalendar
+        events={calendar?.events ?? []}
+        selectedDate={selectedDate}
+        onDayClick={setSelectedDate}
+      />
+
+      <div className="dash-tier dash-tier-fill">
+        <div className="dash-schedule-header">
+          <h3 className="dash-tier-title" style={{ marginBottom: 0 }}>
+            {formatDateLabel(selectedDate)}
+          </h3>
+          {selectedDate !== getTodayStr() && (
+            <button
+              className="dash-today-btn"
+              onClick={() => setSelectedDate(getTodayStr())}
+            >
+              Today
+            </button>
+          )}
+        </div>
+
+        <div className="dash-schedule">
+          {selectedDateEvents.map((event, i) => (
+            <ScheduleCard key={i} event={event} />
+          ))}
+
+          {selectedDateEvents.length === 0 && (
+            <div className="dash-schedule-empty">No events</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="dash">
+      {view === "today" ? (
+        /* ── Calm default: the day's hand-picked few + calendar ── */
+        <div className="today">
+          <div className="today-layout">
+            <div className="today-main">
+              <div className="today-head">
+                <h2 className="today-title">Today</h2>
+                <button
+                  type="button"
+                  className="today-plan-btn"
+                  onClick={() => setView("plan")}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="7" height="7" rx="1" />
+                    <rect x="14" y="3" width="7" height="7" rx="1" />
+                    <rect x="3" y="14" width="7" height="7" rx="1" />
+                    <rect x="14" y="14" width="7" height="7" rx="1" />
+                  </svg>
+                  Plan
+                </button>
+              </div>
+
+              {todayTodos.length === 0 ? (
+                <div className="today-empty">
+                  <p className="today-empty-title">Nothing set for today.</p>
+                  <p className="today-empty-sub">Pick a few things worth your focus.</p>
+                  <button
+                    type="button"
+                    className="today-empty-btn"
+                    onClick={() => setView("plan")}
+                  >
+                    Plan today
+                  </button>
+                </div>
+              ) : (
+                <ul className="today-list">
+                  {todayTodos.map((todo) => (
+                    <li key={todo.id} className="today-row">
+                      <input
+                        type="checkbox"
+                        className="todo-checkbox"
+                        checked={false}
+                        onChange={() => handleCompleteToday(todo)}
+                        aria-label="Mark complete"
+                      />
+                      <span
+                        className="today-row-text"
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => openCardAt(e.currentTarget, todo.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            openCardAt(e.currentTarget, todo.id);
+                          }
+                        }}
+                      >
+                        <TaggedText text={todo.text} />
+                      </span>
+                      <span className="today-row-project">{todo.project_name}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {calendarSidebar}
+          </div>
+        </div>
+      ) : (
+      /* ── Plan: the full board, entered on purpose ── */
+      <div className="dash-plan">
+        <div className="dash-plan-bar">
+          <button
+            type="button"
+            className="dash-plan-back"
+            onClick={() => setView("today")}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+            Today
+          </button>
+          <span className="dash-plan-title">Planning</span>
+        </div>
       <div className="dash-layout">
         {/* Left: Gravity tiers */}
         <div className={`dash-main dash-fade-${mainEdge}`} ref={mainRef}>
@@ -897,40 +1093,10 @@ export default function Dashboard({ refreshKey, onOpenProjectHub }: DashProps) {
         </div>
 
         {/* Right: Calendar sidebar (read-only) */}
-        <div className="dash-sidebar">
-          <MonthCalendar
-            events={calendar?.events ?? []}
-            selectedDate={selectedDate}
-            onDayClick={setSelectedDate}
-          />
-
-          <div className="dash-tier dash-tier-fill">
-            <div className="dash-schedule-header">
-              <h3 className="dash-tier-title" style={{ marginBottom: 0 }}>
-                {formatDateLabel(selectedDate)}
-              </h3>
-              {selectedDate !== getTodayStr() && (
-                <button
-                  className="dash-today-btn"
-                  onClick={() => setSelectedDate(getTodayStr())}
-                >
-                  Today
-                </button>
-              )}
-            </div>
-
-            <div className="dash-schedule">
-              {selectedDateEvents.map((event, i) => (
-                <ScheduleCard key={i} event={event} />
-              ))}
-
-              {selectedDateEvents.length === 0 && (
-                <div className="dash-schedule-empty">No events</div>
-              )}
-            </div>
-          </div>
-        </div>
+        {calendarSidebar}
       </div>
+      </div>
+      )}
 
       {card && (
         <TodoCard
@@ -938,6 +1104,8 @@ export default function Dashboard({ refreshKey, onOpenProjectHub }: DashProps) {
           anchorRect={card.rect}
           onClose={() => setCard(null)}
           onChanged={handleCardChanged}
+          inToday={todayIdSet.has(card.id)}
+          onToggleToday={() => handleToggleToday(card.id)}
         />
       )}
     </div>

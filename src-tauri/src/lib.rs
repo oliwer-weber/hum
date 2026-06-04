@@ -1941,6 +1941,12 @@ struct FocusState {
     focus_set_at: String,
     #[serde(default)]
     snoozed: Vec<SnoozeEntry>,
+    // The day's hand-picked todos (UUIDs), in the order they were chosen.
+    // Auto-clears at midnight like `focus` — each morning is a fresh slate.
+    #[serde(default)]
+    today: Vec<String>,
+    #[serde(default, rename = "todaySetAt")]
+    today_set_at: String,
 }
 
 fn focus_file_path() -> PathBuf {
@@ -1962,6 +1968,11 @@ fn read_focus_state() -> FocusState {
     if state.focus_set_at != today_str {
         state.focus.clear();
         state.focus_set_at = String::new();
+    }
+
+    if state.today_set_at != today_str {
+        state.today.clear();
+        state.today_set_at = String::new();
     }
 
     state.snoozed.retain(|s| {
@@ -1996,6 +2007,42 @@ fn set_focus(projects: Vec<String>) -> Result<FocusState, String> {
     state.focus_set_at = if state.focus.is_empty() { String::new() } else { today_str };
     write_focus_state(&state)?;
     Ok(state)
+}
+
+/// Replace the day's hand-picked todos with `ids` (in pick order). Stamps
+/// today's date so the list auto-clears at midnight, matching `set_focus`.
+#[tauri::command]
+fn set_today(ids: Vec<String>) -> Result<FocusState, String> {
+    let mut state = read_focus_state();
+    let today_str = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
+    state.today = ids;
+    state.today_set_at = if state.today.is_empty() { String::new() } else { today_str };
+    write_focus_state(&state)?;
+    Ok(state)
+}
+
+/// Resolve the day's hand-picked todo ids to full entries, in pick order.
+/// Silently drops ids that no longer resolve, or that were completed or
+/// archived since being picked, so the calm "Today" list only ever shows
+/// live, still-open work.
+#[tauri::command]
+fn get_today_todos() -> Result<Vec<todo_index::TodoEntry>, String> {
+    let vault = vault_path();
+    let state = read_focus_state();
+    if state.today.is_empty() {
+        return Ok(Vec::new());
+    }
+    let idx = todo_index::read_index(&vault)
+        .or_else(|_| todo_index::rebuild_and_persist(&vault))?;
+    let mut out = Vec::new();
+    for id in &state.today {
+        if let Some(entry) = idx.entries.get(id) {
+            if entry.completed.is_none() && !entry.archived {
+                out.push(entry.clone());
+            }
+        }
+    }
+    Ok(out)
 }
 
 #[tauri::command]
@@ -2745,6 +2792,8 @@ pub fn run() {
             get_todo_index,
             get_focus_state,
             set_focus,
+            set_today,
+            get_today_todos,
             snooze_project,
             unsnooze_project,
             read_project_todos,
