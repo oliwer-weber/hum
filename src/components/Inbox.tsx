@@ -8,6 +8,7 @@ import { HashTag } from "./hashtag";
 import { attachProjectAutocomplete, ProjectMentionKeymap, ProjectTagStyle } from "./project-mention";
 import type { MentionableItem, CreateKind, NoteRow } from "./project-mention";
 import type { VaultFileInfo } from "./wikilink";
+import { EditorFormatMenus } from "./EditorFormatMenus";
 
 const FRONTMATTER = "---\ncssclasses:\n  - home-title\n---";
 
@@ -462,6 +463,7 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
         }}
       >
         <EditorContent editor={editor} />
+        {editor && editorReady && <EditorFormatMenus editor={editor} />}
       </div>
       <div className="inbox-status-bar">
         <span className="inbox-status-left">

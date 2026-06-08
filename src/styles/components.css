@@ -2753,6 +2753,220 @@
   font-style: italic;
 }
 
+/* ── Formatting menus (selection bubble + right-click) ──
+   One command set, two surfaces. Sibling to the suggest popups: same
+   floating layer, border, and shadow tokens. */
+
+.fmt-bubble {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: var(--space-2xs);
+  background: var(--bg-soft);
+  border: 1px solid var(--bg3);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-suggest);
+  /* Enter animation — runs each time TipTap re-inserts the element on show.
+     A true exit isn't possible: TipTap removes the node synchronously on hide,
+     so there's no frame to transition out on. */
+  transform-origin: center bottom;
+  animation: fmt-bubble-in 140ms var(--ease-bounce) both;
+}
+
+@keyframes fmt-bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.fmt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-s);
+  color: var(--fg2);
+  cursor: pointer;
+  transition: background 100ms var(--ease-smooth),
+    color 100ms var(--ease-smooth),
+    transform 100ms var(--ease-smooth);
+}
+
+.fmt-btn:hover {
+  background: var(--bg2);
+  color: var(--fg);
+}
+
+.fmt-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.fmt-btn:active {
+  transform: scale(0.92);
+}
+
+.fmt-btn-active {
+  color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.fmt-btn-active:hover {
+  color: var(--accent);
+  background: var(--accent-muted);
+}
+
+.fmt-divider {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  margin: 0 var(--space-2xs);
+  background: var(--bg3);
+}
+
+.fmt-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 196px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-xs);
+  background: var(--bg-soft);
+  border: 1px solid var(--bg3);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-suggest);
+  transform-origin: top left;
+  animation: fmt-menu-in 120ms var(--ease-smooth);
+}
+
+@keyframes fmt-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.fmt-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: var(--space-xs) var(--space-sm);
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-s);
+  color: var(--fg1);
+  font-size: var(--font-size-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background 100ms var(--ease-smooth),
+    color 100ms var(--ease-smooth);
+}
+
+.fmt-menu-item:hover {
+  background: var(--bg2);
+  color: var(--fg);
+}
+
+.fmt-menu-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.fmt-menu-item:active {
+  background: var(--bg1);
+}
+
+.fmt-menu-icon {
+  display: inline-flex;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--fg3);
+}
+
+.fmt-menu-item:hover .fmt-menu-icon {
+  color: var(--fg2);
+}
+
+.fmt-menu-item-active .fmt-menu-icon {
+  color: var(--accent);
+}
+
+.fmt-menu-label {
+  flex: 1;
+  white-space: nowrap;
+}
+
+.fmt-menu-hint {
+  flex: none;
+  color: var(--fg4);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+.fmt-menu-divider {
+  height: 1px;
+  margin: var(--space-2xs) var(--space-xs);
+  background: var(--bg2);
+}
+
+/* Inline link editor — opened by the Link command in either menu. */
+.fmt-link {
+  position: fixed;
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs);
+  background: var(--bg-soft);
+  border: 1px solid var(--bg3);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-suggest);
+  animation: fmt-menu-in 120ms var(--ease-smooth);
+}
+
+.fmt-link-input {
+  width: 248px;
+  padding: var(--space-2xs) var(--space-sm);
+  border: 1px solid var(--bg3);
+  border-radius: var(--radius-s);
+  background: var(--bg-hard);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  outline: none;
+  transition: border-color 100ms var(--ease-smooth);
+}
+
+.fmt-link-input::placeholder {
+  color: var(--fg4);
+}
+
+.fmt-link-input:focus-visible {
+  border-color: var(--accent);
+}
+
+.fmt-link-hint {
+  flex: none;
+  padding-right: var(--space-2xs);
+  color: var(--fg4);
+  font-size: var(--font-size-sm);
+}
+
 /* ── @project mention autocomplete ────────────────── */
 
 .pm-suggest {
