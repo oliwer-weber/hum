@@ -271,13 +271,30 @@ export const SharedEditorKeymap = Extension.create({
             // ── Auto-pair: insert pair ──
             const closing = PAIRS[event.key];
             if (closing) {
-              // For [ key, don't auto-pair if starting a wikilink [[
+              // For the second [ of a wikilink, don't auto-pair into "[[]]".
               if (event.key === "[") {
                 const { from } = editor.state.selection;
                 if (from > 0) {
                   const charBefore = editor.state.doc.textBetween(from - 1, from);
                   if (charBefore === "[") {
-                    return false;
+                    // The first [ already auto-paired to "[]", leaving a
+                    // dangling "]" after the cursor. Insert the second [ and
+                    // drop that dangling "]" so "[[" sits clean with nothing
+                    // trailing (the picker / "]]" input rule closes it).
+                    event.preventDefault();
+                    const docSize = editor.state.doc.content.size;
+                    const after =
+                      from < docSize
+                        ? editor.state.doc.textBetween(from, Math.min(docSize, from + 1))
+                        : "";
+                    const tr = editor.state.tr;
+                    tr.insertText("[", from);
+                    if (after === "]") {
+                      tr.delete(from + 1, from + 2);
+                    }
+                    tr.setSelection(TextSelection.near(tr.doc.resolve(from + 1)));
+                    view.dispatch(tr);
+                    return true;
                   }
                 }
               }

@@ -33,6 +33,8 @@ interface TodoCardProps {
   onChanged: () => void;
   /** Whether this todo is in the day's hand-picked "Today" list. */
   inToday?: boolean;
+  /** True when Today is at its cap and this todo isn't already in it. */
+  todayFull?: boolean;
   /** Toggle this todo's membership in Today. Omit to hide the action entirely. */
   onToggleToday?: () => void;
 }
@@ -148,7 +150,7 @@ function placeCard(anchor: DOMRect, cardHeight: number): { left: number; top: nu
 
 /* ── Component ────────────────────────────────────── */
 
-export default function TodoCard({ todoId, anchorRect, onClose, onChanged, inToday, onToggleToday }: TodoCardProps) {
+export default function TodoCard({ todoId, anchorRect, onClose, onChanged, inToday, todayFull, onToggleToday }: TodoCardProps) {
   const [detail, setDetail] = useState<TodoDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -300,15 +302,22 @@ export default function TodoCard({ todoId, anchorRect, onClose, onChanged, inTod
               day's hand-picked few, or take it back off. Hidden when the host
               doesn't wire it. */}
           {onToggleToday && (
-            <button
-              className={`todocard-today ${inToday ? "todocard-today-on" : ""}`}
-              onClick={() => { onToggleToday(); onClose(); }}
-              disabled={busy}
-              aria-pressed={!!inToday}
-            >
-              {inToday ? <IconTodayCheck /> : <IconToday />}
-              {inToday ? "In today" : "Add to today"}
-            </button>
+            <div className="todocard-today-wrap">
+              <button
+                className={`todocard-today ${inToday ? "todocard-today-on" : ""}`}
+                onClick={() => { onToggleToday(); onClose(); }}
+                disabled={busy || (!inToday && todayFull)}
+                aria-pressed={!!inToday}
+              >
+                {inToday ? <IconTodayCheck /> : <IconToday />}
+                {inToday ? "In today" : todayFull ? "Today is full" : "Add to today"}
+              </button>
+              {!inToday && todayFull && (
+                <span className="todocard-today-hint">
+                  Finish or remove one to add another.
+                </span>
+              )}
+            </div>
           )}
 
           {/* Status chips — click the active one to clear it. */}

@@ -17,6 +17,8 @@ export interface VaultFileInfo {
   stem: string;
   name: string;
   path: string;
+  /** Heading derived from the note body — what the user searches and sees. Falls back to name. */
+  title?: string;
 }
 
 export interface WikiLinkOptions {
@@ -28,6 +30,15 @@ export interface WikiLinkOptions {
 /* ── Post-load transform ──────────────────────────── */
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp", "bmp"]);
+
+/** Split a wikilink inner `target|alias` into its parts. Alias is null when absent. */
+function splitTargetAlias(inner: string): [string, string | null] {
+  const pipe = inner.indexOf("|");
+  if (pipe === -1) return [inner.trim(), null];
+  const target = inner.slice(0, pipe).trim();
+  const alias = inner.slice(pipe + 1).trim();
+  return [target, alias || null];
+}
 
 /**
  * Walk the editor document, find [[target]] and ![[target]] text patterns,
@@ -42,20 +53,24 @@ export function convertTextToWikiLinks(editor: Editor) {
     from: number;
     to: number;
     target: string;
+    alias: string | null;
     isEmbed: boolean;
   }
   const replacements: Replacement[] = [];
 
   state.doc.descendants((node, pos) => {
     if (!node.isText || !node.text) return;
-    // Match ![[target]] (embed) and [[target]] (link), including escaped brackets
+    // Match ![[target]] (embed) and [[target]] (link), including escaped brackets.
+    // The inner may carry an alias: [[target|alias]].
     const regex = /(!)?(\\?\[\\?\[)([^\]]+?)(\\?\]\\?\])/g;
     let match;
     while ((match = regex.exec(node.text)) !== null) {
+      const [target, alias] = splitTargetAlias(match[3]);
       replacements.push({
         from: pos + match.index,
         to: pos + match.index + match[0].length,
-        target: match[3],
+        target,
+        alias,
         isEmbed: match[1] === "!",
       });
     }
@@ -65,11 +80,11 @@ export function convertTextToWikiLinks(editor: Editor) {
 
   const tr = state.tr;
   for (let i = replacements.length - 1; i >= 0; i--) {
-    const { from, to, target, isEmbed } = replacements[i];
+    const { from, to, target, alias, isEmbed } = replacements[i];
     if (isEmbed && embedType) {
-      tr.replaceWith(from, to, embedType.create({ target }));
+      tr.replaceWith(from, to, embedType.create({ target, alias }));
     } else if (linkType) {
-      tr.replaceWith(from, to, linkType.create({ target }));
+      tr.replaceWith(from, to, linkType.create({ target, alias }));
     }
   }
   editor.view.dispatch(tr);
@@ -100,7 +115,7 @@ function createSuggestionRenderer() {
 
       const name = document.createElement("span");
       name.className = "wl-suggest-name";
-      name.textContent = item.name;
+      name.textContent = item.title || item.name;
 
       const path = document.createElement("span");
       path.className = "wl-suggest-path";
@@ -254,6 +269,12 @@ export const WikiLink = Node.create<WikiLinkOptions>({
         parseHTML: (el) => el.getAttribute("data-target"),
         renderHTML: (attrs) => ({ "data-target": attrs.target }),
       },
+      alias: {
+        default: null,
+        parseHTML: (el) => el.getAttribute("data-alias"),
+        renderHTML: (attrs) =>
+          attrs.alias ? { "data-alias": attrs.alias } : {},
+      },
     };
   },
 
@@ -263,7 +284,9 @@ export const WikiLink = Node.create<WikiLinkOptions>({
 
   renderHTML({ HTMLAttributes }) {
     const target = HTMLAttributes["data-target"] ?? "";
-    const display = target.split("/").pop()?.replace(/\.md$/i, "") ?? target;
+    const alias = HTMLAttributes["data-alias"];
+    const display =
+      alias || target.split("/").pop()?.replace(/\.md$/i, "") || target;
     return [
       "span",
       mergeAttributes(HTMLAttributes, {
@@ -280,8 +303,9 @@ export const WikiLink = Node.create<WikiLinkOptions>({
       span.setAttribute("data-type", "wiki-link");
 
       const target = node.attrs.target as string;
+      const alias = node.attrs.alias as string | null;
       const display =
-        target.split("/").pop()?.replace(/\.md$/i, "") ?? target;
+        alias || target.split("/").pop()?.replace(/\.md$/i, "") || target;
       span.textContent = display;
 
       const check = this.options.checkExists;
@@ -307,8 +331,8 @@ export const WikiLink = Node.create<WikiLinkOptions>({
       new InputRule({
         find: /\[\[([^\]]+)\]\]$/,
         handler: ({ state, range, match }) => {
-          const target = match[1];
-          const node = this.type.create({ target });
+          const [target, alias] = splitTargetAlias(match[1]);
+          const node = this.type.create({ target, alias });
           const tr = state.tr.replaceWith(range.from, range.to, node);
           tr.insertText(" ", range.from + 1);
         },
@@ -327,7 +351,13 @@ export const WikiLink = Node.create<WikiLinkOptions>({
           const files = extensionThis.options.getVaultFiles?.() ?? [];
           if (!query) return files.slice(0, 12);
           const q = query.toLowerCase();
-          return files.filter((f) => f.stem.includes(q)).slice(0, 12);
+          // Match the heading the user remembers; fall back to the filename stem.
+          return files
+            .filter(
+              (f) =>
+                (f.title ?? "").toLowerCase().includes(q) || f.stem.includes(q)
+            )
+            .slice(0, 12);
         },
         command: ({
           editor,
@@ -345,7 +375,17 @@ export const WikiLink = Node.create<WikiLinkOptions>({
             .insertContent([
               {
                 type: "wikiLink",
-                attrs: { target: props.path.replace(/\.md$/i, "") },
+                attrs: {
+                  target: props.path.replace(/\.md$/i, ""),
+                  // Store the heading as the alias so the link reads naturally and
+                  // survives heading edits (the target stays the stable file path).
+                  // Skip it when the note has no heading (title falls back to the
+                  // filename) so we don't write a redundant [[ts|ts]].
+                  alias:
+                    props.title && props.title !== props.name
+                      ? props.title
+                      : null,
+                },
               },
               { type: "text", text: " " },
             ])
@@ -360,7 +400,8 @@ export const WikiLink = Node.create<WikiLinkOptions>({
     return {
       markdown: {
         serialize(state: any, node: any) {
-          state.write(`[[${node.attrs.target}]]`);
+          const { target, alias } = node.attrs;
+          state.write(alias ? `[[${target}|${alias}]]` : `[[${target}]]`);
         },
         parse: {},
       },
@@ -384,6 +425,12 @@ export const WikiEmbed = Node.create({
         default: null,
         parseHTML: (el) => el.getAttribute("data-target"),
         renderHTML: (attrs) => ({ "data-target": attrs.target }),
+      },
+      alias: {
+        default: null,
+        parseHTML: (el) => el.getAttribute("data-alias"),
+        renderHTML: (attrs) =>
+          attrs.alias ? { "data-alias": attrs.alias } : {},
       },
     };
   },
@@ -409,6 +456,7 @@ export const WikiEmbed = Node.create({
       container.setAttribute("data-type", "wiki-embed");
 
       const target = node.attrs.target as string;
+      const alias = node.attrs.alias as string | null;
       const ext = target.split(".").pop()?.toLowerCase() ?? "";
       const isImage = IMAGE_EXTS.has(ext);
 
@@ -437,7 +485,7 @@ export const WikiEmbed = Node.create({
         const header = document.createElement("div");
         header.className = "wiki-embed-header";
         const displayName =
-          target.split("/").pop()?.replace(/\.md$/i, "") ?? target;
+          alias || target.split("/").pop()?.replace(/\.md$/i, "") || target;
         header.textContent = displayName;
         container.appendChild(header);
         const content = document.createElement("div");
@@ -465,8 +513,8 @@ export const WikiEmbed = Node.create({
       new InputRule({
         find: /!\[\[([^\]]+)\]\]$/,
         handler: ({ state, range, match }) => {
-          const target = match[1];
-          const node = this.type.create({ target });
+          const [target, alias] = splitTargetAlias(match[1]);
+          const node = this.type.create({ target, alias });
           state.tr.replaceWith(range.from, range.to, node);
         },
       }),
@@ -477,7 +525,8 @@ export const WikiEmbed = Node.create({
     return {
       markdown: {
         serialize(state: any, node: any) {
-          state.write(`![[${node.attrs.target}]]\n`);
+          const { target, alias } = node.attrs;
+          state.write(alias ? `![[${target}|${alias}]]\n` : `![[${target}]]\n`);
         },
         parse: {},
       },

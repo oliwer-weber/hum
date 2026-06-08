@@ -85,6 +85,10 @@ interface TodayTodo {
 
 const DAMPEN_FACTOR = 0.3;
 
+// Hard cap on the Today list. Forces a conscious trade: to add another you
+// must complete or remove one, so Today never silently becomes a pile.
+const TODAY_CAP = 5;
+
 /* ── Constants ──────────────────────────────────────── */
 
 const PROJECT_COLORS = [
@@ -163,6 +167,34 @@ function formatAge(days: number): string {
   if (days < 7) return `${days}d`;
   if (days < 30) return `${Math.floor(days / 7)}w`;
   return `${Math.floor(days / 30)}mo`;
+}
+
+// "08:30" -> 510 minutes past midnight. Null for anything unparseable.
+function timeToMin(t: string | null | undefined): number | null {
+  if (!t) return null;
+  const m = /^(\d{1,2}):(\d{2})/.exec(t.trim());
+  if (!m) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+function minToLabel(min: number): string {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function nowMinutes(): number {
+  const d = new Date();
+  return d.getHours() * 60 + d.getMinutes();
+}
+
+// "Fri · 5 June" — the calm date line that replaces the month grid in Today.
+function formatTodayHeader(): string {
+  const d = new Date();
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const months = ["January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"];
+  return `${days[d.getDay()]} · ${d.getDate()} ${months[d.getMonth()]}`;
 }
 
 /* ── Month calendar ────────────────────────────────── */
@@ -271,6 +303,168 @@ function ScheduleCard({ event }: { event: CalendarEvent }) {
       <span className="dash-meeting-time">{event.start}{event.end ? `\u2013${event.end}` : ""}</span>
       <span className="dash-meeting-title">{event.title}</span>
       {event.location && <span className="dash-meeting-location">{event.location}</span>}
+    </div>
+  );
+}
+
+/* ── Day timeline (horizontal time track) ────────────
+ * A conventional schedule track: a left-to-right time axis with each meeting as
+ * a true-to-time block (positioned by start, sized by duration). A now-line
+ * marks the current moment, hour ticks anchor the axis, and blocks are tinted
+ * by activity (same title -> same colour) using theme tokens, so the theme
+ * engine owns the look. Titles that don't fit a narrow block fall back to hover. */
+
+interface TimelineSeg {
+  title: string;
+  location: string | null;
+  startMin: number;
+  endMin: number;
+  dur: number;
+}
+
+// Same title -> same colour, so a repeated meeting reads as the same thing
+// across the day. Reuses the project pips' green-family tokens (aqua stays
+// reserved for the now-line).
+function activityKey(title: string): string {
+  return title.trim().toLowerCase();
+}
+
+function DayTimeline({ events }: { events: CalendarEvent[] }) {
+  const [nowMin, setNowMin] = useState(() => nowMinutes());
+  const [hovered, setHovered] = useState<number | null>(null);
+
+  useEffect(() => {
+    const id = setInterval(() => setNowMin(nowMinutes()), 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  const segs = useMemo<TimelineSeg[]>(() => {
+    const out: TimelineSeg[] = [];
+    for (const e of events) {
+      const s = timeToMin(e.start);
+      if (s === null) continue;
+      let en = timeToMin(e.end);
+      if (en === null || en <= s) en = s + 30; // sane fallback for open/instant events
+      out.push({ title: e.title, location: e.location, startMin: s, endMin: en, dur: en - s });
+    }
+    out.sort((a, b) => a.startMin - b.startMin);
+    return out;
+  }, [events]);
+
+  // One colour per distinct activity, assigned in order of first appearance.
+  const activityColor = useMemo(() => {
+    const map = new Map<string, string>();
+    let i = 0;
+    for (const s of segs) {
+      const key = activityKey(s.title);
+      if (!map.has(key)) {
+        map.set(key, PROJECT_COLORS[i % PROJECT_COLORS.length]);
+        i++;
+      }
+    }
+    return map;
+  }, [segs]);
+  const colorFor = useCallback(
+    (s: TimelineSeg) => activityColor.get(activityKey(s.title)) ?? PROJECT_COLORS[0],
+    [activityColor],
+  );
+
+  // Window snaps to whole hours around the day, so the hour ticks read cleanly.
+  // Falls back to a calm working day when nothing's scheduled.
+  const [winStart, winEnd] = useMemo(() => {
+    if (segs.length === 0) return [8 * 60, 17 * 60];
+    const minS = Math.min(...segs.map((s) => s.startMin));
+    const maxE = Math.max(...segs.map((s) => s.endMin));
+    return [Math.floor(minS / 60) * 60, Math.ceil(maxE / 60) * 60];
+  }, [segs]);
+
+  const span = winEnd - winStart || 1;
+  const pct = useCallback((min: number) => ((min - winStart) / span) * 100, [winStart, span]);
+
+  const blocks = useMemo(
+    () => segs.map((s, i) => ({
+      i,
+      left: pct(s.startMin),
+      width: pct(s.endMin) - pct(s.startMin),
+      color: colorFor(s),
+      time: minToLabel(s.startMin),
+      title: s.title,
+    })),
+    [segs, pct, colorFor],
+  );
+
+  const hours = useMemo(() => {
+    const out: { left: number; label: string }[] = [];
+    for (let m = winStart; m <= winEnd; m += 60) {
+      out.push({ left: pct(m), label: String(Math.floor(m / 60)).padStart(2, "0") });
+    }
+    return out;
+  }, [winStart, winEnd, pct]);
+
+  const nowPct = segs.length > 0 && nowMin >= winStart && nowMin <= winEnd ? pct(nowMin) : null;
+
+  const current = segs.find((s) => nowMin >= s.startMin && nowMin < s.endMin) ?? null;
+  const next = segs.find((s) => s.startMin > nowMin) ?? null;
+
+  const tipSeg = hovered !== null ? segs[hovered] : null;
+
+  return (
+    <div className="today-timeline">
+      <div className="timeline-meta">
+        <span className="timeline-now">
+          {current ? (
+            <><span className="timeline-meta-label">Now</span> {current.title}</>
+          ) : (
+            <span className="timeline-meta-dim">{segs.length ? "Between things" : "Nothing scheduled"}</span>
+          )}
+        </span>
+        {next && (
+          <span className="timeline-next">
+            <span className="timeline-meta-label">Next</span> {minToLabel(next.startMin)} {next.title}
+          </span>
+        )}
+      </div>
+
+      <div className="timeline-track">
+        {blocks.map((b) => (
+          <div
+            key={b.i}
+            className={`timeline-block${hovered === b.i ? " is-hovered" : ""}`}
+            style={{ left: `${b.left}%`, width: `calc(${b.width}% - 2px)`, ["--block-color" as string]: b.color }}
+            onMouseEnter={() => setHovered(b.i)}
+            onMouseLeave={() => setHovered((p) => (p === b.i ? null : p))}
+          >
+            <span className="timeline-block-time">{b.time}</span>
+            <span className="timeline-block-title">{b.title}</span>
+          </div>
+        ))}
+
+        {nowPct !== null && (
+          <div className="timeline-nowmark" style={{ left: `${nowPct}%` }}>
+            <span className="timeline-nowmark-dot" />
+          </div>
+        )}
+
+        {tipSeg && (
+          <div
+            className="timeline-tip"
+            style={{ left: `${pct(tipSeg.startMin) + (pct(tipSeg.endMin) - pct(tipSeg.startMin)) / 2}%` }}
+          >
+            <span className="timeline-tip-time">{minToLabel(tipSeg.startMin) + "–" + minToLabel(tipSeg.endMin)}</span>
+            <span className="timeline-tip-title">{tipSeg.title}</span>
+            {tipSeg.location && <span className="timeline-tip-loc">{tipSeg.location}</span>}
+          </div>
+        )}
+      </div>
+
+      <div className="timeline-axis">
+        {hours.map((h, i) => (
+          <span key={i} className="timeline-tick-wrap" style={{ left: `${h.left}%` }}>
+            <span className="timeline-tick-mark" />
+            <span className="timeline-tick">{h.label}</span>
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -454,6 +648,13 @@ export default function Dashboard({ refreshKey, onOpenProjectHub }: DashProps) {
     [calendar, selectedDate],
   );
 
+  // Today's events drive the Today-view wave (always today, not the selectable
+  // date the Plan board's calendar uses).
+  const todayEvents = useMemo(
+    () => calendar?.events.filter((e) => parseDateStr(e.date) === getTodayStr()) ?? [],
+    [calendar],
+  );
+
   const handleToggleTodo = useCallback(async (todo: GravityTodo) => {
     // Optimistic: remove the todo from local state immediately
     setProjects((prev) =>
@@ -509,7 +710,10 @@ export default function Dashboard({ refreshKey, onOpenProjectHub }: DashProps) {
   // open and reflects the new state via its `inToday` prop.
   const handleToggleToday = useCallback(async (id: string) => {
     const current = focusState.today ?? [];
-    const next = current.includes(id)
+    const isIn = current.includes(id);
+    // Guard the cap (the card also disables the button, this is belt-and-suspenders).
+    if (!isIn && current.length >= TODAY_CAP) return;
+    const next = isIn
       ? current.filter((x) => x !== id)
       : [...current, id];
     try {
@@ -532,7 +736,10 @@ export default function Dashboard({ refreshKey, onOpenProjectHub }: DashProps) {
         checked: true,
       });
       loadGravity(true);
-      loadToday();
+      // loadToday self-heals the stored list (drops the now-completed pick);
+      // loadFocus then refreshes the count so the freed slot registers.
+      await loadToday();
+      await loadFocus();
     } catch (err) {
       console.error("Failed to complete today todo:", err);
       loadToday();
@@ -637,12 +844,16 @@ export default function Dashboard({ refreshKey, onOpenProjectHub }: DashProps) {
   return (
     <div className="dash">
       {view === "today" ? (
-        /* ── Calm default: the day's hand-picked few + calendar ── */
+        /* ── Calm default: the day's hand-picked few, the day's wave below ── */
         <div className="today">
-          <div className="today-layout">
-            <div className="today-main">
-              <div className="today-head">
+          <div className="today-page">
+            <div className="today-head">
+              <div className="today-head-left">
                 <h2 className="today-title">Today</h2>
+                <span className="today-count">{todayTodos.length}/{TODAY_CAP}</span>
+              </div>
+              <div className="today-head-right">
+                <span className="today-date">{formatTodayHeader()}</span>
                 <button
                   type="button"
                   className="today-plan-btn"
@@ -657,52 +868,52 @@ export default function Dashboard({ refreshKey, onOpenProjectHub }: DashProps) {
                   Plan
                 </button>
               </div>
-
-              {todayTodos.length === 0 ? (
-                <div className="today-empty">
-                  <p className="today-empty-title">Nothing set for today.</p>
-                  <p className="today-empty-sub">Pick a few things worth your focus.</p>
-                  <button
-                    type="button"
-                    className="today-empty-btn"
-                    onClick={() => setView("plan")}
-                  >
-                    Plan today
-                  </button>
-                </div>
-              ) : (
-                <ul className="today-list">
-                  {todayTodos.map((todo) => (
-                    <li key={todo.id} className="today-row">
-                      <input
-                        type="checkbox"
-                        className="todo-checkbox"
-                        checked={false}
-                        onChange={() => handleCompleteToday(todo)}
-                        aria-label="Mark complete"
-                      />
-                      <span
-                        className="today-row-text"
-                        role="button"
-                        tabIndex={0}
-                        onClick={(e) => openCardAt(e.currentTarget, todo.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            openCardAt(e.currentTarget, todo.id);
-                          }
-                        }}
-                      >
-                        <TaggedText text={todo.text} />
-                      </span>
-                      <span className="today-row-project">{todo.project_name}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
             </div>
 
-            {calendarSidebar}
+            {todayTodos.length === 0 ? (
+              <div className="today-empty">
+                <p className="today-empty-title">Nothing set for today.</p>
+                <p className="today-empty-sub">Pick a few things worth your focus.</p>
+                <button
+                  type="button"
+                  className="today-empty-btn"
+                  onClick={() => setView("plan")}
+                >
+                  Plan today
+                </button>
+              </div>
+            ) : (
+              <ul className="today-list">
+                {todayTodos.map((todo) => (
+                  <li key={todo.id} className="today-row">
+                    <input
+                      type="checkbox"
+                      className="todo-checkbox"
+                      checked={false}
+                      onChange={() => handleCompleteToday(todo)}
+                      aria-label="Mark complete"
+                    />
+                    <span
+                      className="today-row-text"
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => openCardAt(e.currentTarget, todo.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          openCardAt(e.currentTarget, todo.id);
+                        }
+                      }}
+                    >
+                      <TaggedText text={todo.text} />
+                    </span>
+                    <span className="today-row-project">{todo.project_name}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <DayTimeline events={todayEvents} />
           </div>
         </div>
       ) : (
@@ -1105,6 +1316,7 @@ export default function Dashboard({ refreshKey, onOpenProjectHub }: DashProps) {
           onClose={() => setCard(null)}
           onChanged={handleCardChanged}
           inToday={todayIdSet.has(card.id)}
+          todayFull={!todayIdSet.has(card.id) && todayIdSet.size >= TODAY_CAP}
           onToggleToday={() => handleToggleToday(card.id)}
         />
       )}

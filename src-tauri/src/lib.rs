@@ -543,6 +543,7 @@ struct VaultFileInfo {
     stem: String,   // lowercase, no extension — for filtering/matching
     name: String,   // original-case filename without extension — for display
     path: String,   // relative path from vault root (forward slashes) — stored in wikiLink target
+    title: String,  // derived heading from the note body — what the user searches and sees; falls back to name
 }
 
 /// Recursively collect all files in the vault (uncached).
@@ -562,10 +563,22 @@ fn vault_all_files_uncached() -> Result<Vec<VaultFileInfo>, String> {
                     .map(|p| p.to_string_lossy().replace('\\', "/"))
                     .unwrap_or_default();
                 if let Some(name) = stem_os {
+                    // Derive the heading from the body for `.md` notes so wikilink
+                    // search/display matches the user's mental model. Non-md files
+                    // and empty-title notes (e.g. todo-only) fall back to the name.
+                    let title = if path.extension().and_then(|e| e.to_str()) == Some("md") {
+                        let derived = fs::read_to_string(&path)
+                            .map(|c| note_meta::derive_title(&c))
+                            .unwrap_or_default();
+                        if derived.is_empty() { name.clone() } else { derived }
+                    } else {
+                        name.clone()
+                    };
                     files.push(VaultFileInfo {
                         stem: name.to_lowercase(),
                         name,
                         path: relative,
+                        title,
                     });
                 }
             }
@@ -1970,10 +1983,11 @@ fn read_focus_state() -> FocusState {
         state.focus_set_at = String::new();
     }
 
-    if state.today_set_at != today_str {
-        state.today.clear();
-        state.today_set_at = String::new();
-    }
+    // The Today list deliberately does NOT auto-clear at midnight: it holds the
+    // todos picked during the evening wind-down ("planera imorgon idag"), so
+    // they must survive into the next morning. Picks only leave once completed,
+    // removed, or split/archived (see `get_today_todos`). `today_set_at` is kept
+    // as a "last planned on" stamp, but no longer drives any reset.
 
     state.snoozed.retain(|s| {
         chrono::NaiveDate::parse_from_str(&s.until, "%Y-%m-%d")
@@ -2009,8 +2023,9 @@ fn set_focus(projects: Vec<String>) -> Result<FocusState, String> {
     Ok(state)
 }
 
-/// Replace the day's hand-picked todos with `ids` (in pick order). Stamps
-/// today's date so the list auto-clears at midnight, matching `set_focus`.
+/// Replace the day's hand-picked todos with `ids` (in pick order). Records the
+/// date as a "last planned on" stamp; unlike `set_focus`, the Today list does
+/// not auto-clear, so wind-down picks carry over into the next day.
 #[tauri::command]
 fn set_today(ids: Vec<String>) -> Result<FocusState, String> {
     let mut state = read_focus_state();
@@ -2028,19 +2043,31 @@ fn set_today(ids: Vec<String>) -> Result<FocusState, String> {
 #[tauri::command]
 fn get_today_todos() -> Result<Vec<todo_index::TodoEntry>, String> {
     let vault = vault_path();
-    let state = read_focus_state();
+    let mut state = read_focus_state();
     if state.today.is_empty() {
         return Ok(Vec::new());
     }
     let idx = todo_index::read_index(&vault)
         .or_else(|_| todo_index::rebuild_and_persist(&vault))?;
     let mut out = Vec::new();
+    let mut live_ids = Vec::new();
     for id in &state.today {
         if let Some(entry) = idx.entries.get(id) {
             if entry.completed.is_none() && !entry.archived {
                 out.push(entry.clone());
+                live_ids.push(id.clone());
             }
         }
+    }
+    // Self-heal: prune ids that died (completed, deleted, or archived since being
+    // picked) from the stored list, so a phantom pick never eats one of the
+    // day's limited slots. Mirrors read_focus_state's auto-clear-on-read idiom.
+    if live_ids != state.today {
+        state.today = live_ids;
+        if state.today.is_empty() {
+            state.today_set_at = String::new();
+        }
+        let _ = write_focus_state(&state);
     }
     Ok(out)
 }
