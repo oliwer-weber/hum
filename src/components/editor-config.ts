@@ -2,7 +2,7 @@
  * Shared editor configuration for Inbox and Vault Tiptap editors.
  * Single source of truth for extensions, keymaps, and auto-pair logic.
  */
-import { Extension } from "@tiptap/core";
+import { Extension, InputRule } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
@@ -276,6 +276,25 @@ export const SharedEditorKeymap = Extension.create({
         return true;
       },
     };
+  },
+
+  addInputRules() {
+    // Typed dash-arrows become real arrow glyphs. The length scales with the
+    // dash count: "->" is a short arrow, "-->" (two or more dashes) a long one.
+    // tiptap's input-rule plugin already skips code blocks and inline code, so
+    // things like `fn() -> T` are left untouched. The long rule is listed first
+    // so "-->" matches it before the single-dash rule can fire.
+    const arrowRule = (find: RegExp, glyph: string) =>
+      new InputRule({
+        find,
+        handler: ({ state, range }) => {
+          state.tr.insertText(glyph, range.from, range.to);
+        },
+      });
+    return [
+      arrowRule(/--+>$/, "⟶"), // -->  long rightwards arrow ⟶
+      arrowRule(/->$/, "→"),   // ->   rightwards arrow →
+    ];
   },
 
   addProseMirrorPlugins() {
