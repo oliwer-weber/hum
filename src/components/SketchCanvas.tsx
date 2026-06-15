@@ -127,7 +127,11 @@ export default function SketchCanvas({
       const { exportToBlob } = await import("@excalidraw/excalidraw");
       const png = await exportToBlob({
         elements: api.getSceneElements(),
-        appState: { ...api.getAppState(), exportEmbedScene: true },
+        // exportBackground: false → transparent PNG, so the embedded drawing
+        // sits on the editor surface rather than as a solid rectangle. The
+        // scene is still embedded (exportEmbedScene) so editing keeps its own
+        // canvas background.
+        appState: { ...api.getAppState(), exportEmbedScene: true, exportBackground: false },
         files: api.getFiles(),
         mimeType: "image/png",
         quality: 1,
