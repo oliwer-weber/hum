@@ -11,6 +11,7 @@ import type { MentionableItem, CreateKind, NoteRow } from "./project-mention";
 import type { VaultFileInfo } from "./wikilink";
 import { EditorFormatMenus } from "./EditorFormatMenus";
 import { attachSmoothWheelScroll } from "./smooth-scroll";
+import { getStoredSpellcheckWrite, SPELLCHECK_CHANGED_EVENT } from "../theme/theme";
 
 const FRONTMATTER = "---\ncssclasses:\n  - home-title\n---";
 
@@ -490,6 +491,16 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
     if (!scroller) return;
     return attachSmoothWheelScroll(scroller);
   }, [editor, editorReady]);
+
+  // Apply the Write-tab spellcheck setting, and react to live toggles.
+  useEffect(() => {
+    if (!editor) return;
+    const apply = () =>
+      editor.view.dom.setAttribute("spellcheck", getStoredSpellcheckWrite() ? "true" : "false");
+    apply();
+    window.addEventListener(SPELLCHECK_CHANGED_EVENT, apply);
+    return () => window.removeEventListener(SPELLCHECK_CHANGED_EVENT, apply);
+  }, [editor]);
 
   // ── Render ────────────────────────────────────────
 

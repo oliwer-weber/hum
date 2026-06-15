@@ -17,6 +17,8 @@ export const FONTS: { id: FontId; label: string; description: string }[] = [
 const THEME_KEY = "pa.theme";
 const FONT_KEY = "pa.font";
 const MD_PLAIN_KEY = "pa.mdPlain";
+const SPELLCHECK_WRITE_KEY = "pa.spellcheckWrite";
+const SPELLCHECK_FIND_KEY = "pa.spellcheckFind";
 const DEFAULT_THEME: ThemeId = "light";
 const DEFAULT_FONT: FontId = "modern";
 
@@ -80,4 +82,44 @@ export function setMdPlain(on: boolean) {
 
 export function applyStoredMdPlain() {
   setMdPlain(getStoredMdPlain());
+}
+
+/**
+ * Spellcheck toggles for the two editing surfaces — the Write (inbox) editor
+ * and the Find (vault) editor — controlled independently. Both default on,
+ * matching the browser's contenteditable default. The editors listen for
+ * SPELLCHECK_CHANGED_EVENT to update live; they read their own flag on fire.
+ */
+export const SPELLCHECK_CHANGED_EVENT = "hum:spellcheck-changed";
+
+function getStoredBool(key: string): boolean {
+  const raw = typeof localStorage !== "undefined" ? localStorage.getItem(key) : null;
+  return raw !== "false"; // default on
+}
+
+function setStoredBool(key: string, on: boolean) {
+  try {
+    localStorage.setItem(key, on ? "true" : "false");
+  } catch {
+    // localStorage unavailable — setting still applies for this session
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(SPELLCHECK_CHANGED_EVENT));
+  }
+}
+
+export function getStoredSpellcheckWrite(): boolean {
+  return getStoredBool(SPELLCHECK_WRITE_KEY);
+}
+
+export function setSpellcheckWrite(on: boolean) {
+  setStoredBool(SPELLCHECK_WRITE_KEY, on);
+}
+
+export function getStoredSpellcheckFind(): boolean {
+  return getStoredBool(SPELLCHECK_FIND_KEY);
+}
+
+export function setSpellcheckFind(on: boolean) {
+  setStoredBool(SPELLCHECK_FIND_KEY, on);
 }

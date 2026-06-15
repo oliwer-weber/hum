@@ -5283,6 +5283,11 @@
               transform 120ms var(--ease-smooth);
 }
 
+/* Stacked toggles within a group (e.g. Spellcheck: Write / Find). */
+.settings-toggle + .settings-toggle {
+  margin-top: var(--space-md);
+}
+
 .settings-toggle:hover {
   border-color: var(--bg3);
   background-color: var(--bg1);

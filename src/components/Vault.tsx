@@ -4,6 +4,7 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import { DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { createSharedExtensions } from "./editor-config";
 import { attachSmoothWheelScroll } from "./smooth-scroll";
+import { getStoredSpellcheckFind, SPELLCHECK_CHANGED_EVENT } from "../theme/theme";
 import { WikiLink, WikiEmbed, convertTextToWikiLinks } from "./wikilink";
 import type { VaultFileInfo } from "./wikilink";
 import { HashTag } from "./hashtag";
@@ -406,6 +407,16 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled, openPro
     if (!scroller) return;
     return attachSmoothWheelScroll(scroller);
   }, [editor, openFile]);
+
+  // Apply the Find-tab spellcheck setting, and react to live toggles.
+  useEffect(() => {
+    if (!editor) return;
+    const apply = () =>
+      editor.view.dom.setAttribute("spellcheck", getStoredSpellcheckFind() ? "true" : "false");
+    apply();
+    window.addEventListener(SPELLCHECK_CHANGED_EVENT, apply);
+    return () => window.removeEventListener(SPELLCHECK_CHANGED_EVENT, apply);
+  }, [editor]);
 
   // Load vault file index
   useEffect(() => {
