@@ -10,6 +10,7 @@ import { attachProjectAutocomplete, ProjectMentionKeymap, ProjectTagStyle } from
 import type { MentionableItem, CreateKind, NoteRow } from "./project-mention";
 import type { VaultFileInfo } from "./wikilink";
 import { EditorFormatMenus } from "./EditorFormatMenus";
+import { attachSmoothWheelScroll } from "./smooth-scroll";
 
 const FRONTMATTER = "---\ncssclasses:\n  - home-title\n---";
 
@@ -481,6 +482,14 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
       window.removeEventListener("hum:create-sketch", onCreateSketch);
     };
   }, []);
+
+  // Ease mouse-wheel scrolling on the editor surface.
+  useEffect(() => {
+    if (!editor || !editorReady) return;
+    const scroller = editor.view.dom.closest(".inbox-editor-wrap") as HTMLElement | null;
+    if (!scroller) return;
+    return attachSmoothWheelScroll(scroller);
+  }, [editor, editorReady]);
 
   // ── Render ────────────────────────────────────────
 

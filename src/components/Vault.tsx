@@ -3,6 +3,7 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { createSharedExtensions } from "./editor-config";
+import { attachSmoothWheelScroll } from "./smooth-scroll";
 import { WikiLink, WikiEmbed, convertTextToWikiLinks } from "./wikilink";
 import type { VaultFileInfo } from "./wikilink";
 import { HashTag } from "./hashtag";
@@ -396,6 +397,15 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled, openPro
   useEffect(() => {
     (editorRef as React.MutableRefObject<typeof editor>).current = editor;
   }, [editor]);
+
+  // Ease mouse-wheel scrolling on the editor surface. The scroll container only
+  // exists while a markdown file is open, so re-attach when that changes.
+  useEffect(() => {
+    if (!editor || openFile?.entry.extension !== "md") return;
+    const scroller = editor.view.dom.closest(".vault-editor-content") as HTMLElement | null;
+    if (!scroller) return;
+    return attachSmoothWheelScroll(scroller);
+  }, [editor, openFile]);
 
   // Load vault file index
   useEffect(() => {
