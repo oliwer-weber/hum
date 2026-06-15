@@ -141,6 +141,46 @@
   background: var(--accent-hover);
 }
 
+/* ── Excalidraw theming ────────────────────────────────────────────
+ * Excalidraw exposes its look through CSS custom properties, shipped as
+ * paired light/dark values. Hum's own tokens are already theme-aware, so we
+ * remap Excalidraw's variables onto them once and let Hum's data-theme drive
+ * light/dark. The accent becomes Hum's signature aqua; islands, popups and the
+ * sidebar take Hum's floating surface; borders and text follow suit — so the
+ * canvas reads as Hum, not stock Excalidraw, while keeping its own layout.
+ *
+ * Both selectors carry the same declarations: the first wins over Excalidraw's
+ * `.excalidraw` (light) block, the second (higher specificity) over its
+ * `.excalidraw.theme--dark` block regardless of the lazy CSS load order.
+ * ───────────────────────────────────────────────────────────────── */
+.sketch-canvas-wrap .excalidraw,
+.sketch-canvas-wrap .excalidraw.theme--dark {
+  /* Accent — active tool, selection, primary actions */
+  --color-primary: var(--accent);
+  --color-primary-hover: var(--accent-hover);
+  --color-primary-darker: var(--accent-hover);
+  --color-primary-darkest: var(--accent-hover);
+  --color-primary-light: var(--accent-muted);
+  --color-primary-light-darker: var(--accent-muted);
+  --color-on-primary: var(--bg-hard);
+  --color-surface-primary-container: var(--accent-muted);
+
+  /* Surfaces — floating islands, popups, sidebar, and the elevation ramp */
+  --island-bg-color: var(--bg-soft);
+  --popup-bg-color: var(--bg-soft);
+  --sidebar-bg-color: var(--bg-soft);
+  --default-bg-color: var(--bg);
+  --color-surface-lowest: var(--bg-soft);
+  --color-surface-low: var(--bg);
+  --color-surface-mid: var(--bg1);
+  --color-surface-high: var(--bg2);
+
+  /* Borders + primary text */
+  --color-border-outline: var(--bg3);
+  --color-border-outline-variant: var(--bg2);
+  --text-primary-color: var(--fg);
+}
+
 /* ── Canvas host ───────────────────────────────────────────────── */
 .sketch-canvas-wrap {
   position: relative;
