@@ -131,6 +131,25 @@ const LinkIcon = ico(
   </>
 );
 
+const TableIcon = ico(
+  <>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <line x1="3" y1="10" x2="21" y2="10" />
+    <line x1="3" y1="15" x2="21" y2="15" />
+    <line x1="9" y1="4" x2="9" y2="20" />
+    <line x1="15" y1="4" x2="15" y2="20" />
+  </>
+);
+
+const SketchIcon = ico(
+  <>
+    <path d="M12 19l7-7 3 3-7 7-3-3z" />
+    <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" />
+    <path d="M2 2l7.586 7.586" />
+    <circle cx="11" cy="11" r="2" />
+  </>
+);
+
 /* ── Insert helpers ───────────────────────────────────── */
 
 /** Start an @mention. It must sit at the start of its own line for the project
@@ -144,6 +163,22 @@ function insertMention(e: Editor): void {
   } else {
     e.chain().focus().setTextSelection($to.end()).splitBlock().insertContent("@").run();
   }
+}
+
+/** Insert a 3×3 table with a header row. Collapse any selection to the end of
+ * the current block first so selected text is never swallowed by the table. */
+function insertTable(e: Editor): void {
+  const { $to } = e.state.selection;
+  e.chain().focus().setTextSelection($to.end())
+    .insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+}
+
+/** Signal the host (the Write tab) to open the sketch canvas. The command set
+ * is editor-only, but the Excalidraw modal lives in React state up in Inbox, so
+ * we bridge via a window event. The current selection is left untouched, so the
+ * saved drawing's embed lands wherever the caret was. */
+function openSketch(): void {
+  window.dispatchEvent(new CustomEvent("hum:create-sketch"));
 }
 
 /** Start a [[wikilink]] and let the existing picker take over. The suggestion
@@ -254,5 +289,22 @@ export const EDITOR_COMMANDS: EditorCommand[] = [
     isActive: (e) => e.isActive("link"),
     run: () => {}, // handled by the menus via opensLinkEditor
     opensLinkEditor: true,
+  },
+  {
+    id: "table",
+    label: "Table",
+    group: "insert",
+    icon: TableIcon,
+    isActive: (e) => e.isActive("table"),
+    run: insertTable,
+  },
+  {
+    id: "sketch",
+    label: "Sketch",
+    hint: "Ctrl ⇧ D",
+    group: "insert",
+    icon: SketchIcon,
+    isActive: () => false,
+    run: openSketch,
   },
 ];

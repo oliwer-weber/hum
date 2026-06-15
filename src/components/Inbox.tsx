@@ -464,6 +464,7 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
   }, [saveToFile]);
 
   // Ctrl/Cmd+Shift+D opens the sketch canvas while the Write tab is active.
+  // The bubble/right-click "Sketch" command opens it via the same window event.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || !e.shiftKey) return;
@@ -472,8 +473,13 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
       e.preventDefault();
       setSketchOpen(true);
     };
+    const onCreateSketch = () => setSketchOpen(true);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("hum:create-sketch", onCreateSketch);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("hum:create-sketch", onCreateSketch);
+    };
   }, []);
 
   // ── Render ────────────────────────────────────────

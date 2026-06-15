@@ -26,6 +26,11 @@ import { EDITOR_COMMANDS, type EditorCommand } from "./editor-commands";
 
 /* ── Shared helpers ───────────────────────────────────── */
 
+// The fixed top rail (tab bar) occupies roughly the top 48px of the window.
+// Pad the bubble's collision boundary past it (plus a little breathing room) so
+// it never floats up underneath the header.
+const TOP_RAIL_PADDING = 56;
+
 /** Re-render whenever the editor's selection/marks change so active states stay live. */
 function useEditorTick(editor: Editor): void {
   const [, tick] = useReducer((n: number) => n + 1, 0);
@@ -74,9 +79,11 @@ function BubbleToolbar({
         // inline anchors to the selection's own client rects (not a loose
         // bounding box), so the bubble sits centred over the actual text.
         inline: true,
-        // flip below when there's no room above; shift to stay on-screen.
-        flip: true,
-        shift: { padding: 8 },
+        // Treat the top rail (tab bar, ~48px) as out of bounds so a selection
+        // near the top flips the bubble below instead of tucking it up under
+        // the header where it gets clipped. shift keeps it on-screen otherwise.
+        flip: { padding: { top: TOP_RAIL_PADDING, bottom: 8, left: 8, right: 8 } },
+        shift: { padding: { top: TOP_RAIL_PADDING, bottom: 8, left: 8, right: 8 } },
       }}
       className="fmt-bubble"
     >

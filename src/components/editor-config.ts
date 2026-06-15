@@ -19,6 +19,22 @@ import TableHeader from "@tiptap/extension-table-header";
 import { Markdown } from "tiptap-markdown";
 import type { EditorView } from "@tiptap/pm/view";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { open as openExternalUrl } from "@tauri-apps/plugin-shell";
+
+/* ── External link opening ───────────────────────────
+ * The editor is an editing surface, so a plain click must still place the
+ * caret (e.g. to edit the link text). Ctrl/Cmd+click — the Obsidian/editor
+ * convention — follows the link instead, opening it in the system browser via
+ * the shell plugin (the webview must never navigate away from the app). Only
+ * web/mail schemes are allowed through. */
+const OPENABLE_SCHEME = /^(https?:|mailto:)/i;
+
+function openLinkExternally(href: string): void {
+  if (!OPENABLE_SCHEME.test(href)) return;
+  openExternalUrl(href).catch((err) => {
+    console.error("[link] failed to open externally:", err);
+  });
+}
 
 /* ── Image paste/drop helpers ───────────────────── */
 
@@ -63,6 +79,7 @@ export function insertWikiEmbed(view: EditorView, filename: string, pos?: number
 }
 
 const imagePasteDropKey = new PluginKey("imagePasteDrop");
+const linkClickKey = new PluginKey("linkClickOpen");
 
 /* ── Auto-pair brackets ──────────────────────────── */
 
@@ -159,6 +176,24 @@ export const SharedEditorKeymap = Extension.create({
 
   addKeyboardShortcuts() {
     return {
+      // Enter on an empty list item exits/outdents the list instead of leaving
+      // a dangling empty bullet or checkbox behind. Priority 1000 means this
+      // runs before StarterKit's splitListItem; we only consume Enter when the
+      // current list item is empty, otherwise fall through so a non-empty item
+      // splits into a new one as usual.
+      Enter: ({ editor }) => {
+        const { selection } = editor.state;
+        if (!selection.empty) return false;
+        if (selection.$from.parent.content.size !== 0) return false;
+        if (editor.isActive("taskList")) {
+          return editor.chain().focus().liftListItem("taskItem").run();
+        }
+        if (editor.isActive("bulletList") || editor.isActive("orderedList")) {
+          return editor.chain().focus().liftListItem("listItem").run();
+        }
+        return false;
+      },
+
       // Ctrl+L: toggle task list
       "Mod-l": ({ editor }) => {
         if (editor.isActive("taskList")) {
@@ -338,6 +373,35 @@ export const SharedEditorKeymap = Extension.create({
         },
       }),
       new Plugin({
+        key: linkClickKey,
+        props: {
+          // Ctrl/Cmd+click (or middle-click) follows a link to the system
+          // browser; a plain click is left to ProseMirror so the caret can
+          // land inside the link text for editing.
+          handleClick(_view: EditorView, _pos: number, event: MouseEvent) {
+            if (!(event.ctrlKey || event.metaKey)) return false;
+            const anchor = (event.target as HTMLElement | null)?.closest("a");
+            const href = anchor?.getAttribute("href");
+            if (!href) return false;
+            event.preventDefault();
+            openLinkExternally(href);
+            return true;
+          },
+          handleDOMEvents: {
+            // Middle-click also follows the link, mirroring browser behaviour.
+            auxclick(_view: EditorView, event: MouseEvent) {
+              if (event.button !== 1) return false;
+              const anchor = (event.target as HTMLElement | null)?.closest("a");
+              const href = anchor?.getAttribute("href");
+              if (!href) return false;
+              event.preventDefault();
+              openLinkExternally(href);
+              return true;
+            },
+          },
+        },
+      }),
+      new Plugin({
         key: imagePasteDropKey,
         props: {
           handlePaste(view: EditorView, event: ClipboardEvent) {
@@ -424,7 +488,12 @@ export function createSharedExtensions(opts: SharedExtensionsOptions = {}) {
     }),
     TaskList,
     TaskItem.configure({ nested: true }),
-    Link.configure({ openOnClick: false }),
+    // openOnClick is false so a plain click edits; the link-click plugin in
+    // SharedEditorKeymap opens on Ctrl/Cmd+click. The title surfaces that.
+    Link.configure({
+      openOnClick: false,
+      HTMLAttributes: { title: "Ctrl/Cmd+click to open", rel: "noopener noreferrer" },
+    }),
     VaultImage,
     Highlight.configure({ multicolor: false }),
     Table.configure({ resizable: false }),
