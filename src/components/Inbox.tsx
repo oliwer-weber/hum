@@ -52,6 +52,7 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
   const [processing, setProcessing] = useState(false);
   const [lastResult, setLastResult] = useState<ProcessResult | null>(null);
   const [sketchOpen, setSketchOpen] = useState(false);
+  const [prewarmSketch, setPrewarmSketch] = useState(false);
   const [statusRoll, setStatusRoll] = useState<"idle" | "rolling-out" | "result" | "rolling-back">("idle");
   const rollTimerRef = useRef<number | null>(null);
   const [tipIndex, setTipIndex] = useState(0);
@@ -484,6 +485,23 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
     };
   }, []);
 
+  // Pre-mount the sketch canvas on idle after launch so the first "insert
+  // sketch" opens instantly — the cost is Excalidraw's first mount, not just
+  // the chunk download, so we pay it ahead of time off the critical path.
+  useEffect(() => {
+    const warm = () => setPrewarmSketch(true);
+    const ric = (window as unknown as {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+    }).requestIdleCallback;
+    if (ric) {
+      const id = ric(warm, { timeout: 5000 });
+      return () => (window as unknown as { cancelIdleCallback?: (id: number) => void })
+        .cancelIdleCallback?.(id);
+    }
+    const t = window.setTimeout(warm, 2500);
+    return () => window.clearTimeout(t);
+  }, []);
+
   // Ease mouse-wheel scrolling on the editor surface.
   useEffect(() => {
     if (!editor || !editorReady) return;
@@ -585,6 +603,7 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
 
       <SketchCanvas
         open={sketchOpen}
+        prewarm={prewarmSketch}
         onClose={() => setSketchOpen(false)}
         onSave={handleSaveSketch}
       />

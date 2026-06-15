@@ -25,6 +25,15 @@
   to   { opacity: 1; }
 }
 
+/* Pre-warmed but closed: keep Excalidraw mounted and laid out (so it stays
+   sized and ready for an instant open) but invisible and click-through. */
+.sketch-overlay-warm {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  animation: none;
+}
+
 .sketch-frame {
   width: min(1280px, 95vw);
   height: 92vh;

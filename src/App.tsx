@@ -107,23 +107,6 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Excalidraw is a heavy lazy chunk, so the first canvas open lags. Warm it
-  // (module + CSS) on idle after launch so the first open is instant. Falls
-  // back to a timeout where requestIdleCallback isn't available.
-  useEffect(() => {
-    const warm = () => void import("@excalidraw/excalidraw");
-    const ric = (window as unknown as {
-      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
-    }).requestIdleCallback;
-    if (ric) {
-      const id = ric(warm, { timeout: 4000 });
-      return () => (window as unknown as { cancelIdleCallback?: (id: number) => void })
-        .cancelIdleCallback?.(id);
-    }
-    const t = window.setTimeout(warm, 2000);
-    return () => window.clearTimeout(t);
-  }, []);
-
  useEffect(()=> {
   const map = {"1":"write","2":"focus","3":"find","4":"hum"} as const;
   const onKey = (e: KeyboardEvent) => {

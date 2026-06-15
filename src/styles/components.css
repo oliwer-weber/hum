@@ -3327,7 +3327,7 @@
 .wiki-embed-edit {
   position: absolute;
   top: var(--space-sm);
-  right: var(--space-sm);
+  left: var(--space-sm);
   padding: var(--space-2xs) var(--space-sm);
   font-family: var(--font-body);
   font-size: var(--font-size-xs);

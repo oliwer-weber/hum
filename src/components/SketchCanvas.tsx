@@ -3,12 +3,10 @@ import {
   Suspense,
   useCallback,
   useEffect,
-  useRef,
   useState,
 } from "react";
 import type {
   ExcalidrawImperativeAPI,
-  ExcalidrawInitialDataState,
 } from "@excalidraw/excalidraw/types";
 import "@excalidraw/excalidraw/index.css";
 
@@ -45,6 +43,11 @@ interface Props {
   initialSrc?: string;
   /** Shown in the top bar (e.g. the routing target). */
   title?: string;
+  /**
+   * Mount the (heavy) canvas now even while closed, so the first real open is
+   * instant. Set on idle after launch. Once mounted it stays mounted.
+   */
+  prewarm?: boolean;
 }
 
 export default function SketchCanvas({
@@ -53,18 +56,26 @@ export default function SketchCanvas({
   onSave,
   initialSrc,
   title,
+  prewarm = false,
 }: Props) {
-  const apiRef = useRef<ExcalidrawImperativeAPI | null>(null);
+  const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null);
   const [theme, setTheme] = useState<CanvasTheme>(() => appThemeToCanvas());
   const [saving, setSaving] = useState(false);
-  // `undefined` = still loading an existing scene; `null` = fresh canvas.
-  const [initialData, setInitialData] = useState<
-    ExcalidrawInitialDataState | null | undefined
-  >(undefined);
-
-  // Keep the canvas theme in sync if the app theme changes while open.
+  const [loadingScene, setLoadingScene] = useState(false);
+  // A pre-warmed instance stays mounted for life — unmounting/remounting
+  // Excalidraw is what makes opening feel slow, so once warmed it just hides
+  // when closed and reopens instantly. A non-warmed instance (e.g. the edit
+  // modal) mounts on open and tears down on close, so we don't keep a second
+  // heavy canvas resident.
+  const [mounted, setMounted] = useState(open || prewarm);
   useEffect(() => {
-    if (!open) return;
+    if (open || prewarm) setMounted(true);
+    else setMounted(false);
+  }, [open, prewarm]);
+
+  // Keep the canvas theme in sync with the app theme while mounted.
+  useEffect(() => {
+    if (!mounted) return;
     setTheme(appThemeToCanvas());
     const obs = new MutationObserver(() => setTheme(appThemeToCanvas()));
     obs.observe(document.documentElement, {
@@ -72,39 +83,44 @@ export default function SketchCanvas({
       attributeFilter: ["data-theme"],
     });
     return () => obs.disconnect();
-  }, [open]);
+  }, [mounted]);
 
-  // Load an existing drawing (or mark fresh) whenever we open.
+  // Load the scene each time we open. The instance is long-lived, so we drive
+  // it through the imperative API rather than `initialData` (which is only read
+  // once at mount): an existing drawing is loaded from its PNG, a fresh canvas
+  // is reset to blank.
   useEffect(() => {
-    if (!open) {
-      setInitialData(undefined);
-      return;
-    }
+    if (!open || !api) return;
     let cancelled = false;
     void (async () => {
       if (!initialSrc) {
-        if (!cancelled) setInitialData(null);
+        api.resetScene();
         return;
       }
+      setLoadingScene(true);
       try {
         const { loadFromBlob } = await import("@excalidraw/excalidraw");
         const res = await fetch(initialSrc);
         const blob = await res.blob();
         const scene = await loadFromBlob(blob, null, null);
-        if (!cancelled) setInitialData(scene);
+        if (cancelled) return;
+        api.updateScene({ elements: scene.elements, appState: scene.appState });
+        if (scene.files) api.addFiles(Object.values(scene.files));
+        api.scrollToContent(scene.elements, { fitToContent: true, animate: false });
       } catch {
-        // Corrupt/unreadable scene — fall back to a blank canvas rather than
-        // trapping the user in a spinner.
-        if (!cancelled) setInitialData(null);
+        // Corrupt/unreadable scene — fall back to blank rather than trapping
+        // the user.
+        if (!cancelled) api.resetScene();
+      } finally {
+        if (!cancelled) setLoadingScene(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [open, initialSrc]);
+  }, [open, initialSrc, api]);
 
   const handleSave = useCallback(async () => {
-    const api = apiRef.current;
     if (!api || saving) return;
     setSaving(true);
     try {
@@ -122,12 +138,18 @@ export default function SketchCanvas({
     } finally {
       setSaving(false);
     }
-  }, [onSave, saving]);
+  }, [api, onSave, saving]);
 
-  if (!open) return null;
+  if (!mounted) return null;
 
   return (
-    <div className="sketch-overlay" role="dialog" aria-modal="true" aria-label="Sketch">
+    <div
+      className={`sketch-overlay${open ? "" : " sketch-overlay-warm"}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Sketch"
+      aria-hidden={!open}
+    >
       <div className="sketch-frame">
         <header className="sketch-bar">
           <div className="sketch-bar-title" title={title}>
@@ -147,7 +169,7 @@ export default function SketchCanvas({
               type="button"
               className="sketch-btn sketch-btn-primary"
               onClick={handleSave}
-              disabled={saving || initialData === undefined}
+              disabled={saving || loadingScene}
             >
               {saving ? "Saving…" : "Save"}
             </button>
@@ -155,19 +177,13 @@ export default function SketchCanvas({
         </header>
 
         <div className="sketch-canvas-wrap">
-          {initialData === undefined ? (
-            <div className="sketch-loading">Opening canvas…</div>
-          ) : (
-            <Suspense fallback={<div className="sketch-loading">Opening canvas…</div>}>
-              <Excalidraw
-                theme={theme}
-                initialData={initialData}
-                excalidrawAPI={(api) => {
-                  apiRef.current = api;
-                }}
-              />
-            </Suspense>
-          )}
+          <Suspense fallback={<div className="sketch-loading">Opening canvas…</div>}>
+            <Excalidraw
+              theme={theme}
+              excalidrawAPI={(a) => setApi(a)}
+            />
+          </Suspense>
+          {loadingScene && <div className="sketch-loading">Opening canvas…</div>}
         </div>
       </div>
     </div>
