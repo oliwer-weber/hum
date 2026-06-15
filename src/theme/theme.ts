@@ -11,7 +11,7 @@ export type FontId = "mono" | "modern" | "editorial";
 export const FONTS: { id: FontId; label: string; description: string }[] = [
   { id: "mono",      label: "Mono",      description: "JetBrains Mono. Precise, technical." },
   { id: "modern",    label: "Modern",    description: "Inter throughout. Clean sans." },
-  { id: "editorial", label: "Editorial", description: "Fraunces + Lora. Full serif." },
+  { id: "editorial", label: "Editorial", description: "Newsreader + Lora. Full serif." },
 ];
 
 const THEME_KEY = "pa.theme";

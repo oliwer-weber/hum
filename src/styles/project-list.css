@@ -767,14 +767,19 @@
 [data-font="editorial"] .plist-title {
   font-size: 44px;
   font-weight: 600;
-  font-variation-settings: "opsz" 144, "SOFT" 30;
+  /* Clear the base opsz override. Newsreader has no SOFT axis and its opsz
+     tops out at 72, so let automatic optical sizing pick a size-appropriate
+     (non-fragile) cut instead of forcing a high-contrast display one. */
+  font-variation-settings: normal;
   letter-spacing: -0.028em;
   line-height: 1.05;
 }
 
 [data-font="editorial"] .pcard-title {
   font-weight: 500;
-  font-variation-settings: "opsz" 28;
+  /* Clear the base opsz override; automatic optical sizing keeps the small
+     card title sturdy. */
+  font-variation-settings: normal;
 }
 
 [data-font="modern"] .plist-title {

@@ -223,7 +223,7 @@ body {
   z-index: 1;
   padding: var(--space-sm) var(--space-xl);
   /* Tabs are chrome, not body copy — route through the display face so
-     Editorial gets Fraunces instead of Lora. For Mono and Modern the
+     Editorial gets Newsreader instead of Lora. For Mono and Modern the
      display and body tokens resolve to the same family, so no change. */
   font-family: var(--font-display);
   font-size: var(--font-size-sm);
@@ -239,14 +239,13 @@ body {
               transform 150ms var(--ease-smooth);
 }
 
-/* Editorial-mode tabs get a display-opsz Fraunces cut: heavier weight,
-   slightly larger size, and an optical-size axis pushed toward display so
-   the letterforms feel proud instead of hesitant. */
+/* Editorial-mode tabs: a touch bigger and bolder. Newsreader is left on
+   automatic optical sizing (a text cut at this small size) so the letterforms
+   stay sturdy rather than thinning out into fragile hairlines. */
 [data-font="editorial"] .tab {
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.05em;
-  font-variation-settings: "opsz" 96;
 }
 
 .tab:hover {
