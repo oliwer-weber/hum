@@ -352,36 +352,17 @@ function LinkEditor({
 export function EditorFormatMenus({ editor }: { editor: Editor }) {
   const [linkState, setLinkState] = useState<LinkEditState | null>(null);
 
-  const openLinkEditor = useCallback(() => {
-    const st = buildLinkState(editor);
-    if (st) setLinkState(st);
-  }, [editor]);
-
   const runCommand = useCallback(
     (cmd: EditorCommand) => {
       if (cmd.opensLinkEditor) {
-        openLinkEditor();
+        const st = buildLinkState(editor);
+        if (st) setLinkState(st);
         return;
       }
       cmd.run(editor);
     },
-    [editor, openLinkEditor],
+    [editor],
   );
-
-  // Ctrl/Cmd+K opens the inline link editor — same path as the "Link" command.
-  // Bound on this editor's own DOM (not globally) so it can't fire while a
-  // different, still-mounted editor tab has focus.
-  useEffect(() => {
-    const dom = editor.view.dom;
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
-      if (e.key.toLowerCase() !== "k") return;
-      e.preventDefault();
-      openLinkEditor();
-    };
-    dom.addEventListener("keydown", onKey);
-    return () => dom.removeEventListener("keydown", onKey);
-  }, [editor, openLinkEditor]);
 
   return (
     <>

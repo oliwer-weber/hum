@@ -36,6 +36,14 @@ function openLinkExternally(href: string): void {
   });
 }
 
+/** Prepend https:// when there's no scheme, so a bare domain still resolves. */
+function normalizeLinkHref(raw: string): string {
+  const t = raw.trim();
+  if (!t) return "";
+  if (/^([a-z][a-z0-9+.-]*:|\/\/|\/|#)/i.test(t)) return t;
+  return "https://" + t;
+}
+
 /* ── Image paste/drop helpers ───────────────────── */
 
 const IMAGE_MIMES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp"]);
@@ -80,6 +88,13 @@ export function insertWikiEmbed(view: EditorView, filename: string, pos?: number
 
 const imagePasteDropKey = new PluginKey("imagePasteDrop");
 const linkClickKey = new PluginKey("linkClickOpen");
+const linkFormatKey = new PluginKey("markdownLinkFormat");
+
+// Complete inline markdown link: [label](href). The label is non-empty and the
+// href has no spaces. Image embeds (![alt](src)) are skipped at the call site by
+// checking the char before "[" — done there rather than with a lookbehind, which
+// can throw at parse time on older WebKit.
+const MD_LINK_RE = /\[([^\]\n]+)\]\(([^)\s]+)\)/g;
 
 /* ── Auto-pair brackets ──────────────────────────── */
 
@@ -230,11 +245,28 @@ export const SharedEditorKeymap = Extension.create({
         return true;
       },
 
-      // Ctrl+K is the link shortcut, but it opens the inline link editor
-      // (which applies a real link mark) rather than typing "[](url)" as text —
-      // that older behaviour just left raw markdown sitting as plaintext.
-      // The editor lives in EditorFormatMenus, so the shortcut is handled there,
-      // scoped to that editor's DOM. Nothing to bind here.
+      // Ctrl+K: insert an empty markdown link skeleton "[]()" and drop the
+      // caret between the brackets so you can type the label first. Filling it
+      // in turns it into a real link via the markdown-link auto-format plugin
+      // below (no leftover "[](url)" plaintext).
+      "Mod-k": ({ editor }) => {
+        const { state, view } = editor;
+        const { from, to } = state.selection;
+        const tr = state.tr;
+        if (from === to) {
+          tr.insertText("[]()", from);
+          // caret between the square brackets: just after the first "["
+          tr.setSelection(TextSelection.create(tr.doc, from + 1));
+        } else {
+          // Wrap the selection as the label, caret between the parens for the URL.
+          const label = state.doc.textBetween(from, to);
+          tr.replaceWith(from, to, state.schema.text(`[${label}]()`));
+          const urlPos = from + label.length + 3; // after "[label]("
+          tr.setSelection(TextSelection.create(tr.doc, urlPos));
+        }
+        view.dispatch(tr);
+        return true;
+      },
 
       // Ctrl+Shift+V: paste as plain text
       "Mod-Shift-v": () => {
@@ -250,6 +282,55 @@ export const SharedEditorKeymap = Extension.create({
     const editor = this.editor;
 
     return [
+      new Plugin({
+        // Auto-format typed markdown links into real link marks. Runs after
+        // every doc/selection change and converts any complete [label](href)
+        // text — UNLESS the caret is currently inside that match, so a link you
+        // are still typing or editing (e.g. filling the Ctrl+K "[]()" skeleton)
+        // is left alone until you move away or close it. This is what keeps
+        // finished links from sitting as plaintext.
+        key: linkFormatKey,
+        appendTransaction(transactions, _oldState, newState) {
+          if (!transactions.some((tr) => tr.docChanged || tr.selectionSet)) return null;
+          const linkMark = newState.schema.marks.link;
+          if (!linkMark) return null;
+
+          const caret = newState.selection.from;
+          interface Hit { from: number; to: number; label: string; href: string }
+          const hits: Hit[] = [];
+
+          newState.doc.descendants((node, pos, parent) => {
+            if (!node.isText || !node.text) return;
+            // Never rewrite link syntax that's meant to stay literal: inline
+            // code (code mark) or fenced code blocks (codeBlock parent).
+            if (node.marks.some((mk) => mk.type.name === "code")) return;
+            if (parent?.type.name === "codeBlock") return;
+            MD_LINK_RE.lastIndex = 0;
+            let m: RegExpExecArray | null;
+            while ((m = MD_LINK_RE.exec(node.text)) !== null) {
+              // Skip image embeds ![alt](src): the char before "[" is "!".
+              if (m.index > 0 && node.text[m.index - 1] === "!") continue;
+              const from = pos + m.index;
+              const to = from + m[0].length;
+              // Leave it alone while the caret sits inside (still being edited).
+              if (caret > from && caret < to) continue;
+              hits.push({ from, to, label: m[1], href: m[2] });
+            }
+          });
+
+          if (hits.length === 0) return null;
+
+          const tr = newState.tr;
+          // Apply right-to-left so earlier positions stay valid.
+          for (let i = hits.length - 1; i >= 0; i--) {
+            const { from, to, label, href } = hits[i];
+            tr.insertText(label, from, to);
+            tr.addMark(from, from + label.length, linkMark.create({ href: normalizeLinkHref(href) }));
+          }
+          tr.removeStoredMark(linkMark);
+          return tr;
+        },
+      }),
       new Plugin({
         key: autoPairKey,
         props: {
