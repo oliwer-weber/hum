@@ -459,27 +459,61 @@ export const WikiEmbed = Node.create({
       const alias = node.attrs.alias as string | null;
       const ext = target.split(".").pop()?.toLowerCase() ?? "";
       const isImage = IMAGE_EXTS.has(ext);
+      const isDrawing = target.toLowerCase().endsWith(".excalidraw.png");
 
       const contextPath: string | undefined = (editor.storage as any).currentFilePath;
 
       /* ── Normal rendering ── */
       container.className = "wiki-embed";
+      let cleanup: (() => void) | undefined;
 
       if (isImage) {
         const img = document.createElement("img");
         img.className = "wiki-embed-img";
         img.alt = target.split("/").pop() ?? target;
-        (async () => {
+        const loadImg = async (bust = false) => {
           try {
             const vaultPath = await invoke<string>("get_vault_path");
             const resolved = await invoke<string>("vault_resolve_link", { target, contextPath });
             const fullPath = `${vaultPath}/${resolved}`.replace(/\\/g, "/");
-            img.src = convertFileSrc(fullPath);
+            const src = convertFileSrc(fullPath);
+            // Cache-bust after an in-place save so the webview re-fetches.
+            img.src = bust ? `${src}${src.includes("?") ? "&" : "?"}t=${Date.now()}` : src;
           } catch {
             img.alt = `Could not load: ${target}`;
             container.classList.add("wiki-embed-error");
           }
-        })();
+        };
+        void loadImg();
+
+        if (isDrawing) {
+          // Drawings are first-class editable canvases, not flat images:
+          // distinct chrome (handled in CSS) plus a hover "Edit" affordance
+          // that re-opens the scene in the sketch canvas. Saving overwrites the
+          // file in place, so we reload the thumbnail when it fires.
+          container.classList.add("wiki-embed-drawing");
+          const editBtn = document.createElement("button");
+          editBtn.type = "button";
+          editBtn.className = "wiki-embed-edit";
+          editBtn.textContent = "Edit";
+          editBtn.addEventListener("mousedown", (e) => e.preventDefault());
+          editBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            window.dispatchEvent(
+              new CustomEvent("hum:edit-drawing", { detail: { target, contextPath } })
+            );
+          });
+          container.appendChild(editBtn);
+
+          const name = (target.split("/").pop() ?? target).toLowerCase();
+          const onSaved = (ev: Event) => {
+            if ((ev as CustomEvent).detail?.name?.toLowerCase() === name) void loadImg(true);
+          };
+          window.addEventListener("hum:drawing-saved", onSaved);
+          cleanup = () => window.removeEventListener("hum:drawing-saved", onSaved);
+        }
+
         container.appendChild(img);
       } else {
         const header = document.createElement("div");
@@ -504,7 +538,7 @@ export const WikiEmbed = Node.create({
         })();
       }
 
-      return { dom: container };
+      return { dom: container, destroy: () => cleanup?.() };
     };
   },
 

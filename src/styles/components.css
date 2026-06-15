@@ -3308,6 +3308,51 @@
   border-radius: var(--radius-m);
 }
 
+/* Excalidraw drawings are editable canvases, not flat images: drop the
+   card-like frame (border, radius, drop shadow) the image styling adds, and
+   surface an "Edit" affordance on hover that re-opens the scene. */
+.wiki-embed-drawing {
+  position: relative;
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  overflow: visible;
+}
+
+.wiki-embed-drawing .wiki-embed-img {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.wiki-embed-edit {
+  position: absolute;
+  top: var(--space-sm);
+  right: var(--space-sm);
+  padding: var(--space-2xs) var(--space-sm);
+  font-family: var(--font-body);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--fg2);
+  background: var(--bg-soft);
+  border: 1px solid var(--bg3);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 150ms var(--ease-smooth),
+              background-color 150ms var(--ease-smooth),
+              color 150ms var(--ease-smooth);
+}
+
+.wiki-embed-drawing:hover .wiki-embed-edit,
+.wiki-embed-edit:focus-visible {
+  opacity: 1;
+}
+
+.wiki-embed-edit:hover {
+  background: var(--bg1);
+  color: var(--fg);
+}
+
 .wiki-embed-header {
   padding: var(--space-xs) var(--space-sm);
   font-size: var(--font-size-xs);
