@@ -230,25 +230,11 @@ export const SharedEditorKeymap = Extension.create({
         return true;
       },
 
-      // Ctrl+K: insert link
-      "Mod-k": ({ editor }) => {
-        const { state, view } = editor;
-        const { from, to } = state.selection;
-        if (from === to) {
-          const tr = state.tr;
-          tr.insertText("[](url)", from);
-          tr.setSelection(TextSelection.create(tr.doc, from + 1));
-          view.dispatch(tr);
-        } else {
-          const selectedText = state.doc.textBetween(from, to);
-          const tr = state.tr;
-          tr.replaceWith(from, to, state.schema.text(`[${selectedText}](url)`));
-          const urlStart = from + selectedText.length + 3;
-          tr.setSelection(TextSelection.create(tr.doc, urlStart, urlStart + 3));
-          view.dispatch(tr);
-        }
-        return true;
-      },
+      // Ctrl+K is the link shortcut, but it opens the inline link editor
+      // (which applies a real link mark) rather than typing "[](url)" as text —
+      // that older behaviour just left raw markdown sitting as plaintext.
+      // The editor lives in EditorFormatMenus, so the shortcut is handled there,
+      // scoped to that editor's DOM. Nothing to bind here.
 
       // Ctrl+Shift+V: paste as plain text
       "Mod-Shift-v": () => {
