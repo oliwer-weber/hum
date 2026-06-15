@@ -3324,6 +3324,15 @@
   box-shadow: none;
 }
 
+/* Drawings export with a transparent background, so dark strokes would vanish
+   on a dark editor surface. On the dark themes, invert the drawing's luminance
+   while preserving hue (near-black strokes go near-white; colored strokes keep
+   their hue; transparent stays transparent) so it stays legible without baking
+   a background back in. Light theme needs nothing — dark strokes already read. */
+:root:not([data-theme="light"]) .wiki-embed-drawing .wiki-embed-img {
+  filter: invert(1) hue-rotate(180deg);
+}
+
 .wiki-embed-edit {
   position: absolute;
   top: var(--space-sm);
