@@ -3316,7 +3316,9 @@
   border: none;
   background: transparent;
   border-radius: 0;
-  overflow: visible;
+  /* Clip to the drawing's own box so the (enlarged) Edit hit area can never
+     bleed onto text above or beside the sketch. */
+  overflow: hidden;
 }
 
 .wiki-embed-drawing .wiki-embed-img {
@@ -3337,9 +3339,12 @@
   position: absolute;
   top: var(--space-sm);
   left: var(--space-sm);
-  padding: var(--space-2xs) var(--space-sm);
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: var(--space-xs) var(--space-md);
   font-family: var(--font-body);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--fg2);
   background: var(--bg-soft);
