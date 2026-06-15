@@ -799,6 +799,29 @@ fn vault_save_image(filename: String, data: Vec<u8>) -> Result<String, String> {
     Ok(relative)
 }
 
+/// Write an Excalidraw drawing (a `.excalidraw.png` with the scene embedded) to
+/// a vault-relative path. Unlike `vault_save_image` this targets an arbitrary
+/// in-vault location and overwrites in place, so it serves both a fresh embed
+/// (path under `.app/metadata/Assets/`) and saving an edit back to an existing
+/// first-class drawing file in a project. Parent dirs are created; the resolved
+/// parent is checked to stay inside the vault.
+#[tauri::command]
+fn vault_save_sketch(relative_path: String, data: Vec<u8>) -> Result<String, String> {
+    let base = vault_path();
+    let resolved = base.join(&relative_path);
+    if let Some(parent) = resolved.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create directories: {}", e))?;
+        let parent_canon = parent.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+        let base_canon = base.canonicalize().map_err(|e| format!("Vault error: {}", e))?;
+        if !parent_canon.starts_with(&base_canon) {
+            return Err("Path outside vault".to_string());
+        }
+    }
+    fs::write(&resolved, &data).map_err(|e| format!("Failed to save sketch: {}", e))?;
+    invalidate_vault_cache();
+    Ok(relative_path)
+}
+
 #[tauri::command]
 fn vault_create_file(relative_path: String, content: String) -> Result<(), String> {
     let base = vault_path();
@@ -2795,6 +2818,7 @@ pub fn run() {
             vault_read_file,
             vault_write_file,
             vault_save_image,
+            vault_save_sketch,
             vault_create_file,
             vault_create_dir,
             vault_rename,

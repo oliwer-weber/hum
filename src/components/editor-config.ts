@@ -48,7 +48,7 @@ async function saveImageBlob(blob: Blob): Promise<string | null> {
   return filename;
 }
 
-function insertWikiEmbed(view: EditorView, filename: string, pos?: number) {
+export function insertWikiEmbed(view: EditorView, filename: string, pos?: number) {
   const insertPos = pos ?? view.state.selection.from;
   const embedType = view.state.schema.nodes.wikiEmbed;
   if (embedType) {

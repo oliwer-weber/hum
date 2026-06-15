@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import { useEditor, EditorContent } from "@tiptap/react";
-import { createSharedExtensions, PAIRS, CLOSE_CHARS } from "./editor-config";
+import { createSharedExtensions, insertWikiEmbed, PAIRS, CLOSE_CHARS } from "./editor-config";
+import SketchCanvas from "./SketchCanvas";
 import { WikiLink, WikiEmbed, convertTextToWikiLinks } from "./wikilink";
 import { HashTag } from "./hashtag";
 import { attachProjectAutocomplete, ProjectMentionKeymap, ProjectTagStyle } from "./project-mention";
@@ -48,6 +49,7 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
   const [saving, setSaving] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [lastResult, setLastResult] = useState<ProcessResult | null>(null);
+  const [sketchOpen, setSketchOpen] = useState(false);
   const [statusRoll, setStatusRoll] = useState<"idle" | "rolling-out" | "result" | "rolling-back">("idle");
   const rollTimerRef = useRef<number | null>(null);
   const [tipIndex, setTipIndex] = useState(0);
@@ -427,6 +429,53 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
     return () => window.removeEventListener("keydown", onKey, { capture: true });
   }, []);
 
+  // ── Sketch (Excalidraw) ───────────────────────────
+  // Save the drawing into the vault and drop a .excalidraw.png embed at the
+  // cursor. The PNG carries the full scene, so the embed re-opens as an
+  // editable canvas later. It rides whatever @mention precedes it on process.
+  const handleSaveSketch = useCallback(async (png: Blob) => {
+    const data = Array.from(new Uint8Array(await png.arrayBuffer()));
+    const d = new Date();
+    const ts = [
+      d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"),
+      String(d.getDate()).padStart(2, "0"), String(d.getHours()).padStart(2, "0"),
+      String(d.getMinutes()).padStart(2, "0"), String(d.getSeconds()).padStart(2, "0"),
+    ].join("");
+    const filename = `sketch-${ts}.excalidraw.png`;
+    try {
+      await invoke<string>("vault_save_sketch", {
+        relativePath: `.app/metadata/Assets/${filename}`,
+        data,
+      });
+      const ed = editorRef.current;
+      if (ed) {
+        insertWikiEmbed(ed.view, filename);
+        // Persist immediately rather than waiting on the 500ms autosave debounce.
+        // The insert schedules a debounced save; cancel it and flush now so disk
+        // matches the editor and no refresh can clobber the freshly inserted node.
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        await saveToFile((ed.storage as any).markdown.getMarkdown());
+      }
+      setSketchOpen(false);
+    } catch (err) {
+      console.error("[sketch] save failed:", err);
+      alert(`Sketch save failed: ${err}`);
+    }
+  }, [saveToFile]);
+
+  // Ctrl/Cmd+Shift+D opens the sketch canvas while the Write tab is active.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || !e.shiftKey) return;
+      if (e.key.toLowerCase() !== "d") return;
+      if (!document.querySelector(".tab-panel-active .inbox-canvas")) return;
+      e.preventDefault();
+      setSketchOpen(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // ── Render ────────────────────────────────────────
 
   if (rawMarkdown === null) {
@@ -507,6 +556,12 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
           </button>
         </div>
       </div>
+
+      <SketchCanvas
+        open={sketchOpen}
+        onClose={() => setSketchOpen(false)}
+        onSave={handleSaveSketch}
+      />
     </div>
   );
 }
