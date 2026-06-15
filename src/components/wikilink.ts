@@ -492,6 +492,10 @@ export const WikiEmbed = Node.create({
           // that re-opens the scene in the sketch canvas. Saving overwrites the
           // file in place, so we reload the thumbnail when it fires.
           container.classList.add("wiki-embed-drawing");
+          const openEditor = () =>
+            window.dispatchEvent(
+              new CustomEvent("hum:edit-drawing", { detail: { target, contextPath } })
+            );
           const editBtn = document.createElement("button");
           editBtn.type = "button";
           editBtn.className = "wiki-embed-edit";
@@ -500,11 +504,16 @@ export const WikiEmbed = Node.create({
           editBtn.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
-            window.dispatchEvent(
-              new CustomEvent("hum:edit-drawing", { detail: { target, contextPath } })
-            );
+            openEditor();
           });
           container.appendChild(editBtn);
+          // Double-clicking the drawing also enters edit mode (the button can be
+          // a small target). preventDefault stops the dbl-click text selection.
+          container.addEventListener("dblclick", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openEditor();
+          });
 
           const name = (target.split("/").pop() ?? target).toLowerCase();
           const onSaved = (ev: Event) => {
