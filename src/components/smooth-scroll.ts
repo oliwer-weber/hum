@@ -1,29 +1,21 @@
 /**
- * Eased wheel scrolling with elastic overscroll for the text editors.
+ * Elastic rubber-band overscroll for the text editors.
  *
- * Mouse wheels emit large, discrete steps that land as abrupt jumps in the
- * webview. This intercepts those and animates `scrollTop` toward a running
- * target with a per-frame lerp, so the surface glides instead of snapping.
+ * Normal scrolling is left entirely to the platform — WebView2 already does a
+ * smooth, compositor-driven wheel scroll, and re-driving `scrollTop` by hand
+ * only fights it and stutters. We intercept ONLY at the top/bottom edge: when
+ * you wheel past the end, the content is pulled a little further against rising
+ * resistance and springs back when you stop.
  *
- * At the top/bottom edge it adds a rubber-band: you can pull a little past the
- * end against rising resistance, and it springs back when you stop. The pull is
- * shown by translating the content (scrollTop stays pinned at the edge), so it
- * costs nothing layout-wise.
- *
- * Trackpads (and other fine-grained / precision devices) already scroll
- * smoothly, so their small pixel deltas are left to the platform untouched —
- * hijacking them would only add lag.
+ * The pull is a `transform: translateY` on the content (scrollTop stays pinned
+ * at the edge), so it rides the compositor and never triggers layout/paint of
+ * the editor — that's what keeps it smooth.
  */
 
-// Below this absolute pixel delta a deltaMode-0 (pixel) event is treated as a
-// trackpad/precision scroll and passed through to native handling.
-const TRACKPAD_PIXEL_THRESHOLD = 30;
-// Per-frame approach factor for in-bounds scrolling. Higher = snappier.
-const EASE = 0.2;
-// Approximate line height used to normalize line- and page-mode deltas.
+// Approximate line height used to normalize line- and page-mode wheel deltas.
 const LINE_HEIGHT = 16;
 // Per-frame spring factor pulling the overscroll back to the edge.
-const SPRING = 0.15;
+const SPRING = 0.18;
 // Largest visual elastic offset (px); the pull asymptotes toward this.
 const RUBBER_LIMIT = 80;
 // Softness of the rubber curve near the edge (slope for small pulls).
@@ -34,88 +26,71 @@ const RAW_CAP = 400;
 // Map a raw pull distance to a damped visual offset that eases toward
 // RUBBER_LIMIT — gentle at first, increasingly resistant further out.
 function rubber(raw: number): number {
-  return (raw * RUBBER_LIMIT * RUBBER_C) / (RUBBER_LIMIT + RUBBER_C * raw);
+  const x = Math.abs(raw);
+  const damped = (x * RUBBER_LIMIT * RUBBER_C) / (RUBBER_LIMIT + RUBBER_C * x);
+  return Math.sign(raw) * damped;
 }
 
 export function attachSmoothWheelScroll(el: HTMLElement): () => void {
   const content = el.firstElementChild as HTMLElement | null;
-  let pos = el.scrollTop; // virtual position; may sit past [0,max] while pulling
+  // Signed raw overscroll: negative past the top, positive past the bottom.
+  let over = 0;
   let animating = false;
   let raf = 0;
-  let appliedOffset = 0;
+  let applied = 0;
 
   const maxScroll = () => el.scrollHeight - el.clientHeight;
 
-  const setOverscroll = (offset: number) => {
-    if (!content || offset === appliedOffset) return;
-    appliedOffset = offset;
-    if (offset === 0) {
-      content.style.transform = "";
-      content.style.willChange = "";
-    } else {
-      content.style.transform = `translateY(${offset}px)`;
-      content.style.willChange = "transform";
-    }
+  const setOffset = (offset: number) => {
+    if (!content || offset === applied) return;
+    applied = offset;
+    // over<0 (past top) → pull content down (+y); over>0 → pull up (-y).
+    content.style.transform = offset === 0 ? "" : `translateY(${-offset}px)`;
   };
 
   const frame = () => {
-    const max = maxScroll();
-    let again = false;
-
-    if (pos < 0) {
-      // Past the top: pin the scroll, show the elastic pull, spring back to 0.
-      pos += (0 - pos) * SPRING;
-      if (pos > -0.5) pos = 0;
-      el.scrollTop = 0;
-      setOverscroll(rubber(-pos)); // pull content down
-      again = pos !== 0;
-    } else if (pos > max) {
-      // Past the bottom: same, the other direction.
-      pos += (max - pos) * SPRING;
-      if (pos < max + 0.5) pos = max;
-      el.scrollTop = max;
-      setOverscroll(-rubber(pos - max)); // pull content up
-      again = pos !== max;
+    over += (0 - over) * SPRING;
+    if (Math.abs(over) < 0.5) over = 0;
+    setOffset(rubber(over));
+    if (over !== 0) {
+      raf = requestAnimationFrame(frame);
     } else {
-      setOverscroll(0);
-      const diff = pos - el.scrollTop;
-      if (Math.abs(diff) < 0.5) {
-        el.scrollTop = pos;
-      } else {
-        el.scrollTop += diff * EASE;
-        again = true;
-      }
+      animating = false;
+      if (content) content.style.willChange = "";
     }
-
-    if (again) raf = requestAnimationFrame(frame);
-    else animating = false;
   };
 
   const onWheel = (e: WheelEvent) => {
-    // Leave pinch-zoom / modifier gestures and horizontal scrolls alone.
+    // Leave pinch-zoom / modifier gestures and horizontal scrolls to native.
     if (e.ctrlKey || e.metaKey || e.shiftKey) return;
     if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
-    if (maxScroll() <= 0) return;
 
-    // Pass fine-grained trackpad scrolls through to the platform.
-    if (e.deltaMode === 0 && Math.abs(e.deltaY) < TRACKPAD_PIXEL_THRESHOLD) {
-      pos = el.scrollTop;
-      return;
-    }
+    const max = maxScroll();
+    if (max <= 0) return; // nothing to scroll, nothing to bounce off
 
     let delta = e.deltaY;
     if (e.deltaMode === 1) delta *= LINE_HEIGHT;
     else if (e.deltaMode === 2) delta *= el.clientHeight;
 
+    const atTop = el.scrollTop <= 0.5;
+    const atBottom = el.scrollTop >= max - 0.5;
+    const pushingPastTop = atTop && delta < 0;
+    const pushingPastBottom = atBottom && delta > 0;
+
+    // Engage only at an edge (or while a bounce is still settling). Otherwise
+    // this is ordinary in-bounds scrolling — hands off, let the platform do it.
+    if (over === 0 && !pushingPastTop && !pushingPastBottom) return;
+
     e.preventDefault();
 
-    const max = maxScroll();
-    // Resync to the live position when idle (scrollbar drag, find-in-page, …),
-    // but not mid-bounce, where `pos` carries the elastic offset.
-    if (!animating) pos = el.scrollTop;
-    // Accumulate raw delta; resistance comes from the rubber() mapping in frame.
-    pos = Math.max(-RAW_CAP, Math.min(max + RAW_CAP, pos + delta));
+    const prev = over;
+    over += delta;
+    // Inward motion that crosses the edge releases the band rather than
+    // flipping it to the opposite side.
+    if ((prev < 0 && over > 0) || (prev > 0 && over < 0)) over = 0;
+    over = Math.max(-RAW_CAP, Math.min(RAW_CAP, over));
 
+    if (content) content.style.willChange = "transform";
     if (!animating) {
       animating = true;
       raf = requestAnimationFrame(frame);
@@ -126,6 +101,7 @@ export function attachSmoothWheelScroll(el: HTMLElement): () => void {
   return () => {
     el.removeEventListener("wheel", onWheel);
     cancelAnimationFrame(raf);
-    setOverscroll(0);
+    setOffset(0);
+    if (content) content.style.willChange = "";
   };
 }
