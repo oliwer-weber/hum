@@ -92,9 +92,17 @@ export default function SketchCanvas({
   useEffect(() => {
     if (!open || !api) return;
     let cancelled = false;
+    // resetScene/updateScene carry the scene's own theme (default/saved =
+    // light), which would override the canvas theme — and the controlled
+    // `theme` prop won't re-assert without a React re-render. So pin the theme
+    // (read live from the DOM) into every scene op.
+    const blank = () => {
+      api.resetScene();
+      api.updateScene({ appState: { theme: appThemeToCanvas() } });
+    };
     void (async () => {
       if (!initialSrc) {
-        api.resetScene();
+        blank();
         return;
       }
       setLoadingScene(true);
@@ -104,13 +112,16 @@ export default function SketchCanvas({
         const blob = await res.blob();
         const scene = await loadFromBlob(blob, null, null);
         if (cancelled) return;
-        api.updateScene({ elements: scene.elements, appState: scene.appState });
+        api.updateScene({
+          elements: scene.elements,
+          appState: { ...scene.appState, theme: appThemeToCanvas() },
+        });
         if (scene.files) api.addFiles(Object.values(scene.files));
         api.scrollToContent(scene.elements, { fitToContent: true, animate: false });
       } catch {
         // Corrupt/unreadable scene — fall back to blank rather than trapping
         // the user.
-        if (!cancelled) api.resetScene();
+        if (!cancelled) blank();
       } finally {
         if (!cancelled) setLoadingScene(false);
       }
