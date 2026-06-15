@@ -239,13 +239,14 @@ body {
               transform 150ms var(--ease-smooth);
 }
 
-/* Editorial-mode tabs: a touch bigger and bolder. Newsreader is left on
-   automatic optical sizing (a text cut at this small size) so the letterforms
-   stay sturdy rather than thinning out into fragile hairlines. */
+/* Editorial-mode tabs: drop the all-caps — it reads brittle in a serif — for
+   the labels' natural Capitalized case, with normal tracking. Newsreader stays
+   on automatic optical sizing (a sturdy text cut at this small size). */
 [data-font="editorial"] .tab {
   font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .tab:hover {
