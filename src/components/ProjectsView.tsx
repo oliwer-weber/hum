@@ -216,7 +216,10 @@ export default function ProjectsView({
     const name = path.split("/").pop() ?? path;
     const target = `projects/archive/${name}`;
     try {
-      await invoke("vault_move", { relativePath: path, destinationDir: "projects/archive" });
+      // Ensure the archive dir exists (no-op once it does); vault_move requires
+      // an existing destination directory.
+      try { await invoke("vault_create_dir", { relativePath: "projects/archive" }); } catch { /* already exists */ }
+      await invoke("vault_move", { source: path, destDir: "projects/archive" });
       onVaultChanged();
       await loadProjects();
       setPending(null);
