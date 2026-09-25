@@ -11,13 +11,12 @@ import "./styles/project-list.css";
 import "./styles/sketch.css";
 
 // Excalidraw fetches its fonts at runtime from `<EXCALIDRAW_ASSET_PATH>/fonts/...`.
-// vite.config.ts copies the package's `dist/prod` assets (dev: served by
-// vite-plugin-static-copy, build: emitted into dist) preserving their
-// node_modules-relative path, so we point the asset path there. This mirrors the
-// official CDN example (which targets `.../dist/prod/`) and keeps the canvas fully
-// offline. Must be set before the Excalidraw module is first evaluated (lazy-loaded).
+// vite.config.ts copies the package's `dist/prod/fonts` to `/excalidraw/fonts`
+// (dev: served by vite-plugin-static-copy, build: emitted into dist), which keeps
+// the canvas fully offline. Must be set before the Excalidraw module is first
+// evaluated (lazy-loaded).
 (window as unknown as { EXCALIDRAW_ASSET_PATH: string }).EXCALIDRAW_ASSET_PATH =
-  "/node_modules/@excalidraw/excalidraw/dist/prod/";
+  "/excalidraw/";
 
 applyStoredTheme();
 applyStoredFont();

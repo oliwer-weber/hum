@@ -34,14 +34,37 @@ export default function App() {
   const [editingDrawing, setEditingDrawing] = useState<EditingDrawing | null>(null);
   const appWindow = getCurrentWindow();
 
+  // Mount only the starting tab at launch; the rest mount once the app is idle
+  // (or the moment the user opens them). Each tab fires its own vault scans and
+  // builds its own editors on mount, and doing all four at once competed with
+  // the Write tab for the first second after launch.
+  const [mountedTabs, setMountedTabs] = useState<Set<TabId>>(() => new Set([activeTab]));
+  const openTab = useCallback((tab: TabId) => {
+    setActiveTab(tab);
+    setMountedTabs((prev) => (prev.has(tab) ? prev : new Set(prev).add(tab)));
+  }, []);
+  useEffect(() => {
+    const mountAll = () => setMountedTabs(new Set<TabId>(["write", "focus", "find", "hum"]));
+    const w = window as unknown as {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (w.requestIdleCallback) {
+      const id = w.requestIdleCallback(mountAll, { timeout: 1500 });
+      return () => w.cancelIdleCallback?.(id);
+    }
+    const t = window.setTimeout(mountAll, 800);
+    return () => window.clearTimeout(t);
+  }, []);
+
   const triggerVaultRefresh = useCallback(() => {
     setRefreshKey((k) => k + 1);
   }, []);
 
   const navigateToProjectHub = useCallback((projectPath: string) => {
     setVaultOpenProjectHub(projectPath);
-    setActiveTab("find");
-  }, []);
+    openTab("find");
+  }, [openTab]);
 
   // Click-to-edit: an embedded drawing (in any editor) fires hum:edit-drawing.
   // Resolve it to a vault path + src URL and open the canvas with the scene.
@@ -113,12 +136,12 @@ export default function App() {
     const tab = map[e.key as keyof typeof map];
     if ((e.metaKey || e.ctrlKey) && tab) {
       e.preventDefault();
-      setActiveTab(tab);
+      openTab(tab);
     }
   }; 
   window.addEventListener("keydown", onKey);
   return () => window.removeEventListener("keydown", onKey);
- },[]);
+ },[openTab]);
 
 
 
@@ -174,25 +197,25 @@ export default function App() {
           <div className="tab-pill" style={pillStyle} />
           <button
             className={`tab ${activeTab === "write" ? "tab-active" : ""}`}
-            onClick={() => setActiveTab("write")}
+            onClick={() => openTab("write")}
           >
             Write
           </button>
           <button
             className={`tab ${activeTab === "focus" ? "tab-active" : ""}`}
-            onClick={() => setActiveTab("focus")}
+            onClick={() => openTab("focus")}
           >
             Focus
           </button>
           <button
             className={`tab ${activeTab === "find" ? "tab-active" : ""}`}
-            onClick={() => setActiveTab("find")}
+            onClick={() => openTab("find")}
           >
             Find
           </button>
           <button
             className={`tab ${activeTab === "hum" ? "tab-active" : ""}`}
-            onClick={() => setActiveTab("hum")}
+            onClick={() => openTab("hum")}
           >
             Hum
           </button>
@@ -232,24 +255,30 @@ export default function App() {
 
       <main className="tab-content">
         <div className={`tab-panel ${activeTab === "write" ? "tab-panel-active" : ""}`}>
-          <Inbox refreshKey={refreshKey} onVaultChanged={triggerVaultRefresh} />
+          {mountedTabs.has("write") && (
+            <Inbox refreshKey={refreshKey} onVaultChanged={triggerVaultRefresh} />
+          )}
         </div>
         <div className={`tab-panel ${activeTab === "focus" ? "tab-panel-active" : ""}`}>
-          <Dashboard refreshKey={refreshKey} onOpenProjectHub={navigateToProjectHub} />
+          {mountedTabs.has("focus") && (
+            <Dashboard refreshKey={refreshKey} onOpenProjectHub={navigateToProjectHub} />
+          )}
         </div>
         <div className={`tab-panel ${activeTab === "find" ? "tab-panel-active" : ""}`}>
-          <Vault
-            refreshKey={refreshKey}
-            openPath={vaultOpenPath}
-            onOpenPathHandled={() => setVaultOpenPath(null)}
-            openProjectHub={vaultOpenProjectHub}
-            onOpenProjectHubHandled={() => setVaultOpenProjectHub(null)}
-            onActiveCollectionChange={setVaultCollection}
-            onVaultChanged={triggerVaultRefresh}
-          />
+          {mountedTabs.has("find") && (
+            <Vault
+              refreshKey={refreshKey}
+              openPath={vaultOpenPath}
+              onOpenPathHandled={() => setVaultOpenPath(null)}
+              openProjectHub={vaultOpenProjectHub}
+              onOpenProjectHubHandled={() => setVaultOpenProjectHub(null)}
+              onActiveCollectionChange={setVaultCollection}
+              onVaultChanged={triggerVaultRefresh}
+            />
+          )}
         </div>
         <div className={`tab-panel ${activeTab === "hum" ? "tab-panel-active" : ""}`}>
-          <Chat onVaultChanged={triggerVaultRefresh} />
+          {mountedTabs.has("hum") && <Chat onVaultChanged={triggerVaultRefresh} />}
         </div>
       </main>
 

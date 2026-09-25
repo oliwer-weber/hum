@@ -31,13 +31,28 @@ import { EDITOR_COMMANDS, type EditorCommand } from "./editor-commands";
 // it never floats up underneath the header.
 const TOP_RAIL_PADDING = 56;
 
-/** Re-render whenever the editor's selection/marks change so active states stay live. */
-function useEditorTick(editor: Editor): void {
+/**
+ * Re-render on editor transactions so active states stay live, but only while
+ * `isLive()` says the surface can be seen. Every keystroke is a transaction, so
+ * ticking a hidden menu re-renders its whole button row per keypress for nothing.
+ * One extra tick fires on the way from live to hidden so the surface settles.
+ */
+function useEditorTick(editor: Editor, isLive: () => boolean): void {
   const [, tick] = useReducer((n: number) => n + 1, 0);
+  const isLiveRef = useRef(isLive);
+  useLayoutEffect(() => {
+    isLiveRef.current = isLive;
+  });
   useEffect(() => {
-    editor.on("transaction", tick);
+    let wasLive = false;
+    const onTransaction = () => {
+      const live = isLiveRef.current();
+      if (live || wasLive) tick();
+      wasLive = live;
+    };
+    editor.on("transaction", onTransaction);
     return () => {
-      editor.off("transaction", tick);
+      editor.off("transaction", onTransaction);
     };
   }, [editor]);
 }
@@ -68,7 +83,8 @@ function BubbleToolbar({
   editor: Editor;
   onRun: (cmd: EditorCommand) => void;
 }) {
-  useEditorTick(editor);
+  // The bubble only shows over a text selection.
+  useEditorTick(editor, () => !editor.state.selection.empty);
 
   return (
     <BubbleMenu
@@ -129,7 +145,11 @@ function ContextMenu({
 }) {
   const [pos, setPos] = useState<MenuPos | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  useEditorTick(editor);
+  const openRef = useRef(false);
+  useLayoutEffect(() => {
+    openRef.current = pos !== null;
+  }, [pos]);
+  useEditorTick(editor, () => openRef.current);
 
   // Open on right-click inside the editor. Place the caret at the click when
   // there's no selection, so "insert" commands land where the user pointed.

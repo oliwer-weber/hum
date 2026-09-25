@@ -73,12 +73,14 @@ fn write(prefs: &Prefs) -> Result<(), String> {
     fs::write(&path, json).map_err(|e| format!("Failed to write prefs: {}", e))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_prefs() -> Prefs {
+    let _guard = crate::vault_read_lock();
     read()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_prefs(prefs: Prefs) -> Result<(), String> {
+    let _guard = crate::vault_write_lock();
     write(&prefs)
 }
