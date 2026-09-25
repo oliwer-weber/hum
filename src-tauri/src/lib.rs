@@ -2846,26 +2846,58 @@ pub fn run() {
                 Err(e) => eprintln!("Warning: manifest migration failed: {}", e),
             }
 
-            // Heal drift: prune manifest entries whose folders vanished
-            // (delete/rename/move drift) and register any project folders not yet
-            // in the manifest. Runs on every launch as a safety net.
-            match reconcile_projects_with_filesystem(&vault) {
-                Ok((pruned, added)) if pruned > 0 || added > 0 => {
-                    eprintln!("Manifest reconciled: pruned {}, added {}", pruned, added)
-                }
-                Ok(_) => {}
-                Err(e) => eprintln!("Warning: project manifest reconcile failed: {}", e),
-            }
+            // Create the window here rather than in tauri.conf.json so the page
+            // starts with everything the first screen needs: prefs and the Write
+            // tab's inbox arrive as `window.__HUM_BOOT__` before any app code
+            // runs, so the first render already has its content (no IPC round
+            // trip, no "Loading..."). The window starts hidden and the frontend
+            // shows it after its first paint, so it appears fully drawn.
+            let inbox = fs::read_to_string(vault.join("inbox").join("inbox.md")).unwrap_or_default();
+            let boot = serde_json::json!({ "prefs": prefs::read(), "inbox": inbox });
+            let window = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::default())
+                .title("Hum")
+                .inner_size(1200.0, 800.0)
+                .min_inner_size(800.0, 600.0)
+                .resizable(true)
+                .decorations(false)
+                .visible(false)
+                .initialization_script(&format!("window.__HUM_BOOT__ = {};", boot))
+                .build()?;
 
-            // Rebuild todo index on app launch (stamps UUIDs on unstamped todos,
-            // builds .todo-index.json from authoritative markdown files)
-            match todo_index::rebuild_and_persist(&vault) {
-                Ok(index) => {
-                    let open = index.entries.values().filter(|e| e.status == "open" && !e.archived).count();
-                    eprintln!("Todo index rebuilt on launch: {} open todos indexed", open);
+            // Safety net: if the frontend never reports its first paint (a crash
+            // during boot), show the window anyway so the app is never invisible.
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                let _ = window.show();
+            });
+
+            // Launch housekeeping runs in the background, off the path to first
+            // paint. It holds the vault write lock, so any command that needs a
+            // reconciled manifest or fresh todo index simply waits for it.
+            std::thread::spawn(move || {
+                let _guard = vault_write_lock();
+
+                // Heal drift: prune manifest entries whose folders vanished
+                // (delete/rename/move drift) and register any project folders not
+                // yet in the manifest. Runs on every launch as a safety net.
+                match reconcile_projects_with_filesystem(&vault) {
+                    Ok((pruned, added)) if pruned > 0 || added > 0 => {
+                        eprintln!("Manifest reconciled: pruned {}, added {}", pruned, added)
+                    }
+                    Ok(_) => {}
+                    Err(e) => eprintln!("Warning: project manifest reconcile failed: {}", e),
                 }
-                Err(e) => eprintln!("Warning: todo index rebuild failed on launch: {}", e),
-            }
+
+                // Rebuild todo index on app launch (stamps UUIDs on unstamped
+                // todos, builds .todo-index.json from authoritative markdown files)
+                match todo_index::rebuild_and_persist(&vault) {
+                    Ok(index) => {
+                        let open = index.entries.values().filter(|e| e.status == "open" && !e.archived).count();
+                        eprintln!("Todo index rebuilt on launch: {} open todos indexed", open);
+                    }
+                    Err(e) => eprintln!("Warning: todo index rebuild failed on launch: {}", e),
+                }
+            });
 
             Ok(())
         })

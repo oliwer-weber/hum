@@ -408,14 +408,28 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled, openPro
     return attachSmoothWheelScroll(scroller);
   }, [editor, openFile]);
 
-  // Apply the Find-tab spellcheck setting, and react to live toggles.
+  // Apply the Find-tab spellcheck setting, and react to live toggles. The
+  // editor's view only exists while a note is open (EditorContent mounted), and
+  // touching `editor.view.dom` before that throws and blanks the whole app, so
+  // apply on mount too and skip while there's no view.
   useEffect(() => {
     if (!editor) return;
-    const apply = () =>
-      editor.view.dom.setAttribute("spellcheck", getStoredSpellcheckFind() ? "true" : "false");
+    const apply = () => {
+      let dom: HTMLElement;
+      try {
+        dom = editor.view.dom as HTMLElement;
+      } catch {
+        return;
+      }
+      dom.setAttribute("spellcheck", getStoredSpellcheckFind() ? "true" : "false");
+    };
     apply();
+    editor.on("mount", apply);
     window.addEventListener(SPELLCHECK_CHANGED_EVENT, apply);
-    return () => window.removeEventListener(SPELLCHECK_CHANGED_EVENT, apply);
+    return () => {
+      editor.off("mount", apply);
+      window.removeEventListener(SPELLCHECK_CHANGED_EVENT, apply);
+    };
   }, [editor]);
 
   // Load vault file index

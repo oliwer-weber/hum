@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { bootPrefs } from "../boot";
 
 export type TabId = "write" | "focus" | "find" | "hum";
 
@@ -35,6 +36,15 @@ function coerce(raw: Prefs): Prefs {
     first_run_completed: raw.first_run_completed ?? true,
     onboarding_completed: raw.onboarding_completed ?? false,
   };
+}
+
+// Synchronous bootstrap from the prefs the backend injected at launch. Returns
+// false when there's no boot data, and the caller falls back to loadPrefs().
+export function loadBootPrefs(): boolean {
+  const raw = bootPrefs();
+  if (!raw) return false;
+  cached = coerce(raw as Prefs);
+  return true;
 }
 
 // Call once at bootstrap, before App renders — keeps getPrefs() synchronous
