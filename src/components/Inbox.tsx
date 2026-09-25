@@ -12,8 +12,11 @@ import type { VaultFileInfo } from "./wikilink";
 import { EditorFormatMenus } from "./EditorFormatMenus";
 import { attachSmoothWheelScroll } from "./smooth-scroll";
 import { getStoredSpellcheckWrite, SPELLCHECK_CHANGED_EVENT } from "../theme/theme";
+import { bootInbox, revealWindow } from "../boot";
 
 const FRONTMATTER = "---\ncssclasses:\n  - home-title\n---";
+
+const stripFrontmatter = (raw: string) => raw.replace(/^---[\s\S]*?---\s*/, "").trim();
 
 // Rolling tips shown in the Write status bar while idle. Each one shows
 // for TIP_DWELL_MS, then rolls up and the next rolls in from below using
@@ -46,7 +49,13 @@ interface ProcessResult {
 }
 
 export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
-  const [rawMarkdown, setRawMarkdown] = useState<string | null>(null);
+  // The inbox normally arrives with the page (injected at launch), so the
+  // editor renders with its content on the very first frame. Null only outside
+  // the Tauri window, where it's fetched below.
+  const [rawMarkdown, setRawMarkdown] = useState<string | null>(() => {
+    const boot = bootInbox();
+    return boot === null ? null : stripFrontmatter(boot);
+  });
   const [editorReady, setEditorReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -87,14 +96,24 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
     reloadMentionables();
   }, [reloadMentionables, refreshKey]);
 
-  // ── Load raw markdown immediately on mount ────────
+  // ── Load raw markdown on mount when it didn't come with the page ────────
+  // With boot data this is just a check: the injected copy is from launch, so
+  // after a webview reload it can be stale. Adopt the disk version if it differs.
   useEffect(() => {
+    const boot = bootInbox();
     invoke<string>("read_inbox").then((raw) => {
-      const stripped = raw.replace(/^---[\s\S]*?---\s*/, "").trim();
+      const stripped = stripFrontmatter(raw);
+      if (boot !== null && stripped === stripFrontmatter(boot)) return;
+      const ed = editorRef.current;
+      if (ed && !ed.isDestroyed) {
+        skipNextSave.current = true;
+        ed.commands.setContent(stripped || "");
+        convertTextToWikiLinks(ed);
+      }
       setRawMarkdown(stripped);
     }).catch((err) => {
       console.error("Failed to read inbox:", err);
-      setRawMarkdown("");
+      if (boot === null) setRawMarkdown("");
     });
   }, []);
 
@@ -265,13 +284,18 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
     setEditorReady(true);
   }, [editor, rawMarkdown, editorReady]);
 
+  // The window launches hidden; show it once the editor is on screen.
+  useEffect(() => {
+    if (editorReady) revealWindow();
+  }, [editorReady]);
+
   // Reload from disk when refreshKey changes
   useEffect(() => {
     if (!editor || refreshKey === 0) return;
     async function reload() {
       try {
         const raw = await invoke<string>("read_inbox");
-        const stripped = raw.replace(/^---[\s\S]*?---\s*/, "").trim();
+        const stripped = stripFrontmatter(raw);
         // Skip when disk already matches the editor. Without this, an unrelated
         // vault refresh (e.g. @mention create) clobbers the editor and remaps
         // the cursor to the end of the doc — right after a freshly typed
@@ -388,7 +412,7 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
       if (result.routed.length > 0 || result.notes_routed.length > 0) triggerStatusRoll();
       // Reload with whatever remains in inbox
       const raw = await invoke<string>("read_inbox");
-      const stripped = raw.replace(/^---[\s\S]*?---\s*/, "").trim();
+      const stripped = stripFrontmatter(raw);
       setRawMarkdown(stripped);
       if (editorReady && currentEditor) {
         skipNextSave.current = true;

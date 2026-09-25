@@ -1,15 +1,20 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
-import Chat from "./components/Chat";
-import Dashboard from "./components/Dashboard";
 import Inbox from "./components/Inbox";
-import Vault from "./components/Vault";
 import SketchCanvas from "./components/SketchCanvas";
 import SettingsModal from "./components/SettingsModal";
 import Welcome from "./components/Welcome";
 import OnboardingSlides from "./components/OnboardingSlides";
 import { getPrefs, type TabId } from "./prefs/prefs";
+import { revealWindow } from "./boot";
+
+// Focus, Find and Hum load as separate chunks so launch only has to parse the
+// code for the Write tab. They mount on idle (see mountedTabs), by which point
+// their chunks are fetched from local disk in a few ms.
+const Dashboard = lazy(() => import("./components/Dashboard"));
+const Vault = lazy(() => import("./components/Vault"));
+const Chat = lazy(() => import("./components/Chat"));
 
 interface EditingDrawing {
   /** convertFileSrc URL of the existing .excalidraw.png, loaded into the canvas. */
@@ -55,6 +60,12 @@ export default function App() {
     }
     const t = window.setTimeout(mountAll, 800);
     return () => window.clearTimeout(t);
+  }, []);
+
+  // Inbox reveals the window once its editor is drawn. Any other starting tab
+  // reveals on mount.
+  useEffect(() => {
+    if (getPrefs().starting_tab !== "write") revealWindow();
   }, []);
 
   const triggerVaultRefresh = useCallback(() => {
@@ -261,24 +272,32 @@ export default function App() {
         </div>
         <div className={`tab-panel ${activeTab === "focus" ? "tab-panel-active" : ""}`}>
           {mountedTabs.has("focus") && (
-            <Dashboard refreshKey={refreshKey} onOpenProjectHub={navigateToProjectHub} />
+            <Suspense fallback={null}>
+              <Dashboard refreshKey={refreshKey} onOpenProjectHub={navigateToProjectHub} />
+            </Suspense>
           )}
         </div>
         <div className={`tab-panel ${activeTab === "find" ? "tab-panel-active" : ""}`}>
           {mountedTabs.has("find") && (
-            <Vault
-              refreshKey={refreshKey}
-              openPath={vaultOpenPath}
-              onOpenPathHandled={() => setVaultOpenPath(null)}
-              openProjectHub={vaultOpenProjectHub}
-              onOpenProjectHubHandled={() => setVaultOpenProjectHub(null)}
-              onActiveCollectionChange={setVaultCollection}
-              onVaultChanged={triggerVaultRefresh}
-            />
+            <Suspense fallback={null}>
+              <Vault
+                refreshKey={refreshKey}
+                openPath={vaultOpenPath}
+                onOpenPathHandled={() => setVaultOpenPath(null)}
+                openProjectHub={vaultOpenProjectHub}
+                onOpenProjectHubHandled={() => setVaultOpenProjectHub(null)}
+                onActiveCollectionChange={setVaultCollection}
+                onVaultChanged={triggerVaultRefresh}
+              />
+            </Suspense>
           )}
         </div>
         <div className={`tab-panel ${activeTab === "hum" ? "tab-panel-active" : ""}`}>
-          {mountedTabs.has("hum") && <Chat onVaultChanged={triggerVaultRefresh} />}
+          {mountedTabs.has("hum") && (
+            <Suspense fallback={null}>
+              <Chat onVaultChanged={triggerVaultRefresh} />
+            </Suspense>
+          )}
         </div>
       </main>
 

@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { applyStoredTheme, applyStoredFont, applyStoredMdPlain } from "./theme/theme";
-import { loadPrefs } from "./prefs/prefs";
+import { loadBootPrefs, loadPrefs } from "./prefs/prefs";
 import "./theme/tokens.css";
 import "./styles/global.css";
 import "./styles/components.css";
@@ -22,10 +22,15 @@ applyStoredTheme();
 applyStoredFont();
 applyStoredMdPlain();
 
-loadPrefs().finally(() => {
+function render() {
   ReactDOM.createRoot(document.getElementById("root")!).render(
     <React.StrictMode>
       <App />
     </React.StrictMode>
   );
-});
+}
+
+// Prefs normally arrive with the page (injected at launch), so the first render
+// doesn't wait on IPC. Outside the Tauri window, fetch them first.
+if (loadBootPrefs()) render();
+else loadPrefs().finally(render);

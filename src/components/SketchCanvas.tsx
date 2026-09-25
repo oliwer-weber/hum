@@ -8,13 +8,17 @@ import {
 import type {
   ExcalidrawImperativeAPI,
 } from "@excalidraw/excalidraw/types";
-import "@excalidraw/excalidraw/index.css";
 
-// Excalidraw is heavy; keep it out of the initial bundle. The named export is
-// wrapped so it works with React.lazy. EXCALIDRAW_ASSET_PATH is already set in
-// main.tsx (before any import of this module), so fonts resolve offline.
+// Excalidraw is heavy; keep it (and its ~145 KB stylesheet, which would
+// otherwise sit on the launch critical path) out of the initial bundle. The
+// named export is wrapped so it works with React.lazy. EXCALIDRAW_ASSET_PATH is
+// already set in main.tsx (before any import of this module), so fonts resolve
+// offline.
 const Excalidraw = lazy(async () => {
-  const mod = await import("@excalidraw/excalidraw");
+  const [mod] = await Promise.all([
+    import("@excalidraw/excalidraw"),
+    import("@excalidraw/excalidraw/index.css"),
+  ]);
   return { default: mod.Excalidraw };
 });
 

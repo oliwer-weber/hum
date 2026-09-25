@@ -12,6 +12,7 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-start-dragging",
     "core:window:allow-set-focus",
+    "core:window:allow-show",
     "shell:allow-kill",
     "shell:allow-stdin-write",
     "shell:allow-open",
