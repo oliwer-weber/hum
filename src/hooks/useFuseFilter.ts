@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useDeferredValue, useMemo } from "react";
 import Fuse, { type IFuseOptions, type FuseOptionKey } from "fuse.js";
 
 export interface UseFuseFilterOptions<T> {
@@ -36,9 +36,14 @@ export function useFuseFilter<T>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, keys, opts.threshold, opts.ignoreLocation, opts.includeMatches]);
 
+  // Search against a deferred copy of the query so the input keeps up with
+  // typing: React paints each keystroke first and runs the fuzzy match (tens of
+  // ms over note bodies) plus the result-list render when it has room.
+  const deferredQuery = useDeferredValue(query);
+
   return useMemo(() => {
-    const q = query.trim();
+    const q = deferredQuery.trim();
     if (!q) return items;
     return fuse.search(q).map((r) => r.item);
-  }, [fuse, items, query]);
+  }, [fuse, items, deferredQuery]);
 }

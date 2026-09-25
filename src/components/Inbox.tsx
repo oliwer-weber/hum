@@ -2,12 +2,16 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import { useEditor, EditorContent } from "@tiptap/react";
-import { createSharedExtensions, PAIRS, CLOSE_CHARS } from "./editor-config";
+import { createSharedExtensions, insertWikiEmbed, PAIRS, CLOSE_CHARS } from "./editor-config";
+import SketchCanvas from "./SketchCanvas";
 import { WikiLink, WikiEmbed, convertTextToWikiLinks } from "./wikilink";
 import { HashTag } from "./hashtag";
 import { attachProjectAutocomplete, ProjectMentionKeymap, ProjectTagStyle } from "./project-mention";
 import type { MentionableItem, CreateKind, NoteRow } from "./project-mention";
 import type { VaultFileInfo } from "./wikilink";
+import { EditorFormatMenus } from "./EditorFormatMenus";
+import { attachSmoothWheelScroll } from "./smooth-scroll";
+import { getStoredSpellcheckWrite, SPELLCHECK_CHANGED_EVENT } from "../theme/theme";
 
 const FRONTMATTER = "---\ncssclasses:\n  - home-title\n---";
 
@@ -47,6 +51,8 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
   const [saving, setSaving] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [lastResult, setLastResult] = useState<ProcessResult | null>(null);
+  const [sketchOpen, setSketchOpen] = useState(false);
+  const [prewarmSketch, setPrewarmSketch] = useState(false);
   const [statusRoll, setStatusRoll] = useState<"idle" | "rolling-out" | "result" | "rolling-back">("idle");
   const rollTimerRef = useRef<number | null>(null);
   const [tipIndex, setTipIndex] = useState(0);
@@ -426,6 +432,94 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
     return () => window.removeEventListener("keydown", onKey, { capture: true });
   }, []);
 
+  // ── Sketch (Excalidraw) ───────────────────────────
+  // Save the drawing into the vault and drop a .excalidraw.png embed at the
+  // cursor. The PNG carries the full scene, so the embed re-opens as an
+  // editable canvas later. It rides whatever @mention precedes it on process.
+  const handleSaveSketch = useCallback(async (png: Blob) => {
+    const data = Array.from(new Uint8Array(await png.arrayBuffer()));
+    const d = new Date();
+    const ts = [
+      d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"),
+      String(d.getDate()).padStart(2, "0"), String(d.getHours()).padStart(2, "0"),
+      String(d.getMinutes()).padStart(2, "0"), String(d.getSeconds()).padStart(2, "0"),
+    ].join("");
+    const filename = `sketch-${ts}.excalidraw.png`;
+    try {
+      await invoke<string>("vault_save_sketch", {
+        relativePath: `.app/metadata/Assets/${filename}`,
+        data,
+      });
+      const ed = editorRef.current;
+      if (ed) {
+        insertWikiEmbed(ed.view, filename);
+        // Persist immediately rather than waiting on the 500ms autosave debounce.
+        // The insert schedules a debounced save; cancel it and flush now so disk
+        // matches the editor and no refresh can clobber the freshly inserted node.
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        await saveToFile((ed.storage as any).markdown.getMarkdown());
+      }
+      setSketchOpen(false);
+    } catch (err) {
+      console.error("[sketch] save failed:", err);
+      alert(`Sketch save failed: ${err}`);
+    }
+  }, [saveToFile]);
+
+  // Ctrl/Cmd+Shift+D opens the sketch canvas while the Write tab is active.
+  // The bubble/right-click "Sketch" command opens it via the same window event.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || !e.shiftKey) return;
+      if (e.key.toLowerCase() !== "d") return;
+      if (!document.querySelector(".tab-panel-active .inbox-canvas")) return;
+      e.preventDefault();
+      setSketchOpen(true);
+    };
+    const onCreateSketch = () => setSketchOpen(true);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("hum:create-sketch", onCreateSketch);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("hum:create-sketch", onCreateSketch);
+    };
+  }, []);
+
+  // Pre-mount the sketch canvas on idle after launch so the first "insert
+  // sketch" opens instantly — the cost is Excalidraw's first mount, not just
+  // the chunk download, so we pay it ahead of time off the critical path.
+  useEffect(() => {
+    const warm = () => setPrewarmSketch(true);
+    const ric = (window as unknown as {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+    }).requestIdleCallback;
+    if (ric) {
+      const id = ric(warm, { timeout: 5000 });
+      return () => (window as unknown as { cancelIdleCallback?: (id: number) => void })
+        .cancelIdleCallback?.(id);
+    }
+    const t = window.setTimeout(warm, 2500);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  // Ease mouse-wheel scrolling on the editor surface.
+  useEffect(() => {
+    if (!editor || !editorReady) return;
+    const scroller = editor.view.dom.closest(".inbox-editor-wrap") as HTMLElement | null;
+    if (!scroller) return;
+    return attachSmoothWheelScroll(scroller);
+  }, [editor, editorReady]);
+
+  // Apply the Write-tab spellcheck setting, and react to live toggles.
+  useEffect(() => {
+    if (!editor) return;
+    const apply = () =>
+      editor.view.dom.setAttribute("spellcheck", getStoredSpellcheckWrite() ? "true" : "false");
+    apply();
+    window.addEventListener(SPELLCHECK_CHANGED_EVENT, apply);
+    return () => window.removeEventListener(SPELLCHECK_CHANGED_EVENT, apply);
+  }, [editor]);
+
   // ── Render ────────────────────────────────────────
 
   if (rawMarkdown === null) {
@@ -462,6 +556,7 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
         }}
       >
         <EditorContent editor={editor} />
+        {editor && editorReady && <EditorFormatMenus editor={editor} />}
       </div>
       <div className="inbox-status-bar">
         <span className="inbox-status-left">
@@ -505,6 +600,13 @@ export default function Inbox({ refreshKey, onVaultChanged }: InboxProps) {
           </button>
         </div>
       </div>
+
+      <SketchCanvas
+        open={sketchOpen}
+        prewarm={prewarmSketch}
+        onClose={() => setSketchOpen(false)}
+        onSave={handleSaveSketch}
+      />
     </div>
   );
 }

@@ -2,7 +2,7 @@
  * Shared editor configuration for Inbox and Vault Tiptap editors.
  * Single source of truth for extensions, keymaps, and auto-pair logic.
  */
-import { Extension } from "@tiptap/core";
+import { Extension, InputRule } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
@@ -19,6 +19,30 @@ import TableHeader from "@tiptap/extension-table-header";
 import { Markdown } from "tiptap-markdown";
 import type { EditorView } from "@tiptap/pm/view";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { open as openExternalUrl } from "@tauri-apps/plugin-shell";
+
+/* ── External link opening ───────────────────────────
+ * The editor is an editing surface, so a plain click must still place the
+ * caret (e.g. to edit the link text). Ctrl/Cmd+click — the Obsidian/editor
+ * convention — follows the link instead, opening it in the system browser via
+ * the shell plugin (the webview must never navigate away from the app). Only
+ * web/mail schemes are allowed through. */
+const OPENABLE_SCHEME = /^(https?:|mailto:)/i;
+
+function openLinkExternally(href: string): void {
+  if (!OPENABLE_SCHEME.test(href)) return;
+  openExternalUrl(href).catch((err) => {
+    console.error("[link] failed to open externally:", err);
+  });
+}
+
+/** Prepend https:// when there's no scheme, so a bare domain still resolves. */
+function normalizeLinkHref(raw: string): string {
+  const t = raw.trim();
+  if (!t) return "";
+  if (/^([a-z][a-z0-9+.-]*:|\/\/|\/|#)/i.test(t)) return t;
+  return "https://" + t;
+}
 
 /* ── Image paste/drop helpers ───────────────────── */
 
@@ -48,7 +72,7 @@ async function saveImageBlob(blob: Blob): Promise<string | null> {
   return filename;
 }
 
-function insertWikiEmbed(view: EditorView, filename: string, pos?: number) {
+export function insertWikiEmbed(view: EditorView, filename: string, pos?: number) {
   const insertPos = pos ?? view.state.selection.from;
   const embedType = view.state.schema.nodes.wikiEmbed;
   if (embedType) {
@@ -63,6 +87,14 @@ function insertWikiEmbed(view: EditorView, filename: string, pos?: number) {
 }
 
 const imagePasteDropKey = new PluginKey("imagePasteDrop");
+const linkClickKey = new PluginKey("linkClickOpen");
+const linkFormatKey = new PluginKey("markdownLinkFormat");
+
+// Complete inline markdown link: [label](href). The label is non-empty and the
+// href has no spaces. Image embeds (![alt](src)) are skipped at the call site by
+// checking the char before "[" — done there rather than with a lookbehind, which
+// can throw at parse time on older WebKit.
+const MD_LINK_RE = /\[([^\]\n]+)\]\(([^)\s]+)\)/g;
 
 /* ── Auto-pair brackets ──────────────────────────── */
 
@@ -159,6 +191,24 @@ export const SharedEditorKeymap = Extension.create({
 
   addKeyboardShortcuts() {
     return {
+      // Enter on an empty list item exits/outdents the list instead of leaving
+      // a dangling empty bullet or checkbox behind. Priority 1000 means this
+      // runs before StarterKit's splitListItem; we only consume Enter when the
+      // current list item is empty, otherwise fall through so a non-empty item
+      // splits into a new one as usual.
+      Enter: ({ editor }) => {
+        const { selection } = editor.state;
+        if (!selection.empty) return false;
+        if (selection.$from.parent.content.size !== 0) return false;
+        if (editor.isActive("taskList")) {
+          return editor.chain().focus().liftListItem("taskItem").run();
+        }
+        if (editor.isActive("bulletList") || editor.isActive("orderedList")) {
+          return editor.chain().focus().liftListItem("listItem").run();
+        }
+        return false;
+      },
+
       // Ctrl+L: toggle task list
       "Mod-l": ({ editor }) => {
         if (editor.isActive("taskList")) {
@@ -195,23 +245,26 @@ export const SharedEditorKeymap = Extension.create({
         return true;
       },
 
-      // Ctrl+K: insert link
+      // Ctrl+K: insert an empty markdown link skeleton "[]()" and drop the
+      // caret between the brackets so you can type the label first. Filling it
+      // in turns it into a real link via the markdown-link auto-format plugin
+      // below (no leftover "[](url)" plaintext).
       "Mod-k": ({ editor }) => {
         const { state, view } = editor;
         const { from, to } = state.selection;
+        const tr = state.tr;
         if (from === to) {
-          const tr = state.tr;
-          tr.insertText("[](url)", from);
+          tr.insertText("[]()", from);
+          // caret between the square brackets: just after the first "["
           tr.setSelection(TextSelection.create(tr.doc, from + 1));
-          view.dispatch(tr);
         } else {
-          const selectedText = state.doc.textBetween(from, to);
-          const tr = state.tr;
-          tr.replaceWith(from, to, state.schema.text(`[${selectedText}](url)`));
-          const urlStart = from + selectedText.length + 3;
-          tr.setSelection(TextSelection.create(tr.doc, urlStart, urlStart + 3));
-          view.dispatch(tr);
+          // Wrap the selection as the label, caret between the parens for the URL.
+          const label = state.doc.textBetween(from, to);
+          tr.replaceWith(from, to, state.schema.text(`[${label}]()`));
+          const urlPos = from + label.length + 3; // after "[label]("
+          tr.setSelection(TextSelection.create(tr.doc, urlPos));
         }
+        view.dispatch(tr);
         return true;
       },
 
@@ -225,10 +278,78 @@ export const SharedEditorKeymap = Extension.create({
     };
   },
 
+  addInputRules() {
+    // Typed dash-arrows become real arrow glyphs. The length scales with the
+    // dash count: "->" is a short arrow, "-->" (two or more dashes) a long one.
+    // tiptap's input-rule plugin already skips code blocks and inline code, so
+    // things like `fn() -> T` are left untouched. The long rule is listed first
+    // so "-->" matches it before the single-dash rule can fire.
+    const arrowRule = (find: RegExp, glyph: string) =>
+      new InputRule({
+        find,
+        handler: ({ state, range }) => {
+          state.tr.insertText(glyph, range.from, range.to);
+        },
+      });
+    return [
+      arrowRule(/--+>$/, "⟶"), // -->  long rightwards arrow ⟶
+      arrowRule(/->$/, "→"),   // ->   rightwards arrow →
+    ];
+  },
+
   addProseMirrorPlugins() {
     const editor = this.editor;
 
     return [
+      new Plugin({
+        // Auto-format typed markdown links into real link marks. Runs after
+        // every doc/selection change and converts any complete [label](href)
+        // text — UNLESS the caret is currently inside that match, so a link you
+        // are still typing or editing (e.g. filling the Ctrl+K "[]()" skeleton)
+        // is left alone until you move away or close it. This is what keeps
+        // finished links from sitting as plaintext.
+        key: linkFormatKey,
+        appendTransaction(transactions, _oldState, newState) {
+          if (!transactions.some((tr) => tr.docChanged || tr.selectionSet)) return null;
+          const linkMark = newState.schema.marks.link;
+          if (!linkMark) return null;
+
+          const caret = newState.selection.from;
+          interface Hit { from: number; to: number; label: string; href: string }
+          const hits: Hit[] = [];
+
+          newState.doc.descendants((node, pos, parent) => {
+            if (!node.isText || !node.text) return;
+            // Never rewrite link syntax that's meant to stay literal: inline
+            // code (code mark) or fenced code blocks (codeBlock parent).
+            if (node.marks.some((mk) => mk.type.name === "code")) return;
+            if (parent?.type.name === "codeBlock") return;
+            MD_LINK_RE.lastIndex = 0;
+            let m: RegExpExecArray | null;
+            while ((m = MD_LINK_RE.exec(node.text)) !== null) {
+              // Skip image embeds ![alt](src): the char before "[" is "!".
+              if (m.index > 0 && node.text[m.index - 1] === "!") continue;
+              const from = pos + m.index;
+              const to = from + m[0].length;
+              // Leave it alone while the caret sits inside (still being edited).
+              if (caret > from && caret < to) continue;
+              hits.push({ from, to, label: m[1], href: m[2] });
+            }
+          });
+
+          if (hits.length === 0) return null;
+
+          const tr = newState.tr;
+          // Apply right-to-left so earlier positions stay valid.
+          for (let i = hits.length - 1; i >= 0; i--) {
+            const { from, to, label, href } = hits[i];
+            tr.insertText(label, from, to);
+            tr.addMark(from, from + label.length, linkMark.create({ href: normalizeLinkHref(href) }));
+          }
+          tr.removeStoredMark(linkMark);
+          return tr;
+        },
+      }),
       new Plugin({
         key: autoPairKey,
         props: {
@@ -271,13 +392,30 @@ export const SharedEditorKeymap = Extension.create({
             // ── Auto-pair: insert pair ──
             const closing = PAIRS[event.key];
             if (closing) {
-              // For [ key, don't auto-pair if starting a wikilink [[
+              // For the second [ of a wikilink, don't auto-pair into "[[]]".
               if (event.key === "[") {
                 const { from } = editor.state.selection;
                 if (from > 0) {
                   const charBefore = editor.state.doc.textBetween(from - 1, from);
                   if (charBefore === "[") {
-                    return false;
+                    // The first [ already auto-paired to "[]", leaving a
+                    // dangling "]" after the cursor. Insert the second [ and
+                    // drop that dangling "]" so "[[" sits clean with nothing
+                    // trailing (the picker / "]]" input rule closes it).
+                    event.preventDefault();
+                    const docSize = editor.state.doc.content.size;
+                    const after =
+                      from < docSize
+                        ? editor.state.doc.textBetween(from, Math.min(docSize, from + 1))
+                        : "";
+                    const tr = editor.state.tr;
+                    tr.insertText("[", from);
+                    if (after === "]") {
+                      tr.delete(from + 1, from + 2);
+                    }
+                    tr.setSelection(TextSelection.near(tr.doc.resolve(from + 1)));
+                    view.dispatch(tr);
+                    return true;
                   }
                 }
               }
@@ -317,6 +455,35 @@ export const SharedEditorKeymap = Extension.create({
             }
 
             return false;
+          },
+        },
+      }),
+      new Plugin({
+        key: linkClickKey,
+        props: {
+          // Ctrl/Cmd+click (or middle-click) follows a link to the system
+          // browser; a plain click is left to ProseMirror so the caret can
+          // land inside the link text for editing.
+          handleClick(_view: EditorView, _pos: number, event: MouseEvent) {
+            if (!(event.ctrlKey || event.metaKey)) return false;
+            const anchor = (event.target as HTMLElement | null)?.closest("a");
+            const href = anchor?.getAttribute("href");
+            if (!href) return false;
+            event.preventDefault();
+            openLinkExternally(href);
+            return true;
+          },
+          handleDOMEvents: {
+            // Middle-click also follows the link, mirroring browser behaviour.
+            auxclick(_view: EditorView, event: MouseEvent) {
+              if (event.button !== 1) return false;
+              const anchor = (event.target as HTMLElement | null)?.closest("a");
+              const href = anchor?.getAttribute("href");
+              if (!href) return false;
+              event.preventDefault();
+              openLinkExternally(href);
+              return true;
+            },
           },
         },
       }),
@@ -407,7 +574,12 @@ export function createSharedExtensions(opts: SharedExtensionsOptions = {}) {
     }),
     TaskList,
     TaskItem.configure({ nested: true }),
-    Link.configure({ openOnClick: false }),
+    // openOnClick is false so a plain click edits; the link-click plugin in
+    // SharedEditorKeymap opens on Ctrl/Cmd+click. The title surfaces that.
+    Link.configure({
+      openOnClick: false,
+      HTMLAttributes: { title: "Ctrl/Cmd+click to open", rel: "noopener noreferrer" },
+    }),
     VaultImage,
     Highlight.configure({ multicolor: false }),
     Table.configure({ resizable: false }),

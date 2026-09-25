@@ -372,6 +372,7 @@ async fn execute_tool(vault: &Path, name: &str, input: &Value) -> String {
             }
         }
         "process_inbox" => {
+            let _guard = crate::vault_write_lock();
             match crate::inbox::process(Some(vault.to_path_buf())) {
                 Ok(result) => serde_json::to_string_pretty(&result).unwrap_or_else(|e| format!("Serialization error: {}", e)),
                 Err(e) => format!("Inbox processing failed: {}", e),

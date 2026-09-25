@@ -1,5 +1,5 @@
 import { Extension, Mark, mergeAttributes } from "@tiptap/core";
-import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import { Plugin, PluginKey, TextSelection, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { Editor } from "@tiptap/core";
 
@@ -642,7 +642,11 @@ export function attachProjectAutocomplete(
     rewriteQuery(drilledProject.name);
   }
 
-  function update() {
+  function update(props?: { transaction?: Transaction }) {
+    // Selection-only transactions (arrow keys, click) report docChanged=false.
+    // Direct calls (e.g. notes finished loading) pass nothing → treat as a
+    // change so the popup refreshes.
+    const docChanged = props?.transaction?.docChanged ?? true;
     const mention = detectMention(editor);
 
     if (!mention) {
@@ -651,6 +655,15 @@ export function attachProjectAutocomplete(
         active = false;
         currentMatch = null;
       }
+      return;
+    }
+
+    // Only auto-open as a result of typing. A pure caret move onto an existing
+    // @mention must not summon the popup — otherwise it captures Up/Down and
+    // traps the caret on the mention line. If the popup is already showing
+    // (mid-composition) we still refresh on selection moves. Keying off `popup`
+    // rather than `active` means "Escape then arrow" won't re-summon it.
+    if (!docChanged && !popup) {
       return;
     }
 

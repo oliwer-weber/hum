@@ -3,6 +3,8 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { createSharedExtensions } from "./editor-config";
+import { attachSmoothWheelScroll } from "./smooth-scroll";
+import { getStoredSpellcheckFind, SPELLCHECK_CHANGED_EVENT } from "../theme/theme";
 import { WikiLink, WikiEmbed, convertTextToWikiLinks } from "./wikilink";
 import type { VaultFileInfo } from "./wikilink";
 import { HashTag } from "./hashtag";
@@ -395,6 +397,25 @@ export default function Vault({ refreshKey, openPath, onOpenPathHandled, openPro
   // Keep editor ref in sync
   useEffect(() => {
     (editorRef as React.MutableRefObject<typeof editor>).current = editor;
+  }, [editor]);
+
+  // Ease mouse-wheel scrolling on the editor surface. The scroll container only
+  // exists while a markdown file is open, so re-attach when that changes.
+  useEffect(() => {
+    if (!editor || openFile?.entry.extension !== "md") return;
+    const scroller = editor.view.dom.closest(".vault-editor-content") as HTMLElement | null;
+    if (!scroller) return;
+    return attachSmoothWheelScroll(scroller);
+  }, [editor, openFile]);
+
+  // Apply the Find-tab spellcheck setting, and react to live toggles.
+  useEffect(() => {
+    if (!editor) return;
+    const apply = () =>
+      editor.view.dom.setAttribute("spellcheck", getStoredSpellcheckFind() ? "true" : "false");
+    apply();
+    window.addEventListener(SPELLCHECK_CHANGED_EVENT, apply);
+    return () => window.removeEventListener(SPELLCHECK_CHANGED_EVENT, apply);
   }, [editor]);
 
   // Load vault file index

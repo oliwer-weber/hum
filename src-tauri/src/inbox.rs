@@ -417,6 +417,49 @@ fn write_project_note_per_capture(
     fs::write(&note_path, content).map_err(|e| format!("Failed to write note: {}", e))
 }
 
+// ── File operations: drawings ────────────────────────
+
+/// If `line` is solely an Excalidraw embed `![[name.excalidraw.png]]`, return
+/// the asset filename. Such a capture becomes a first-class drawing file in a
+/// project rather than an embed line buried inside a note.
+fn drawing_embed_filename(line: &str) -> Option<String> {
+    let inner = line.trim().strip_prefix("![[")?.strip_suffix("]]")?;
+    let name = inner.split('|').next().unwrap_or(inner).trim();
+    if name.to_lowercase().ends_with(".excalidraw.png") {
+        Some(name.to_string())
+    } else {
+        None
+    }
+}
+
+/// Move a drawing out of `.app/metadata/Assets/` into a project's `notes/` dir
+/// as a first-class `.excalidraw.png` file, timestamp-named (collision-suffixed)
+/// to mirror note naming. Returns the new relative vault path.
+fn promote_drawing_to_project(
+    vault: &Path,
+    project_path: &str,
+    asset_name: &str,
+    stamp: &str,
+) -> Result<String, String> {
+    let src = vault.join(".app").join("metadata").join("Assets").join(asset_name);
+    if !src.exists() {
+        return Err(format!("Drawing asset not found: {}", asset_name));
+    }
+    let notes_dir = vault.join(project_path).join("notes");
+    fs::create_dir_all(&notes_dir).map_err(|e| format!("Failed to create notes dir: {}", e))?;
+
+    let base = stamp.replacen('T', "-", 1).replace(':', "");
+    let mut filename = format!("{}.excalidraw.png", base);
+    let mut suffix = 0u32;
+    while notes_dir.join(&filename).exists() {
+        suffix += 1;
+        filename = format!("{}-{}.excalidraw.png", base, suffix);
+    }
+    fs::rename(&src, notes_dir.join(&filename))
+        .map_err(|e| format!("Failed to move drawing: {}", e))?;
+    Ok(format!("{}/notes/{}", project_path, filename))
+}
+
 // ── File operations: notes/wiki running-list files ───
 
 /// Append content verbatim to an existing notes/ or wiki/ file, bumping the
@@ -590,7 +633,22 @@ fn route_to_project(
     stamp: &str,
     routed: &mut Vec<RoutedProject>,
 ) -> Result<(), String> {
-    let (todo_blocks, notes, todo_count) = split_todos_and_notes(lines);
+    // Pure drawing embeds become first-class .excalidraw.png files in the
+    // project; everything else routes as todos/notes as before.
+    let mut drawings: Vec<String> = Vec::new();
+    let mut rest: Vec<String> = Vec::new();
+    for line in lines {
+        match drawing_embed_filename(line) {
+            Some(name) => drawings.push(name),
+            None => rest.push(line.clone()),
+        }
+    }
+    for name in &drawings {
+        promote_drawing_to_project(vault, &project.rel_path, name, stamp)?;
+    }
+    let drawings_count = drawings.len();
+
+    let (todo_blocks, notes, todo_count) = split_todos_and_notes(&rest);
     let note_count = notes.iter().filter(|l| !l.trim().is_empty()).count();
 
     if !todo_blocks.is_empty() {
@@ -599,12 +657,14 @@ fn route_to_project(
     if notes.iter().any(|l| !l.trim().is_empty()) {
         write_project_note_per_capture(vault, &project.rel_path, &notes, stamp)?;
     }
-    if todo_count > 0 || note_count > 0 {
+    if todo_count > 0 || note_count > 0 || drawings_count > 0 {
         routed.push(RoutedProject {
             project: project.display.clone(),
             path: project.rel_path.clone(),
             todos_added: todo_count,
-            notes_added: note_count,
+            // Drawings are note-like first-class objects; fold into the note
+            // count for the status toast.
+            notes_added: note_count + drawings_count,
             appended_to: None,
         });
     }

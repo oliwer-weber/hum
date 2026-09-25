@@ -3,6 +3,8 @@ import {
   THEMES, getStoredTheme, setTheme, type ThemeId,
   FONTS, getStoredFont, setFont, type FontId,
   getStoredMdPlain, setMdPlain,
+  getStoredSpellcheckWrite, setSpellcheckWrite,
+  getStoredSpellcheckFind, setSpellcheckFind,
 } from "../theme/theme";
 import {
   getPrefs, setPrefs, TAB_IDS, TAB_LABELS, type TabId,
@@ -26,6 +28,8 @@ export default function SettingsModal({ open, onClose, onReplayOnboarding }: Pro
   const [currentTheme, setCurrentTheme] = useState<ThemeId>(() => getStoredTheme());
   const [currentFont, setCurrentFont] = useState<FontId>(() => getStoredFont());
   const [mdPlain, setMdPlainState] = useState<boolean>(() => getStoredMdPlain());
+  const [spellWrite, setSpellWriteState] = useState<boolean>(() => getStoredSpellcheckWrite());
+  const [spellFind, setSpellFindState] = useState<boolean>(() => getStoredSpellcheckFind());
   const [icsUrl, setIcsUrl] = useState<string>(() => getPrefs().ics_url);
   const [startingTab, setStartingTab] = useState<TabId>(() => getPrefs().starting_tab);
 
@@ -46,6 +50,8 @@ export default function SettingsModal({ open, onClose, onReplayOnboarding }: Pro
       setCurrentTheme(getStoredTheme());
       setCurrentFont(getStoredFont());
       setMdPlainState(getStoredMdPlain());
+      setSpellWriteState(getStoredSpellcheckWrite());
+      setSpellFindState(getStoredSpellcheckFind());
       const p = getPrefs();
       setIcsUrl(p.ics_url);
       setStartingTab(p.starting_tab);
@@ -68,6 +74,18 @@ export default function SettingsModal({ open, onClose, onReplayOnboarding }: Pro
     const next = !mdPlain;
     setMdPlain(next);
     setMdPlainState(next);
+  };
+
+  const toggleSpellWrite = () => {
+    const next = !spellWrite;
+    setSpellcheckWrite(next);
+    setSpellWriteState(next);
+  };
+
+  const toggleSpellFind = () => {
+    const next = !spellFind;
+    setSpellcheckFind(next);
+    setSpellFindState(next);
   };
 
   const commitIcsUrl = () => {
@@ -173,6 +191,44 @@ export default function SettingsModal({ open, onClose, onReplayOnboarding }: Pro
                     </button>
                   ))}
                 </div>
+              </div>
+
+              <div className="settings-group">
+                <div className="settings-group-label">Spellcheck</div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={spellWrite}
+                  className={`settings-toggle ${spellWrite ? "settings-toggle-on" : ""}`}
+                  onClick={toggleSpellWrite}
+                >
+                  <span className="settings-toggle-text">
+                    <span className="settings-toggle-label">Write tab</span>
+                    <span className="settings-toggle-desc">
+                      Underline misspellings while you capture in the Write editor.
+                    </span>
+                  </span>
+                  <span className="settings-toggle-track" aria-hidden="true">
+                    <span className="settings-toggle-thumb" />
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={spellFind}
+                  className={`settings-toggle ${spellFind ? "settings-toggle-on" : ""}`}
+                  onClick={toggleSpellFind}
+                >
+                  <span className="settings-toggle-text">
+                    <span className="settings-toggle-label">Find tab</span>
+                    <span className="settings-toggle-desc">
+                      Underline misspellings while you edit notes in the Find editor.
+                    </span>
+                  </span>
+                  <span className="settings-toggle-track" aria-hidden="true">
+                    <span className="settings-toggle-thumb" />
+                  </span>
+                </button>
               </div>
 
               {onReplayOnboarding && (

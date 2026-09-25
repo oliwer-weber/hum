@@ -2,7 +2,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::collections::HashSet;
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Instant;
 use once_cell::sync::Lazy;
 use rayon::prelude::*;
@@ -34,6 +34,21 @@ fn refresh_vault_state(vault: &Path) {
     }
 }
 
+// Commands run on Tauri's async pool (`#[tauri::command(async)]`) instead of the
+// main thread, so a slow disk read never freezes the window. They used to be
+// serialized for free by running on the main thread; this lock keeps writes
+// exclusive while letting read-only commands (the Find corpus, search, titles,
+// gravity) run side by side.
+static VAULT_LOCK: Lazy<RwLock<()>> = Lazy::new(|| RwLock::new(()));
+
+pub(crate) fn vault_read_lock() -> RwLockReadGuard<'static, ()> {
+    VAULT_LOCK.read().unwrap_or_else(|e| e.into_inner())
+}
+
+pub(crate) fn vault_write_lock() -> RwLockWriteGuard<'static, ()> {
+    VAULT_LOCK.write().unwrap_or_else(|e| e.into_inner())
+}
+
 static SKIP_DIRS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     [".git", ".obsidian", ".trash", ".claude", ".app", "node_modules"].iter().copied().collect()
 });
@@ -43,6 +58,7 @@ static BINARY_EXTS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
 });
 
 mod calendar;
+mod file_cache;
 mod hum;
 mod inbox;
 mod note_meta;
@@ -161,20 +177,23 @@ fn ensure_vault_scaffold(vault: &Path) -> Result<bool, String> {
     Ok(is_fresh)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn read_dashboard() -> Result<String, String> {
+    let _guard = vault_read_lock();
     let path = vault_path().join(".app").join("dashboard.md");
     fs::read_to_string(&path).map_err(|e| format!("Failed to read dashboard: {}", e))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn read_inbox() -> Result<String, String> {
+    let _guard = vault_read_lock();
     let path = vault_path().join("inbox").join("inbox.md");
     fs::read_to_string(&path).map_err(|e| format!("Failed to read inbox: {}", e))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn write_inbox(content: String) -> Result<(), String> {
+    let _guard = vault_write_lock();
     let path = vault_path().join("inbox").join("inbox.md");
     let existing = fs::read_to_string(&path).unwrap_or_default();
 
@@ -187,19 +206,21 @@ fn write_inbox(content: String) -> Result<(), String> {
     fs::write(&path, new_content).map_err(|e| format!("Failed to write inbox: {}", e))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn write_inbox_raw(content: String) -> Result<(), String> {
+    let _guard = vault_write_lock();
     let path = vault_path().join("inbox").join("inbox.md");
     fs::write(&path, content).map_err(|e| format!("Failed to write inbox: {}", e))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_vault_path() -> String {
     vault_path().to_string_lossy().to_string()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn toggle_dashboard_todo(project: String, todo_text: String, checked: bool) -> Result<(), String> {
+    let _guard = vault_write_lock();
     let vault = vault_path();
     let manifest = vault_manifest::VaultManifest::read_in(&vault)?;
 
@@ -333,8 +354,9 @@ where
 
 /// Set or clear a todo's status tag (#blocked / #waiting / #on-hold).
 /// `status` is "blocked" | "waiting" | "on-hold" | "" (clear).
-#[tauri::command]
+#[tauri::command(async)]
 fn set_todo_status(id: String, status: String) -> Result<(), String> {
+    let _guard = vault_write_lock();
     let vault = vault_path();
     let change = todo_ops::StatusChange::parse(&status)?;
     let entry = todo_entry_by_id(&vault, &id)?;
@@ -344,8 +366,9 @@ fn set_todo_status(id: String, status: String) -> Result<(), String> {
 }
 
 /// Delete a todo and everything it owns (continuation body + sub-tasks).
-#[tauri::command]
+#[tauri::command(async)]
 fn delete_todo(id: String) -> Result<(), String> {
+    let _guard = vault_write_lock();
     let vault = vault_path();
     let entry = todo_entry_by_id(&vault, &id)?;
     edit_todos_file(&vault, &entry.project_path, |content| {
@@ -355,8 +378,9 @@ fn delete_todo(id: String) -> Result<(), String> {
 
 /// Split a todo into one or more new top-level todos, removing the original.
 /// Each non-empty string in `parts` becomes a fresh todo with its own UUID.
-#[tauri::command]
+#[tauri::command(async)]
 fn split_todo(id: String, parts: Vec<String>) -> Result<(), String> {
+    let _guard = vault_write_lock();
     let vault = vault_path();
     let entry = todo_entry_by_id(&vault, &id)?;
     let today = Local::now().format("%Y-%m-%d").to_string();
@@ -428,8 +452,9 @@ fn find_todo_note(vault: &Path, project_path: &str, id: &str) -> Option<(String,
 
 /// Read a todo and any note linked to it. The note body is returned without
 /// frontmatter so the card can edit prose directly.
-#[tauri::command]
+#[tauri::command(async)]
 fn get_todo_detail(id: String) -> Result<TodoDetail, String> {
+    let _guard = vault_read_lock();
     let vault = vault_path();
     let entry = todo_entry_by_id(&vault, &id)?;
     let note = find_todo_note(&vault, &entry.project_path, &id);
@@ -444,8 +469,9 @@ fn get_todo_detail(id: String) -> Result<TodoDetail, String> {
 /// file in the project's notes/ dir, named from the todo's headline, carrying
 /// `todo: <id>` in its frontmatter as the durable backlink. Returns the note's
 /// path relative to the vault root.
-#[tauri::command]
+#[tauri::command(async)]
 fn save_todo_note(id: String, body: String) -> Result<String, String> {
+    let _guard = vault_write_lock();
     let vault = vault_path();
     let entry = todo_entry_by_id(&vault, &id)?;
     let ts = Local::now().format("%Y-%m-%dT%H:%M").to_string();
@@ -525,8 +551,9 @@ fn bump_frontmatter_field(frontmatter: &str, field: &str, value: &str) -> String
 /// polished view without duplicating the parser. Empty file / missing file
 /// returns an empty vec instead of an error so the view can render the
 /// "no todos yet" state cleanly.
-#[tauri::command]
+#[tauri::command(async)]
 fn read_project_todos(project_rel_path: String) -> Result<Vec<todo_parser::TodoBlock>, String> {
+    let _guard = vault_read_lock();
     let vault = vault_path();
     let todos_path = vault.join(&project_rel_path).join("todos.md");
     let content = match fs::read_to_string(&todos_path) {
@@ -543,6 +570,7 @@ struct VaultFileInfo {
     stem: String,   // lowercase, no extension — for filtering/matching
     name: String,   // original-case filename without extension — for display
     path: String,   // relative path from vault root (forward slashes) — stored in wikiLink target
+    title: String,  // derived heading from the note body — what the user searches and sees; falls back to name
 }
 
 /// Recursively collect all files in the vault (uncached).
@@ -562,10 +590,22 @@ fn vault_all_files_uncached() -> Result<Vec<VaultFileInfo>, String> {
                     .map(|p| p.to_string_lossy().replace('\\', "/"))
                     .unwrap_or_default();
                 if let Some(name) = stem_os {
+                    // Derive the heading from the body for `.md` notes so wikilink
+                    // search/display matches the user's mental model. Non-md files
+                    // and empty-title notes (e.g. todo-only) fall back to the name.
+                    let title = if path.extension().and_then(|e| e.to_str()) == Some("md") {
+                        let derived = file_cache::read_to_string(&path)
+                            .map(|c| note_meta::derive_title(&c))
+                            .unwrap_or_default();
+                        if derived.is_empty() { name.clone() } else { derived }
+                    } else {
+                        name.clone()
+                    };
                     files.push(VaultFileInfo {
                         stem: name.to_lowercase(),
                         name,
                         path: relative,
+                        title,
                     });
                 }
             }
@@ -580,8 +620,14 @@ fn vault_all_files_uncached() -> Result<Vec<VaultFileInfo>, String> {
 }
 
 /// Cached wrapper — returns cached results if <5s old.
-#[tauri::command]
+#[tauri::command(async)]
 fn vault_all_files() -> Result<Vec<VaultFileInfo>, String> {
+    let _guard = vault_read_lock();
+    vault_all_files_cached()
+}
+
+/// Lock-free body of `vault_all_files`, for commands that already hold the vault lock.
+fn vault_all_files_cached() -> Result<Vec<VaultFileInfo>, String> {
     let mut cache = VAULT_FILE_CACHE.lock().map_err(|e| format!("Cache lock error: {}", e))?;
     if let Some(ref cached) = *cache {
         if cached.updated_at.elapsed().as_secs() < 5 {
@@ -596,8 +642,9 @@ fn vault_all_files() -> Result<Vec<VaultFileInfo>, String> {
 /// Resolve a wikilink target to a relative vault path.
 /// Searches recursively by filename (Obsidian-style shortest-match).
 /// When `context_path` is provided, prefer matches in the same directory subtree.
-#[tauri::command]
+#[tauri::command(async)]
 fn vault_resolve_link(target: String, context_path: Option<String>) -> Result<String, String> {
+    let _guard = vault_read_lock();
     use std::path::Path;
 
     let base = vault_path();
@@ -694,8 +741,9 @@ struct VaultEntry {
     extension: Option<String>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn vault_list(relative_path: String) -> Result<Vec<VaultEntry>, String> {
+    let _guard = vault_read_lock();
     let base = vault_path();
     let dir = if relative_path.is_empty() || relative_path == "." {
         base.clone()
@@ -739,8 +787,9 @@ fn vault_list(relative_path: String) -> Result<Vec<VaultEntry>, String> {
     Ok(items)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn vault_read_file(relative_path: String) -> Result<String, String> {
+    let _guard = vault_read_lock();
     let base = vault_path();
     let resolved = base.join(&relative_path);
     let canon = resolved.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
@@ -751,8 +800,9 @@ fn vault_read_file(relative_path: String) -> Result<String, String> {
     fs::read_to_string(&resolved).map_err(|e| format!("Failed to read file: {}", e))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn vault_write_file(relative_path: String, content: String) -> Result<(), String> {
+    let _guard = vault_write_lock();
     let base = vault_path();
     let resolved = base.join(&relative_path);
     // For new files, canonicalize the parent
@@ -768,8 +818,9 @@ fn vault_write_file(relative_path: String, content: String) -> Result<(), String
     fs::write(&resolved, content).map_err(|e| format!("Failed to write file: {}", e))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn vault_save_image(filename: String, data: Vec<u8>) -> Result<String, String> {
+    let _guard = vault_write_lock();
     let base = vault_path();
     let assets_dir = base.join(".app").join("metadata").join("Assets");
     fs::create_dir_all(&assets_dir).map_err(|e| format!("Failed to create Assets dir: {}", e))?;
@@ -786,8 +837,33 @@ fn vault_save_image(filename: String, data: Vec<u8>) -> Result<String, String> {
     Ok(relative)
 }
 
-#[tauri::command]
+/// Write an Excalidraw drawing (a `.excalidraw.png` with the scene embedded) to
+/// a vault-relative path. Unlike `vault_save_image` this targets an arbitrary
+/// in-vault location and overwrites in place, so it serves both a fresh embed
+/// (path under `.app/metadata/Assets/`) and saving an edit back to an existing
+/// first-class drawing file in a project. Parent dirs are created; the resolved
+/// parent is checked to stay inside the vault.
+#[tauri::command(async)]
+fn vault_save_sketch(relative_path: String, data: Vec<u8>) -> Result<String, String> {
+    let _guard = vault_write_lock();
+    let base = vault_path();
+    let resolved = base.join(&relative_path);
+    if let Some(parent) = resolved.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create directories: {}", e))?;
+        let parent_canon = parent.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+        let base_canon = base.canonicalize().map_err(|e| format!("Vault error: {}", e))?;
+        if !parent_canon.starts_with(&base_canon) {
+            return Err("Path outside vault".to_string());
+        }
+    }
+    fs::write(&resolved, &data).map_err(|e| format!("Failed to save sketch: {}", e))?;
+    invalidate_vault_cache();
+    Ok(relative_path)
+}
+
+#[tauri::command(async)]
 fn vault_create_file(relative_path: String, content: String) -> Result<(), String> {
+    let _guard = vault_write_lock();
     let base = vault_path();
     let resolved = base.join(&relative_path);
     if let Some(parent) = resolved.parent() {
@@ -810,8 +886,9 @@ fn vault_create_file(relative_path: String, content: String) -> Result<(), Strin
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn vault_create_dir(relative_path: String) -> Result<(), String> {
+    let _guard = vault_write_lock();
     let base = vault_path();
     let resolved = base.join(&relative_path);
     if let Some(parent) = resolved.parent() {
@@ -831,8 +908,9 @@ fn vault_create_dir(relative_path: String) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn vault_rename(relative_path: String, new_name: String) -> Result<String, String> {
+    let _guard = vault_write_lock();
     let base = vault_path();
     let resolved = base.join(&relative_path);
     let canon = resolved.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
@@ -864,8 +942,9 @@ fn vault_rename(relative_path: String, new_name: String) -> Result<String, Strin
     Ok(new_relative)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn vault_delete(relative_path: String) -> Result<(), String> {
+    let _guard = vault_write_lock();
     let base = vault_path();
     let resolved = base.join(&relative_path);
     let canon = resolved.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
@@ -887,8 +966,9 @@ fn vault_delete(relative_path: String) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn vault_move(source: String, dest_dir: String) -> Result<String, String> {
+    let _guard = vault_write_lock();
     let base = vault_path();
     let base_canon = base.canonicalize().map_err(|e| format!("Vault error: {}", e))?;
 
@@ -940,8 +1020,9 @@ fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn vault_copy(source: String, dest_dir: String) -> Result<String, String> {
+    let _guard = vault_write_lock();
     let base = vault_path();
     let base_canon = base.canonicalize().map_err(|e| format!("Vault error: {}", e))?;
 
@@ -998,9 +1079,10 @@ fn vault_copy(source: String, dest_dir: String) -> Result<String, String> {
     Ok(new_relative)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn vault_search_files(query: String) -> Result<Vec<VaultFileInfo>, String> {
-    let all_files = vault_all_files()?;
+    let _guard = vault_read_lock();
+    let all_files = vault_all_files_cached()?;
     let q = query.to_lowercase();
     if q.is_empty() {
         return Ok(Vec::new());
@@ -1059,8 +1141,9 @@ fn walk_text_files(dir: &Path, base: &Path, results: &mut Vec<PathBuf>) {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn vault_search_content(query: String, max_results: Option<u32>) -> Result<Vec<ContentSearchResult>, String> {
+    let _guard = vault_read_lock();
     let base = vault_path();
     let limit = max_results.unwrap_or(100) as usize;
     let q = query.to_lowercase();
@@ -1076,7 +1159,7 @@ fn vault_search_content(query: String, max_results: Option<u32>) -> Result<Vec<C
     for file_path in file_paths {
         if results.len() >= limit { break; }
 
-        let content = match fs::read_to_string(&file_path) {
+        let content = match file_cache::read_to_string(&file_path) {
             Ok(c) => c,
             Err(_) => continue,
         };
@@ -1121,15 +1204,16 @@ struct HubSearchResult {
     proximity: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn hub_search(query: String, project_prefix: String) -> Result<Vec<HubSearchResult>, String> {
+    let _guard = vault_read_lock();
     let q = query.to_lowercase();
     if q.len() < 2 {
         return Ok(Vec::new());
     }
 
     let base = vault_path();
-    let all_files = vault_all_files()?;
+    let all_files = vault_all_files_cached()?;
 
     // Collect text file paths for content search
     let mut file_paths = Vec::new();
@@ -1176,7 +1260,7 @@ fn hub_search(query: String, project_prefix: String) -> Result<Vec<HubSearchResu
             let results: Vec<Vec<HubSearchResult>> = file_paths
                 .par_iter()
                 .filter_map(|file_path| {
-                    let content = fs::read_to_string(file_path).ok()?;
+                    let content = file_cache::read_to_string(file_path).ok()?;
                     let relative = file_path.strip_prefix(&base)
                         .unwrap_or(file_path)
                         .to_string_lossy()
@@ -1260,8 +1344,9 @@ fn get_first_meaningful_line(content: &str) -> String {
     String::new()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn hub_ambient(project_prefix: String) -> Result<HubAmbient, String> {
+    let _guard = vault_read_lock();
     let base = vault_path();
     let project_dir = base.join(&project_prefix);
     let notes_dir = project_dir.join("notes");
@@ -1315,7 +1400,7 @@ fn hub_ambient(project_prefix: String) -> Result<HubAmbient, String> {
     let recent_notes: Vec<HubRecentNote> = date_notes
         .into_iter()
         .map(|(date, path)| {
-            let gist = fs::read_to_string(&path)
+            let gist = file_cache::read_to_string(&path)
                 .map(|c| get_first_meaningful_line(&c))
                 .unwrap_or_default();
             let relative = path.strip_prefix(&base)
@@ -1329,7 +1414,7 @@ fn hub_ambient(project_prefix: String) -> Result<HubAmbient, String> {
     // Count todos
     let todos_path = project_dir.join("todos.md");
     let (open_todos, _done_todos) = if todos_path.is_file() {
-        let content = fs::read_to_string(&todos_path).unwrap_or_default();
+        let content = file_cache::read_to_string(&todos_path).unwrap_or_default();
         let open = content.lines().filter(|l| l.trim_start().starts_with("- [ ]")).count() as u32;
         let done = content.lines().filter(|l| {
             let t = l.trim_start();
@@ -1355,8 +1440,9 @@ struct BacklinkResult {
     line_content: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn vault_get_backlinks(target_stem: String) -> Result<Vec<BacklinkResult>, String> {
+    let _guard = vault_read_lock();
     let base = vault_path();
     let stem_lower = target_stem.to_lowercase();
 
@@ -1380,7 +1466,7 @@ fn vault_get_backlinks(target_stem: String) -> Result<Vec<BacklinkResult>, Strin
             .unwrap_or_default();
         if file_stem == stem_lower { continue; }
 
-        let content = match fs::read_to_string(&file_path) {
+        let content = match file_cache::read_to_string(&file_path) {
             Ok(c) => c,
             Err(_) => continue,
         };
@@ -1542,8 +1628,9 @@ struct ProjectInfo {
     path: String,      // relative vault path
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_projects() -> Result<Vec<ProjectInfo>, String> {
+    let _guard = vault_read_lock();
     let vault = vault_path();
     let manifest = vault_manifest::VaultManifest::read_in(&vault)?;
 
@@ -1583,8 +1670,9 @@ fn project_has_any_note(vault: &Path, rel_path: &str) -> bool {
 /// Return everything an `@` mention can target: active projects, notes/*.md,
 /// wiki/*.md. Used by the inbox autocomplete so users see existing notes/wiki
 /// files alongside projects.
-#[tauri::command]
+#[tauri::command(async)]
 fn list_mentionables() -> Result<Vec<MentionableItem>, String> {
+    let _guard = vault_write_lock();
     let vault = vault_path();
     let mut items: Vec<MentionableItem> = Vec::new();
 
@@ -1665,8 +1753,9 @@ fn sanitize_name(raw: &str) -> Result<String, String> {
 /// rel_path in the vault manifest. This is the single creation path: both the
 /// Find-tab button and the Write-tab autocomplete create-action call it, so
 /// `vault.json` never drifts from the filesystem.
-#[tauri::command]
+#[tauri::command(async)]
 fn register_project(name: String, bucket: String) -> Result<String, String> {
+    let _guard = vault_write_lock();
     let name = sanitize_name(&name)?;
     let bucket = bucket.trim();
     if bucket != "work" && bucket != "personal" {
@@ -1702,14 +1791,16 @@ fn register_project(name: String, bucket: String) -> Result<String, String> {
 
 /// Create an empty wiki entry file with standard frontmatter. No manifest
 /// change — wiki/notes are discovered by filesystem scan, not registry.
-#[tauri::command]
+#[tauri::command(async)]
 fn create_wiki_entry(name: String) -> Result<String, String> {
+    let _guard = vault_write_lock();
     create_collection_entry(&name, "wiki")
 }
 
 /// Create an empty loose note file with standard frontmatter.
-#[tauri::command]
+#[tauri::command(async)]
 fn create_note(name: String) -> Result<String, String> {
+    let _guard = vault_write_lock();
     create_collection_entry(&name, "notes")
 }
 
@@ -1777,8 +1868,9 @@ fn reconcile_projects_with_filesystem(vault: &Path) -> Result<(usize, usize), St
     Ok((pruned, added))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn process_inbox() -> Result<inbox::ProcessResult, String> {
+    let _guard = vault_write_lock();
     let result = inbox::process(None)?;
     // Deterministically rebuild dashboard after inbox processing
     if let Err(e) = regenerate_dashboard() {
@@ -1787,8 +1879,9 @@ fn process_inbox() -> Result<inbox::ProcessResult, String> {
     Ok(result)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_project_gravity() -> Result<Vec<ProjectGravity>, String> {
+    let _guard = vault_read_lock();
     let vault = vault_path();
     let manifest = vault_manifest::VaultManifest::read_in(&vault)?;
 
@@ -1811,7 +1904,7 @@ fn get_project_gravity() -> Result<Vec<ProjectGravity>, String> {
         let mut neglect_signal = 0.0f64;
         let mut top_todos: Vec<GravityTodo> = Vec::new();
 
-        if let Ok(content) = fs::read_to_string(&todos_path) {
+        if let Ok(content) = file_cache::read_to_string(&todos_path) {
             let blocks = todo_parser::parse_todo_blocks(&content);
             for block in &blocks {
                 if block.checked {
@@ -1941,6 +2034,12 @@ struct FocusState {
     focus_set_at: String,
     #[serde(default)]
     snoozed: Vec<SnoozeEntry>,
+    // The day's hand-picked todos (UUIDs), in the order they were chosen.
+    // Auto-clears at midnight like `focus` — each morning is a fresh slate.
+    #[serde(default)]
+    today: Vec<String>,
+    #[serde(default, rename = "todaySetAt")]
+    today_set_at: String,
 }
 
 fn focus_file_path() -> PathBuf {
@@ -1964,6 +2063,12 @@ fn read_focus_state() -> FocusState {
         state.focus_set_at = String::new();
     }
 
+    // The Today list deliberately does NOT auto-clear at midnight: it holds the
+    // todos picked during the evening wind-down ("planera imorgon idag"), so
+    // they must survive into the next morning. Picks only leave once completed,
+    // removed, or split/archived (see `get_today_todos`). `today_set_at` is kept
+    // as a "last planned on" stamp, but no longer drives any reset.
+
     state.snoozed.retain(|s| {
         chrono::NaiveDate::parse_from_str(&s.until, "%Y-%m-%d")
             .map(|d| d >= today)
@@ -1983,13 +2088,15 @@ fn write_focus_state(state: &FocusState) -> Result<(), String> {
     fs::write(&path, json).map_err(|e| format!("Failed to write focus.json: {}", e))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_focus_state() -> Result<FocusState, String> {
+    let _guard = vault_read_lock();
     Ok(read_focus_state())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_focus(projects: Vec<String>) -> Result<FocusState, String> {
+    let _guard = vault_write_lock();
     let mut state = read_focus_state();
     let today_str = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
     state.focus = projects;
@@ -1998,8 +2105,60 @@ fn set_focus(projects: Vec<String>) -> Result<FocusState, String> {
     Ok(state)
 }
 
-#[tauri::command]
+/// Replace the day's hand-picked todos with `ids` (in pick order). Records the
+/// date as a "last planned on" stamp; unlike `set_focus`, the Today list does
+/// not auto-clear, so wind-down picks carry over into the next day.
+#[tauri::command(async)]
+fn set_today(ids: Vec<String>) -> Result<FocusState, String> {
+    let _guard = vault_write_lock();
+    let mut state = read_focus_state();
+    let today_str = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
+    state.today = ids;
+    state.today_set_at = if state.today.is_empty() { String::new() } else { today_str };
+    write_focus_state(&state)?;
+    Ok(state)
+}
+
+/// Resolve the day's hand-picked todo ids to full entries, in pick order.
+/// Silently drops ids that no longer resolve, or that were completed or
+/// archived since being picked, so the calm "Today" list only ever shows
+/// live, still-open work.
+#[tauri::command(async)]
+fn get_today_todos() -> Result<Vec<todo_index::TodoEntry>, String> {
+    let _guard = vault_write_lock();
+    let vault = vault_path();
+    let mut state = read_focus_state();
+    if state.today.is_empty() {
+        return Ok(Vec::new());
+    }
+    let idx = todo_index::read_index(&vault)
+        .or_else(|_| todo_index::rebuild_and_persist(&vault))?;
+    let mut out = Vec::new();
+    let mut live_ids = Vec::new();
+    for id in &state.today {
+        if let Some(entry) = idx.entries.get(id) {
+            if entry.completed.is_none() && !entry.archived {
+                out.push(entry.clone());
+                live_ids.push(id.clone());
+            }
+        }
+    }
+    // Self-heal: prune ids that died (completed, deleted, or archived since being
+    // picked) from the stored list, so a phantom pick never eats one of the
+    // day's limited slots. Mirrors read_focus_state's auto-clear-on-read idiom.
+    if live_ids != state.today {
+        state.today = live_ids;
+        if state.today.is_empty() {
+            state.today_set_at = String::new();
+        }
+        let _ = write_focus_state(&state);
+    }
+    Ok(out)
+}
+
+#[tauri::command(async)]
 fn snooze_project(project: String, until: String) -> Result<FocusState, String> {
+    let _guard = vault_write_lock();
     chrono::NaiveDate::parse_from_str(&until, "%Y-%m-%d")
         .map_err(|_| format!("Invalid until date (expected YYYY-MM-DD): {}", until))?;
 
@@ -2010,8 +2169,9 @@ fn snooze_project(project: String, until: String) -> Result<FocusState, String> 
     Ok(state)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn unsnooze_project(project: String) -> Result<FocusState, String> {
+    let _guard = vault_write_lock();
     let mut state = read_focus_state();
     state.snoozed.retain(|s| s.project != project);
     write_focus_state(&state)?;
@@ -2036,8 +2196,9 @@ struct FindItem {
 /// Everything a user might search for from L0 or L1: projects, wiki pages,
 /// standalone notes, and per-project capture notes. One corpus that the
 /// frontend fuse-indexes for all levels of Find.
-#[tauri::command]
+#[tauri::command(async)]
 fn list_all_findables() -> Result<Vec<FindItem>, String> {
+    let _guard = vault_read_lock();
     let vault = vault_path();
     let mut out: Vec<FindItem> = Vec::new();
 
@@ -2128,7 +2289,7 @@ fn collect_md_findables(
             continue;
         }
         let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
-        let content = match fs::read_to_string(&path) {
+        let content = match file_cache::read_to_string(&path) {
             Ok(c) => c,
             Err(_) => continue,
         };
@@ -2183,7 +2344,7 @@ fn aggregate_project_content(vault: &Path, project_rel: &str) -> String {
     let mut blob = String::new();
     let project_dir = vault.join(project_rel);
 
-    if let Ok(todos) = fs::read_to_string(project_dir.join("todos.md")) {
+    if let Ok(todos) = file_cache::read_to_string(project_dir.join("todos.md")) {
         blob.push_str(&todos);
         blob.push('\n');
     }
@@ -2198,7 +2359,7 @@ fn aggregate_project_content(vault: &Path, project_rel: &str) -> String {
             if path.extension().and_then(|e| e.to_str()) != Some("md") {
                 continue;
             }
-            let Ok(content) = fs::read_to_string(&path) else { continue };
+            let Ok(content) = file_cache::read_to_string(&path) else { continue };
             let (_fm, body) = inbox::split_frontmatter(&content);
             let title = note_meta::derive_title(&body);
             if !title.is_empty() {
@@ -2256,7 +2417,7 @@ fn project_last_activity_string(vault: &Path, project_rel: &str) -> String {
             if path.extension().and_then(|e| e.to_str()) != Some("md") {
                 continue;
             }
-            if let Ok(content) = fs::read_to_string(&path) {
+            if let Ok(content) = file_cache::read_to_string(&path) {
                 let (fm, _) = inbox::split_frontmatter(&content);
                 if let Some(raw) = fm_field(&fm, "updated").or_else(|| fm_field(&fm, "created")) {
                     if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&raw, "%Y-%m-%dT%H:%M") {
@@ -2311,8 +2472,9 @@ fn truncate_body(s: &str, max_bytes: usize) -> String {
     s[..end].to_string()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_project_notes(project_path: String) -> Result<Vec<NoteSummary>, String> {
+    let _guard = vault_read_lock();
     let vault = vault_path();
     let notes_dir = vault.join(&project_path).join("notes");
     if !notes_dir.is_dir() {
@@ -2331,7 +2493,7 @@ fn list_project_notes(project_path: String) -> Result<Vec<NoteSummary>, String> 
             continue;
         }
         let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
-        let content = match fs::read_to_string(&path) {
+        let content = match file_cache::read_to_string(&path) {
             Ok(c) => c,
             Err(_) => continue,
         };
@@ -2381,8 +2543,9 @@ fn list_project_notes(project_path: String) -> Result<Vec<NoteSummary>, String> 
 
 /// Flip a project's `pinned` flag in the manifest. The project must exist
 /// in the manifest (reconcile first if needed).
-#[tauri::command]
+#[tauri::command(async)]
 fn set_project_pinned(project_path: String, pinned: bool) -> Result<(), String> {
+    let _guard = vault_write_lock();
     let vault = vault_path();
     let mut manifest = vault_manifest::VaultManifest::read_in(&vault)?;
     if !manifest.set_project_pinned(&project_path, pinned) {
@@ -2393,8 +2556,9 @@ fn set_project_pinned(project_path: String, pinned: bool) -> Result<(), String> 
 
 /// Flip the `pinned` field in a note's frontmatter. Injects a minimal
 /// frontmatter block on legacy notes that don't have one.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_note_pinned(rel_path: String, pinned: bool) -> Result<(), String> {
+    let _guard = vault_write_lock();
     let vault = vault_path();
     let full_path = vault.join(&rel_path);
     let existing = fs::read_to_string(&full_path)
@@ -2483,8 +2647,9 @@ fn date_from_stem(stem: &str) -> Option<chrono::NaiveDate> {
 /* ── Todo index commands ─────────────────────────── */
 
 /// Rebuild the todo index from scratch (stamps UUIDs on active projects, scans all files).
-#[tauri::command]
+#[tauri::command(async)]
 fn rebuild_todo_index() -> Result<String, String> {
+    let _guard = vault_write_lock();
     let vault = vault_path();
     let index = todo_index::rebuild_and_persist(&vault)?;
     let open = index.entries.values().filter(|e| e.status == "open" && !e.archived).count();
@@ -2494,8 +2659,9 @@ fn rebuild_todo_index() -> Result<String, String> {
 }
 
 /// Get the current todo index as JSON.
-#[tauri::command]
+#[tauri::command(async)]
 fn get_todo_index() -> Result<todo_index::TodoIndex, String> {
+    let _guard = vault_write_lock();
     let vault = vault_path();
     // Try reading existing index; rebuild if missing
     match todo_index::read_index(&vault) {
@@ -2530,8 +2696,9 @@ struct WeeklySummary {
     active_project_count: usize,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_weekly_summary(week_offset: i32) -> Result<WeeklySummary, String> {
+    let _guard = vault_read_lock();
     let vault = vault_path();
     let manifest = vault_manifest::VaultManifest::read_in(&vault)?;
 
@@ -2571,7 +2738,7 @@ fn get_weekly_summary(week_offset: i32) -> Result<WeeklySummary, String> {
 
             // Scan todos.md for completed todos matching this date
             let todos_path = vault.join(rel).join("todos.md");
-            if let Ok(content) = fs::read_to_string(&todos_path) {
+            if let Ok(content) = file_cache::read_to_string(&todos_path) {
                 let blocks = todo_parser::parse_todo_blocks(&content);
                 for block in &blocks {
                     if block.checked {
@@ -2721,6 +2888,7 @@ pub fn run() {
             vault_read_file,
             vault_write_file,
             vault_save_image,
+            vault_save_sketch,
             vault_create_file,
             vault_create_dir,
             vault_rename,
@@ -2745,6 +2913,8 @@ pub fn run() {
             get_todo_index,
             get_focus_state,
             set_focus,
+            set_today,
+            get_today_todos,
             snooze_project,
             unsnooze_project,
             read_project_todos,

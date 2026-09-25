@@ -162,7 +162,10 @@ export default function NotesView({
 
   const handleArchive = useCallback(async (path: string) => {
     try {
-      await invoke("vault_move", { relativePath: path, destinationDir: "notes/archive" });
+      // Ensure the archive dir exists (no-op once it does); vault_move requires
+      // an existing destination directory.
+      try { await invoke("vault_create_dir", { relativePath: "notes/archive" }); } catch { /* already exists */ }
+      await invoke("vault_move", { source: path, destDir: "notes/archive" });
       onVaultChanged();
       await load();
       setPending(null);

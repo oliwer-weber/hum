@@ -585,7 +585,7 @@
 }
 
 /* Active chip gets slightly heavier weight WITHOUT changing rendered
-   width. Modern/mono use a 100-weight bump; editorial (Fraunces/Lora)
+   width. Modern/mono use a 100-weight bump; editorial (Newsreader/Lora)
    uses optical sizing to keep metrics stable. */
 [data-font="modern"] .vchip[aria-pressed="true"],
 [data-font="mono"] .vchip[aria-pressed="true"] {
